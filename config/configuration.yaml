@@ -1,0 +1,11 @@
+# Home Assistant test configuration for Omada Open API integration
+
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.omada_open_api: debug
+
+# Load the integration
+omada_open_api:

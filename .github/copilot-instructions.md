@@ -105,6 +105,159 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 - **External Libraries**: All API logic must be in separate PyPI packages
 - **Voluptuous Schema**: Configuration validation with default parameters in schema
 
+## Code Style & Formatting Standards
+
+### Linting & Formatting Tools
+Home Assistant enforces strict [PEP 8](https://peps.python.org/pep-0008/) and [PEP 257](https://peps.python.org/pep-0257/) compliance.
+
+**Required Tools:**
+- **Ruff**: Primary linter and formatter (replaces black, isort, flake8)
+- **Pylint**: Additional code quality checks
+- **Mypy**: Static type checking
+- **Pytest**: Unit and integration testing
+
+**Commands:**
+```bash
+# Format code with ruff
+ruff format custom_components/
+
+# Lint code with ruff
+ruff check custom_components/
+
+# Type check with mypy
+mypy custom_components/omada_open_api/
+
+# Run pylint
+pylint custom_components/omada_open_api/
+
+# Run tests
+pytest tests/ -v
+```
+
+### Code Formatting Rules
+
+**Line Length:** Maximum 88 characters
+
+**String Formatting:**
+- Prefer f-strings over `%` or `.format()`
+- Exception: Use `%` formatting for logging to avoid formatting when suppressed
+```python
+# Good
+message = f"Device {device_name} is {status}"
+_LOGGER.info("Can't connect to %s at %s", device_name, url)
+
+# Bad
+message = "{} is {}".format(device_name, status)
+_LOGGER.info(f"Can't connect to {device_name}")  # Always formats even if log suppressed
+```
+
+**Imports:**
+- Must be ordered (handled by ruff)
+- Use standard aliases:
+  - `voluptuous as vol`
+  - `homeassistant.helpers.config_validation as cv`
+  - `homeassistant.helpers.device_registry as dr`
+  - `homeassistant.helpers.entity_registry as er`
+  - `homeassistant.util.dt as dt_util`
+
+**Constants:**
+- Constants in UPPER_CASE
+- Lists and dictionaries should be alphabetically ordered
+- Use constants from `homeassistant.const` when available
+
+### Type Hints Requirements
+
+**All code must be fully typed:**
+```python
+from typing import Any
+from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> bool:
+    """Set up the sensor platform."""
+    coordinator: DataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    # ...
+    return True
+```
+
+**Function Docstrings:**
+- Use Google-style docstrings
+- Type information in type hints, not docstrings
+- Document parameters only when not obvious
+```python
+def some_method(self, param1: str, param2: str) -> int:
+    """Example Google-style docstring.
+
+    Args:
+        param1: The first parameter.
+        param2: The second parameter.
+
+    Returns:
+        An integer result.
+
+    Raises:
+        KeyError: If the key doesn't exist.
+    """
+    return 0
+```
+
+### File Headers
+Use descriptive docstrings:
+```python
+"""Support for Omada network sensors."""
+```
+
+### Log Messages
+- No platform/component name needed (added automatically)
+- No period at end (like syslog)
+- Never log API keys, tokens, passwords
+- Use `_LOGGER.debug` for non-user-facing messages
+```python
+_LOGGER.error("No route to device: %s", self._resource)
+# Results in: "No route to device: 192.168.0.18"
+```
+
+### Comments
+- Comments should be full sentences and end with a period
+- Inline comments sparingly, prefer clear code
+- Use type hints instead of type comments
+
+### Async/Await Patterns
+- All I/O operations must be async
+- Use `asyncio.timeout` instead of `async_timeout` (deprecated)
+- Avoid blocking the event loop
+
+### Error Handling
+- Use specific exception types
+- Prefer `raise from` to specify exception cause
+- Handle partial failures gracefully
+```python
+try:
+    result = await api_call()
+except ApiError as err:
+    raise UpdateFailed(f"Error communicating with API: {err}") from err
+```
+
+### Testing Requirements
+- Write tests for all new code
+- Use pytest fixtures
+- Mock external API calls
+- Test error conditions
+- Use snapshot testing for large outputs when appropriate
+
+```python
+async def test_sensor(hass: HomeAssistant) -> None:
+    """Test the sensor."""
+    # Setup
+    entry = MockConfigEntry(domain=DOMAIN)
+    # Test
+    assert await async_setup_entry(hass, entry, mock_add_entities)
+```
+
 ### 5. API Integration Best Practices
 - **Third-Party Library**: API-specific code in external PyPI package with pinned versions
 - **Async HTTP**: Use `aiohttp` for all HTTP communication
