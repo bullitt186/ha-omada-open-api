@@ -1,0 +1,66 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Select Controller Type",
+                "description": "Choose whether your Omada controller is self-hosted (local) or cloud-hosted.",
+                "data": {
+                    "controller_type": "Controller Type"
+                }
+            },
+            "cloud": {
+                "title": "Select Cloud Region",
+                "description": "Select the region where your cloud-hosted Omada controller is located.",
+                "data": {
+                    "region": "Region"
+                }
+            },
+            "local": {
+                "title": "Local Controller URL",
+                "description": "Enter the URL of your self-hosted Omada controller (e.g., https://192.168.1.100:8043 or https://omada.local:8043).",
+                "data": {
+                    "api_url": "Controller URL"
+                },
+                "data_description": {
+                    "api_url": "Full URL including protocol (http:// or https://)"
+                }
+            },
+            "credentials": {
+                "title": "Omada API Credentials",
+                "description": "Enter your Omada Open API credentials.\n\nYou can find these in your Omada controller:\n1. Go to Settings > Platform Integration > Open API\n2. Create a new application (Client Credentials Mode)\n3. Copy the Client ID, Client Secret, and Omada ID\n\n{controller_info}",
+                "data": {
+                    "omada_id": "Omada ID",
+                    "client_id": "Client ID",
+                    "client_secret": "Client Secret"
+                },
+                "data_description": {
+                    "omada_id": "MSP ID or Customer ID from your Open API application",
+                    "client_id": "OAuth2 Client ID from your Open API application",
+                    "client_secret": "OAuth2 Client Secret from your Open API application"
+                }
+            },
+            "sites": {
+                "title": "Select Sites",
+                "description": "Select which sites you want to monitor. Found {site_count} site(s).\n\nYou can select multiple sites or all of them.",
+                "data": {
+                    "selected_sites": "Sites to Monitor"
+                }
+            },
+            "reauth_confirm": {
+                "title": "[%key:common::config_flow::title::reauth%]",
+                "description": "The Omada API credentials have expired or are invalid. Please re-enter your credentials to continue."
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to Omada API. Please check the URL and network connectivity.",
+            "invalid_auth": "Invalid authentication credentials. Please check your Client ID, Client Secret, and Omada ID.",
+            "invalid_url": "Invalid URL format. Please use http:// or https://",
+            "no_sites": "No sites found on this controller. Please ensure at least one site is configured.",
+            "unknown": "Unexpected error occurred. Please check logs for details."
+        },
+        "abort": {
+            "already_configured": "This Omada controller is already configured",
+            "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+        }
+    }
+}

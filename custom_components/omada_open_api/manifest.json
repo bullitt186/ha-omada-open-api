@@ -1,0 +1,16 @@
+{
+    "domain": "omada_open_api",
+    "name": "TP-Link Omada SDN",
+    "codeowners": [
+        "@bullitt186"
+    ],
+    "config_flow": true,
+    "documentation": "https://github.com/bullitt186/ha-omada-open-api",
+    "integration_type": "hub",
+    "iot_class": "cloud_polling",
+    "issue_tracker": "https://github.com/bullitt186/ha-omada-open-api/issues",
+    "requirements": [
+        "aiohttp>=3.10.0"
+    ],
+    "version": "0.1.0"
+}

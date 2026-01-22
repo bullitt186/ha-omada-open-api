@@ -30,6 +30,7 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 - **Device Hierarchy**: Controller → Sites → Devices (APs, Switches, Gateways)
 - **Client Information**: Track connected clients across network infrastructure
 - **Statistics & Metrics**: Retrieve network statistics, bandwidth usage, client counts
+- **Pagination Requirements**: ALL list-type endpoints (sites, devices, clients, etc.) REQUIRE pagination parameters `pageSize` and `page` in the query string, even when retrieving all items. Default: `{"pageSize": 100, "page": 1}`. Omitting these parameters results in 400 Bad Request errors.
 
 ### Data Models
 - **Controllers**: Omada controller information and status

@@ -70,6 +70,7 @@ ignore = [
     "PLR0915",  # Too many statements
     "PLR2004",  # Magic value used in comparison
     "PT011",    # pytest.raises() is too broad
+    "S105",     # Possible hardcoded password (false positives for config constants)
     "SIM102",   # Use a single if statement instead of nested if statements
     "SIM103",   # Return the condition directly
     "SIM108",   # Use ternary operator

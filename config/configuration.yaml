@@ -7,5 +7,6 @@ logger:
   logs:
     custom_components.omada_open_api: debug
 
-# Load the integration
-omada_open_api:
+# Note: omada_open_api is a config flow integration
+# It must be set up through the UI (Settings -> Devices & Services -> Add Integration)
+# and cannot be configured via YAML
