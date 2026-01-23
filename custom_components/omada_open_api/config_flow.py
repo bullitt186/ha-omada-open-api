@@ -548,36 +548,63 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             "Content-Type": "application/json",
         }
 
-        params = {
-            "page": 1,
-            "pageSize": 1000,  # Get all applications
-        }
-
         _LOGGER.debug("Fetching applications from site %s", site_id)
 
-        async with session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            _LOGGER.debug("Applications endpoint response status: %s", response.status)
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error(
-                    "Applications API error %s: %s", response.status, response_text
+        all_apps: list[dict[str, Any]] = []
+        page = 1
+        page_size = 1000
+        total_rows = 0
+
+        while True:
+            params = {
+                "page": page,
+                "pageSize": page_size,
+            }
+
+            async with session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                _LOGGER.debug(
+                    "Applications endpoint response status: %s (page %d)",
+                    response.status,
+                    page,
                 )
-                response.raise_for_status()
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.error(
+                        "Applications API error %s: %s", response.status, response_text
+                    )
+                    response.raise_for_status()
 
-            result = await response.json()
+                result = await response.json()
 
-            if result.get("errorCode") != 0:
-                error_msg = result.get("msg", "Unknown error")
-                # Applications might not be supported, return empty list
-                _LOGGER.warning("Applications API error: %s", error_msg)
-                return []
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    # Applications might not be supported, return empty list
+                    _LOGGER.warning("Applications API error: %s", error_msg)
+                    return []
 
-            return result["result"]["data"]  # type: ignore[no-any-return]
+                page_data = result["result"]["data"]
+                total_rows = result["result"].get("totalRows", 0)
+                all_apps.extend(page_data)
+
+                # Check if we've fetched all applications
+                if len(all_apps) >= total_rows or len(page_data) < page_size:
+                    break
+
+                page += 1
+
+        _LOGGER.info(
+            "Fetched %d applications (total: %d) from site %s across %d pages",
+            len(all_apps),
+            total_rows,
+            site_id,
+            page,
+        )
+        return all_apps
 
     async def async_step_applications(
         self, user_input: dict[str, Any] | None = None
@@ -665,10 +692,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         app_options = []
         for app in sorted(
             self._available_applications,
-            key=lambda x: (x.get("family", ""), x.get("applicationName", "")),
+            key=lambda x: (x.get("family", ""), x.get("application", "")),
         ):
             app_id = str(app.get("applicationId", ""))
-            app_name = app.get("applicationName", "Unknown")
+            app_name = app.get("application", "Unknown")
             family = app.get("family", "Other")
 
             app_options.append(
@@ -950,10 +977,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
         app_options = []
         for app in sorted(
             self._available_applications,
-            key=lambda x: (x.get("family", ""), x.get("applicationName", "")),
+            key=lambda x: (x.get("family", ""), x.get("application", "")),
         ):
             app_id = str(app.get("applicationId", ""))
-            app_name = app.get("applicationName", "Unknown")
+            app_name = app.get("application", "Unknown")
             family = app.get("family", "Other")
 
             app_options.append(
@@ -1059,35 +1086,62 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
             "Content-Type": "application/json",
         }
 
-        params = {
-            "page": 1,
-            "pageSize": 1000,  # Get all applications
-        }
-
         _LOGGER.debug("Fetching applications from site %s", site_id)
 
-        async with session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            _LOGGER.debug("Applications endpoint response status: %s", response.status)
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error(
-                    "Applications API error %s: %s", response.status, response_text
+        all_apps: list[dict[str, Any]] = []
+        page = 1
+        page_size = 1000
+        total_rows = 0
+
+        while True:
+            params = {
+                "page": page,
+                "pageSize": page_size,
+            }
+
+            async with session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                _LOGGER.debug(
+                    "Applications endpoint response status: %s (page %d)",
+                    response.status,
+                    page,
                 )
-                response.raise_for_status()
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.error(
+                        "Applications API error %s: %s", response.status, response_text
+                    )
+                    response.raise_for_status()
 
-            result = await response.json()
+                result = await response.json()
 
-            if result.get("errorCode") != 0:
-                error_msg = result.get("msg", "Unknown error")
-                _LOGGER.warning("Applications API error: %s", error_msg)
-                return []
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    _LOGGER.warning("Applications API error: %s", error_msg)
+                    return []
 
-            return result["result"]["data"]  # type: ignore[no-any-return]
+                page_data = result["result"]["data"]
+                total_rows = result["result"].get("totalRows", 0)
+                all_apps.extend(page_data)
+
+                # Check if we've fetched all applications
+                if len(all_apps) >= total_rows or len(page_data) < page_size:
+                    break
+
+                page += 1
+
+        _LOGGER.info(
+            "Fetched %d applications (total: %d) from site %s across %d pages",
+            len(all_apps),
+            total_rows,
+            site_id,
+            page,
+        )
+        return all_apps
 
 
 class InvalidAuthError(Exception):
