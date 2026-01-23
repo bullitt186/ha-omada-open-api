@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 from .api import OmadaApiAuthError, OmadaApiClient
@@ -16,22 +17,23 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
+    CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
 )
+from .coordinator import OmadaSiteCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
-    from homeassistant.const import Platform
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
 # Platforms to set up
-PLATFORMS: list[Platform] = []
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the Omada Open API component.
 
     This integration only supports config flow setup.
@@ -74,7 +76,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         # Test connection and refresh token if needed
-        await api_client.get_sites()
+        sites = await api_client.get_sites()
+        _LOGGER.info("Successfully connected to Omada API, found %d sites", len(sites))
 
     except OmadaApiAuthError as err:
         _LOGGER.exception("Authentication failed during setup")
@@ -82,9 +85,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "Authentication failed. Please re-authenticate."
         ) from err
 
-    # Store API client
+    # Create coordinators for each selected site
+    coordinators: dict[str, OmadaSiteCoordinator] = {}
+    selected_site_ids: list[str] = entry.data.get(CONF_SELECTED_SITES, [])
+
+    # Get all sites to find names for selected sites
+    all_sites = await api_client.get_sites()
+    sites_by_id = {site["siteId"]: site for site in all_sites}
+
+    for site_id in selected_site_ids:
+        site_info = sites_by_id.get(site_id)
+        if not site_info:
+            _LOGGER.warning("Selected site %s not found in available sites", site_id)
+            continue
+
+        site_name = site_info.get("name", site_id)
+
+        coordinator = OmadaSiteCoordinator(
+            hass=hass,
+            api_client=api_client,
+            site_id=site_id,
+            site_name=site_name,
+        )
+
+        # Perform initial data fetch
+        await coordinator.async_config_entry_first_refresh()
+        coordinators[site_id] = coordinator
+
+        _LOGGER.info(
+            "Initialized coordinator for site '%s' with %d devices",
+            site_name,
+            len(coordinator.data.get("devices", {})),
+        )
+
+    # Store API client and coordinators
     hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = api_client
+    hass.data[DOMAIN][entry.entry_id] = {
+        "api_client": api_client,
+        "coordinators": coordinators,
+    }
 
     # Set up platforms (will be implemented later)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -109,7 +148,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("Unloading Omada Open API integration")
 
     # Unload platforms
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unload_ok: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)

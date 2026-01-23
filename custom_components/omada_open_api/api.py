@@ -66,6 +66,11 @@ class OmadaApiClient:
         self._session = async_get_clientsession(hass, verify_ssl=False)
         self._token_refresh_lock = asyncio.Lock()
 
+    @property
+    def api_url(self) -> str:
+        """Return the API URL."""
+        return self._api_url
+
     async def _ensure_valid_token(self) -> None:
         """Ensure we have a valid access token, refresh if needed.
 
@@ -281,7 +286,54 @@ class OmadaApiClient:
                     error_msg = result.get("msg", "Unknown error")
                     raise OmadaApiError(f"API error: {error_msg}")
 
-                return result["result"]["data"]
+                return result["result"]["data"]  # type: ignore[no-any-return]
+
+        except aiohttp.ClientError as err:
+            raise OmadaApiError(f"Connection error: {err}") from err
+
+    async def get_devices(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch devices for a specific site.
+
+        Args:
+            site_id: The site ID to fetch devices for
+
+        Returns:
+            List of device dictionaries
+
+        Raises:
+            OmadaApiError: If fetching devices fails
+
+        """
+        await self._ensure_valid_token()
+
+        session = async_get_clientsession(self._hass, verify_ssl=False)
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/devices"
+        headers = {"Authorization": f"AccessToken={self._access_token}"}
+        # Add pagination parameters
+        params = {"pageSize": 100, "page": 1}
+
+        _LOGGER.debug("Fetching devices from %s with params %s", url, params)
+
+        try:
+            async with session.get(
+                url,
+                headers=headers,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
+                    response.raise_for_status()
+
+                result = await response.json()
+
+                # Check for API error codes
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    raise OmadaApiError(f"API error: {error_msg}")
+
+                return result["result"]["data"]  # type: ignore[no-any-return]
 
         except aiohttp.ClientError as err:
             raise OmadaApiError(f"Connection error: {err}") from err

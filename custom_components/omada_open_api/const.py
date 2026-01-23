@@ -44,6 +44,23 @@ REGIONS = {
 # API endpoints
 API_AUTHORIZE_TOKEN = "/openapi/authorize/token"
 API_SITES = "/openapi/v1/{omada_id}/sites"
+API_DEVICES = "/openapi/v1/{omada_id}/sites/{site_id}/devices"
 
 # Update intervals
 SCAN_INTERVAL = 60  # seconds
+
+# Device types
+DEVICE_TYPE_AP = "ap"
+DEVICE_TYPE_GATEWAY = "gateway"
+DEVICE_TYPE_SWITCH = "switch"
+
+# Device icons
+ICON_ACCESS_POINT = "mdi:access-point"
+ICON_GATEWAY = "mdi:router-network"
+ICON_SWITCH = "mdi:switch"
+ICON_CLIENTS = "mdi:account-multiple"
+ICON_UPTIME = "mdi:clock-outline"
+ICON_CPU = "mdi:cpu-64-bit"
+ICON_MEMORY = "mdi:memory"
+ICON_FIRMWARE = "mdi:chip"
+ICON_STATUS = "mdi:check-network"

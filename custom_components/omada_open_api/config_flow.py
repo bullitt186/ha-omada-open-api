@@ -39,7 +39,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
-class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
+class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
     """Handle a config flow for Omada Open API."""
 
     VERSION = 1
@@ -99,7 +99,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._region = user_input[CONF_REGION]
-            self._api_url = REGIONS[self._region]["api_url"]
+            self._api_url = REGIONS[self._region]["api_url"]  # type: ignore[index]
             return await self.async_step_credentials()
 
         # Create schema for region selection
@@ -126,7 +126,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._api_url = user_input[CONF_API_URL].rstrip("/")
             # Validate URL format
-            if not self._api_url.startswith(("http://", "https://")):
+            if not self._api_url.startswith(("http://", "https://")):  # type: ignore[union-attr]
                 errors[CONF_API_URL] = "invalid_url"
             else:
                 return await self.async_step_credentials()
@@ -166,9 +166,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.debug("Attempting to get access token from %s", self._api_url)
                 token_data = await self._get_access_token(
                     self._api_url,  # type: ignore[arg-type]
-                    self._omada_id,
-                    self._client_id,
-                    self._client_secret,
+                    self._omada_id,  # type: ignore[arg-type]
+                    self._client_id,  # type: ignore[arg-type]
+                    self._client_secret,  # type: ignore[arg-type]
                 )
                 _LOGGER.debug("Successfully obtained access token")
 
@@ -353,7 +353,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 raise InvalidAuthError(f"API error: {error_msg}")
 
-            return result["result"]
+            return result["result"]  # type: ignore[no-any-return]
 
     async def _get_sites(self) -> list[dict[str, Any]]:
         """Fetch available sites from the controller.
@@ -391,7 +391,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 error_msg = result.get("msg", "Unknown error")
                 raise InvalidAuthError(f"API error: {error_msg}")
 
-            return result["result"]["data"]
+            return result["result"]["data"]  # type: ignore[no-any-return]
 
     async def async_step_reauth(
         self, entry_data: dict[str, Any] | None = None

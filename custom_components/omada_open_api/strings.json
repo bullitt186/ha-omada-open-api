@@ -62,5 +62,32 @@
             "already_configured": "This Omada controller is already configured",
             "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
         }
+    },
+    "entity": {
+        "sensor": {
+            "client_num": {
+                "name": "Connected clients"
+            },
+            "uptime": {
+                "name": "Uptime"
+            },
+            "cpu_util": {
+                "name": "CPU utilization"
+            },
+            "mem_util": {
+                "name": "Memory utilization"
+            },
+            "model": {
+                "name": "Model"
+            },
+            "firmware_version": {
+                "name": "Firmware version"
+            }
+        },
+        "binary_sensor": {
+            "status": {
+                "name": "Status"
+            }
+        }
     }
 }
