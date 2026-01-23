@@ -63,6 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         api_client = OmadaApiClient(
             hass,
+            config_entry=entry,
             api_url=entry.data[CONF_API_URL],
             omada_id=entry.data[CONF_OMADA_ID],
             client_id=entry.data[CONF_CLIENT_ID],

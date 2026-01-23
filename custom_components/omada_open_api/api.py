@@ -10,9 +10,16 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DEFAULT_TIMEOUT, TOKEN_EXPIRY_BUFFER
+from .const import (
+    CONF_ACCESS_TOKEN,
+    CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
+    DEFAULT_TIMEOUT,
+    TOKEN_EXPIRY_BUFFER,
+)
 
 if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +31,7 @@ class OmadaApiClient:
     def __init__(
         self,
         hass: HomeAssistant,
+        config_entry: ConfigEntry,
         api_url: str,
         omada_id: str,
         client_id: str,
@@ -36,6 +44,7 @@ class OmadaApiClient:
 
         Args:
             hass: Home Assistant instance
+            config_entry: Config entry for storing updated tokens
             api_url: Base API URL (cloud or local controller)
             omada_id: Omada controller ID
             client_id: OAuth2 client ID
@@ -46,6 +55,7 @@ class OmadaApiClient:
 
         """
         self._hass = hass
+        self._config_entry = config_entry
         self._api_url = api_url.rstrip("/")
         self._omada_id = omada_id
         self._client_id = client_id
@@ -71,8 +81,84 @@ class OmadaApiClient:
                 _LOGGER.debug("Access token expired or expiring soon, refreshing")
                 await self._refresh_access_token()
 
+    async def _update_config_entry(self) -> None:
+        """Update config entry with new token data."""
+        self._hass.config_entries.async_update_entry(
+            self._config_entry,
+            data={
+                **self._config_entry.data,
+                CONF_ACCESS_TOKEN: self._access_token,
+                CONF_REFRESH_TOKEN: self._refresh_token,
+                CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),
+            },
+        )
+        _LOGGER.debug("Config entry updated with new tokens")
+
+    async def _get_fresh_tokens(self) -> None:
+        """Get fresh tokens using client credentials (for expired refresh tokens).
+
+        Raises:
+            OmadaApiException: If getting fresh tokens fails
+
+        """
+        _LOGGER.info(
+            "Refresh token expired, requesting fresh tokens using client credentials"
+        )
+        url = f"{self._api_url}/openapi/authorize/token"
+        params = {
+            "grant_type": "client_credentials",
+            "omadacId": self._omada_id,
+        }
+        data = {
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+        }
+
+        try:
+            async with self._session.post(
+                url,
+                params=params,
+                json=data,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                if response.status != 200:
+                    raise OmadaApiAuthError(
+                        f"Failed to get fresh tokens with status {response.status}"
+                    )
+
+                result = await response.json()
+
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    error_code = result.get("errorCode")
+                    _LOGGER.error(
+                        "API error getting fresh tokens: %s - %s",
+                        error_code,
+                        error_msg,
+                    )
+                    raise OmadaApiAuthError(f"API error: {error_msg}")
+
+                token_data = result["result"]
+                self._access_token = token_data["accessToken"]
+                self._refresh_token = token_data["refreshToken"]
+                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
+                    seconds=token_data["expiresIn"]
+                )
+
+                _LOGGER.info("Fresh tokens obtained successfully")
+
+                # Persist to config entry
+                await self._update_config_entry()
+
+        except aiohttp.ClientError as err:
+            raise OmadaApiError(
+                f"Connection error getting fresh tokens: {err}"
+            ) from err
+
     async def _refresh_access_token(self) -> None:
         """Refresh the access token using refresh token.
+
+        If refresh token is expired, automatically gets fresh tokens using client credentials.
 
         Raises:
             OmadaApiException: If refresh fails
@@ -96,7 +182,13 @@ class OmadaApiClient:
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
                 if response.status == 401:
-                    raise OmadaApiAuthError("Refresh token expired or invalid")
+                    # Refresh token expired, get fresh tokens automatically
+                    _LOGGER.debug(
+                        "Refresh token expired, getting fresh tokens automatically"
+                    )
+                    await self._get_fresh_tokens()
+                    return
+
                 if response.status != 200:
                     raise OmadaApiError(
                         f"Token refresh failed with status {response.status}"
@@ -122,6 +214,9 @@ class OmadaApiClient:
                 )
 
                 _LOGGER.debug("Access token refreshed successfully")
+
+                # Persist to config entry
+                await self._update_config_entry()
 
         except aiohttp.ClientError as err:
             raise OmadaApiError(
