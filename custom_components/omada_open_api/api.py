@@ -199,6 +199,16 @@ class OmadaApiClient:
                 if result.get("errorCode") != 0:
                     error_msg = result.get("msg", "Unknown error")
                     error_code = result.get("errorCode")
+
+                    # Error code -44114: Refresh token expired
+                    if error_code == -44114:
+                        _LOGGER.info(
+                            "Refresh token expired (error %s), getting fresh tokens automatically",
+                            error_code,
+                        )
+                        await self._get_fresh_tokens()
+                        return
+
                     _LOGGER.error(
                         "API error during token refresh: %s - %s",
                         error_code,
