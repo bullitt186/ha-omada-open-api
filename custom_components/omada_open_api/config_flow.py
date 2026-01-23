@@ -43,6 +43,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Omada Open API."""
 
     VERSION = 1
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize the config flow."""
@@ -404,6 +405,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to show reauth confirmation
 
         """
+        _LOGGER.debug("Reauth flow started with entry_data: %s", entry_data)
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -418,8 +420,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to update entry or show form again
 
         """
+        _LOGGER.debug("Reauth confirm step called with user_input: %s", user_input)
         errors: dict[str, str] = {}
         reauth_entry = self._get_reauth_entry()
+        _LOGGER.debug("Reauth entry retrieved: %s", reauth_entry.title)
 
         if user_input is not None:
             # Use existing config entry data for non-credential fields
