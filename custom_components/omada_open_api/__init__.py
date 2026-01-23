@@ -17,12 +17,17 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
+    CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
 )
-from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .coordinator import (
+    OmadaAppTrafficCoordinator,
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+)
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -46,7 +51,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-many-statements
     """Set up Omada Open API from a config entry.
 
     Args:
@@ -156,12 +161,51 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 len(selected_client_macs),
             )
 
+    # Create app traffic coordinators for selected applications
+    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = []
+    selected_app_ids: list[str] = entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+
+    if selected_app_ids and selected_client_macs:
+        _LOGGER.info(
+            "Setting up app traffic tracking for %d apps across %d clients",
+            len(selected_app_ids),
+            len(selected_client_macs),
+        )
+
+        for site_id in selected_site_ids:
+            site_info = sites_by_id.get(site_id)
+            if not site_info:
+                continue
+
+            site_name = site_info.get("name", site_id)
+
+            # Create app traffic coordinator for this site
+            app_coordinator = OmadaAppTrafficCoordinator(
+                hass=hass,
+                api_client=api_client,
+                site_id=site_id,
+                site_name=site_name,
+                selected_client_macs=selected_client_macs,
+                selected_app_ids=selected_app_ids,
+            )
+
+            # Perform initial data fetch
+            await app_coordinator.async_config_entry_first_refresh()
+            app_traffic_coordinators.append(app_coordinator)
+
+            _LOGGER.info(
+                "Initialized app traffic coordinator for site '%s' with %d clients",
+                site_name,
+                len(app_coordinator.data),
+            )
+
     # Store API client and coordinators
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "api_client": api_client,
         "coordinators": coordinators,
         "client_coordinators": client_coordinators,
+        "app_traffic_coordinators": app_traffic_coordinators,
     }
 
     # Set up platforms
