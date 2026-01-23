@@ -17,11 +17,12 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
+    CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
 )
-from .coordinator import OmadaSiteCoordinator
+from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -30,7 +31,10 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 # Platforms to set up
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+]
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -118,14 +122,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             len(coordinator.data.get("devices", {})),
         )
 
+    # Create client coordinators for selected clients
+    client_coordinators: list[OmadaClientCoordinator] = []
+    selected_client_macs: list[str] = entry.data.get(CONF_SELECTED_CLIENTS, [])
+
+    if selected_client_macs:
+        _LOGGER.info("Setting up tracking for %d clients", len(selected_client_macs))
+
+        for site_id in selected_site_ids:
+            site_info = sites_by_id.get(site_id)
+            if not site_info:
+                continue
+
+            site_name = site_info.get("name", site_id)
+
+            # Create client coordinator for this site
+            client_coordinator = OmadaClientCoordinator(
+                hass=hass,
+                api_client=api_client,
+                site_id=site_id,
+                site_name=site_name,
+                selected_client_macs=selected_client_macs,
+            )
+
+            # Perform initial data fetch
+            await client_coordinator.async_config_entry_first_refresh()
+            client_coordinators.append(client_coordinator)
+
+            _LOGGER.info(
+                "Initialized client coordinator for site '%s' with %d/%d clients found",
+                site_name,
+                len(client_coordinator.data),
+                len(selected_client_macs),
+            )
+
     # Store API client and coordinators
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "api_client": api_client,
         "coordinators": coordinators,
+        "client_coordinators": client_coordinators,
     }
 
-    # Set up platforms (will be implemented later)
+    # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Set up config entry update listener for token updates

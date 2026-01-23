@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
@@ -25,7 +26,9 @@ from .const import (
     ICON_TAG,
     ICON_UPTIME,
 )
-from .coordinator import OmadaSiteCoordinator
+from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -184,6 +187,52 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
+# Client sensor descriptions
+CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="connection_status",
+        translation_key="connection_status",
+        name="Connection Status",
+        icon="mdi:network",
+        value_fn=lambda client: "Connected" if client.get("active") else "Disconnected",
+    ),
+    OmadaSensorEntityDescription(
+        key="ip_address",
+        translation_key="ip_address",
+        name="IP Address",
+        icon="mdi:ip-network",
+        value_fn=lambda client: client.get("ip"),
+    ),
+    OmadaSensorEntityDescription(
+        key="signal_strength",
+        translation_key="signal_strength",
+        name="Signal Strength",
+        icon="mdi:wifi-strength-4",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: client.get("signal_level"),
+        available_fn=lambda client: client.get("wireless", False)
+        and client.get("signal_level") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="connected_to",
+        translation_key="connected_to",
+        name="Connected To",
+        icon="mdi:access-point",
+        value_fn=lambda client: client.get("ap_name")
+        or client.get("switch_name")
+        or client.get("gateway_name"),
+    ),
+    OmadaSensorEntityDescription(
+        key="ssid",
+        translation_key="ssid",
+        name="SSID",
+        icon="mdi:wifi",
+        value_fn=lambda client: client.get("ssid"),
+        available_fn=lambda client: client.get("wireless", False),
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -193,8 +242,12 @@ async def async_setup_entry(
     """Set up Omada sensors from a config entry."""
     data = hass.data[DOMAIN][entry.entry_id]
     coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
+    client_coordinators: list[OmadaClientCoordinator] = data.get(
+        "client_coordinators", []
+    )
 
-    entities: list[OmadaDeviceSensor] = [
+    # Create device sensors
+    entities: list[SensorEntity] = [
         OmadaDeviceSensor(
             coordinator=coordinator,
             description=description,
@@ -204,6 +257,20 @@ async def async_setup_entry(
         for device_mac in coordinator.data.get("devices", {})
         for description in DEVICE_SENSORS
     ]
+
+    # Create client sensors
+    entities.extend(
+        [
+            OmadaClientSensor(
+                coordinator=coordinator,
+                description=description,
+                client_mac=client_mac,
+            )
+            for coordinator in client_coordinators
+            for client_mac in coordinator.data
+            for description in CLIENT_SENSORS
+        ]
+    )
 
     async_add_entities(entities)
 
@@ -268,3 +335,96 @@ class OmadaDeviceSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity): 
             return False
 
         return self.entity_description.available_fn(device_data)
+
+
+class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity):  # type: ignore[misc]
+    """Representation of an Omada client sensor."""
+
+    entity_description: OmadaSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OmadaClientCoordinator,
+        description: OmadaSensorEntityDescription,
+        client_mac: str,
+    ) -> None:
+        """Initialize the client sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._client_mac = client_mac
+        self._attr_unique_id = f"{client_mac}_{description.key}"
+
+        # Set device info
+        client_data = coordinator.data.get(client_mac, {})
+        _LOGGER.debug(
+            "Initializing client sensor for MAC %s, data available: %s",
+            client_mac,
+            bool(client_data),
+        )
+        client_name = (
+            client_data.get("name") or client_data.get("host_name") or client_mac
+        )
+
+        # Build connections list for MAC and IP addresses
+        connections = set()
+        if client_mac:
+            connections.add(("mac", client_mac))
+        if client_data.get("ip"):
+            connections.add(("ip", client_data.get("ip")))
+
+        # Determine parent device (AP, switch, or gateway)
+        parent_device_mac = None
+        if client_data.get("wireless") and client_data.get("ap_mac"):
+            # Wireless client connected to AP
+            parent_device_mac = client_data.get("ap_mac")
+        elif client_data.get("switch_mac"):
+            # Wired client connected to switch
+            parent_device_mac = client_data.get("switch_mac")
+        elif client_data.get("gateway_mac"):
+            # Client connected to gateway
+            parent_device_mac = client_data.get("gateway_mac")
+
+        # Use parent device as via_device if identified, otherwise use site
+        via_device = (
+            (DOMAIN, parent_device_mac)
+            if parent_device_mac
+            else (DOMAIN, coordinator.site_id)
+        )
+
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, client_mac)},
+            "connections": connections,
+            "name": client_name,
+            "manufacturer": client_data.get("vendor") or "Unknown",
+            "model": client_data.get("device_type") or client_data.get("model"),
+            "sw_version": client_data.get("os_name"),
+            "configuration_url": coordinator.api_client.api_url,
+            "via_device": via_device,
+        }
+        _LOGGER.debug(
+            "Client sensor device_info for %s: parent=%s, via_device=%s",
+            client_name,
+            parent_device_mac,
+            via_device,
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        client_data = self.coordinator.data.get(self._client_mac)
+        if client_data is None:
+            return None
+        return self.entity_description.value_fn(client_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        client_data = self.coordinator.data.get(self._client_mac)
+        if client_data is None:
+            return False
+
+        return self.entity_description.available_fn(client_data)
