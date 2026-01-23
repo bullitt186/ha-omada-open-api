@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfTime
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -26,7 +26,11 @@ from .const import (
     ICON_TAG,
     ICON_UPTIME,
 )
-from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .coordinator import (
+    OmadaAppTrafficCoordinator,
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -60,6 +64,32 @@ def _format_link_speed(speed: int | None) -> str | None:
         8: "100 Gbps",
     }
     return speed_map.get(speed, f"Unknown ({speed})")
+
+
+def _auto_scale_bytes(
+    bytes_value: float | None,
+) -> tuple[float | None, str | None]:
+    """Auto-scale bytes to appropriate unit (B, KB, MB, GB, TB).
+
+    Returns tuple of (scaled_value, unit).
+    """
+    if bytes_value is None:
+        return None, None
+
+    # Convert to float for calculations
+    value = float(bytes_value)
+
+    # Define thresholds and units (using decimal: 1 KB = 1000 B)
+    if value >= 1_000_000_000_000:  # >= 1 TB
+        return value / 1_000_000_000_000, UnitOfInformation.TERABYTES
+    if value >= 1_000_000_000:  # >= 1 GB
+        return value / 1_000_000_000, UnitOfInformation.GIGABYTES
+    if value >= 1_000_000:  # >= 1 MB
+        return value / 1_000_000, UnitOfInformation.MEGABYTES
+    if value >= 1_000:  # >= 1 KB
+        return value / 1_000, UnitOfInformation.KILOBYTES
+
+    return value, UnitOfInformation.BYTES
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -245,6 +275,9 @@ async def async_setup_entry(
     client_coordinators: list[OmadaClientCoordinator] = data.get(
         "client_coordinators", []
     )
+    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = data.get(
+        "app_traffic_coordinators", []
+    )
 
     # Create device sensors
     entities: list[SensorEntity] = [
@@ -269,6 +302,23 @@ async def async_setup_entry(
             for coordinator in client_coordinators
             for client_mac in coordinator.data
             for description in CLIENT_SENSORS
+        ]
+    )
+
+    # Create app traffic sensors
+    entities.extend(
+        [
+            OmadaClientAppTrafficSensor(
+                coordinator=coordinator,
+                client_mac=client_mac,
+                app_id=app_id,
+                app_name=app_data.get("app_name", "Unknown"),
+                metric_type=metric_type,
+            )
+            for coordinator in app_traffic_coordinators
+            for client_mac, client_apps in coordinator.data.items()
+            for app_id, app_data in client_apps.items()
+            for metric_type in ("upload", "download")
         ]
     )
 
@@ -428,3 +478,108 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+class OmadaClientAppTrafficSensor(
+    CoordinatorEntity[OmadaAppTrafficCoordinator],  # type: ignore[misc]
+    SensorEntity,  # type: ignore[misc]
+):
+    """Representation of an Omada client application traffic sensor."""
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(
+        self,
+        coordinator: OmadaAppTrafficCoordinator,
+        client_mac: str,
+        app_id: str,
+        app_name: str,
+        metric_type: str,
+    ) -> None:
+        """Initialize the app traffic sensor."""
+        super().__init__(coordinator)
+        self._client_mac = client_mac
+        self._app_id = app_id
+        self._app_name = app_name
+        self._metric_type = metric_type  # "upload" or "download"
+
+        # Create unique ID
+        self._attr_unique_id = f"{client_mac}_{app_id}_{metric_type}_app_traffic"
+
+        # Set name based on metric type
+        metric_name = "Upload" if metric_type == "upload" else "Download"
+        self._attr_name = f"{app_name} {metric_name}"
+
+        # Set icon based on metric type
+        self._attr_icon = (
+            "mdi:upload-network" if metric_type == "upload" else "mdi:download-network"
+        )
+
+        # Get client data to set up device info
+        # Note: coordinator.data structure is dict[client_mac][app_id] = {...}
+        # We need to get client info from the client coordinator
+        # For now, use the client MAC to link to the client device
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, client_mac)},
+        }
+
+        # Initial unit (will be dynamically updated based on value)
+        self._attr_native_unit_of_measurement = UnitOfInformation.BYTES
+        self._attr_suggested_display_precision = 2
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the state of the sensor with auto-scaled value."""
+        # Get data from coordinator
+        client_data = self.coordinator.data.get(self._client_mac, {})
+        app_data = client_data.get(self._app_id, {})
+
+        # Get raw byte value
+        raw_bytes = app_data.get(self._metric_type, 0)
+
+        # Auto-scale and update unit
+        scaled_value, unit = _auto_scale_bytes(raw_bytes)
+
+        # Update unit dynamically
+        if unit:
+            self._attr_native_unit_of_measurement = unit
+
+        return scaled_value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        client_data = self.coordinator.data.get(self._client_mac, {})
+        app_data = client_data.get(self._app_id, {})
+
+        attributes = {
+            "application_id": self._app_id,
+            "application_name": app_data.get("app_name", self._app_name),
+            "raw_bytes": app_data.get(self._metric_type, 0),
+        }
+
+        # Add optional attributes if available
+        if app_desc := app_data.get("app_description"):
+            attributes["application_description"] = app_desc
+        if family := app_data.get("family"):
+            attributes["family"] = family
+
+        # Add total traffic if available
+        if total_traffic := app_data.get("traffic"):
+            attributes["total_traffic_bytes"] = total_traffic
+            scaled_total, total_unit = _auto_scale_bytes(total_traffic)
+            if scaled_total and total_unit:
+                attributes["total_traffic"] = f"{scaled_total:.2f} {total_unit}"
+
+        return attributes
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        # Check if we have data for this client and app
+        client_data = self.coordinator.data.get(self._client_mac, {})
+        return self._app_id in client_data
