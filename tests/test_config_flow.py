@@ -216,6 +216,10 @@ async def test_complete_cloud_flow_with_token_storage(hass: HomeAssistant) -> No
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=[{"siteId": "site123", "name": "Test Site"}],
         ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
+        ),
         patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
     ):
         result = await hass.config_entries.flow.async_init(
@@ -260,6 +264,10 @@ async def test_complete_local_flow_with_token_storage(hass: HomeAssistant) -> No
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=[{"siteId": "site456", "name": "Local Site"}],
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
         ),
         patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
     ):
@@ -309,6 +317,10 @@ async def test_site_selection_multiple_sites(hass: HomeAssistant) -> None:
                 {"siteId": "site2", "name": "Home"},
                 {"siteId": "site3", "name": "Warehouse"},
             ],
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
         ),
         patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
     ):

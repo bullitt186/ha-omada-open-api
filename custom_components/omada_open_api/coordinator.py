@@ -147,22 +147,175 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             "mac": device.get("mac"),
             "name": device.get("name", "Unknown Device"),
             "model": device.get("model", "Unknown"),
+            "model_name": device.get("modelName"),
+            "model_version": device.get("modelVersion"),
             "type": device.get("type", "unknown"),
+            "subtype": device.get("subtype"),
+            "device_series_type": device.get("deviceSeriesType"),
+            "sn": device.get("sn"),
             # Status
             "status": device.get("status"),
-            "statusCategory": device.get("statusCategory"),
+            "status_category": device.get("statusCategory"),
+            "detail_status": device.get("detailStatus"),
             "need_upgrade": device.get("needUpgrade", False),
+            "last_seen": device.get("lastSeen"),
             # Network
             "ip": device.get("ip"),
+            "ipv6": device.get("ipv6", []),
+            "public_ip": device.get("publicIp"),
             "uptime": self._parse_uptime(device.get("uptime")),
             # Hardware info
             "cpu_util": device.get("cpuUtil"),
             "mem_util": device.get("memUtil"),
             "firmware_version": device.get("firmwareVersion"),
+            "compatible": device.get("compatible"),
+            "active": device.get("active"),
             # Client info
             "client_num": device.get("clientNum", 0),
+            # Uplink info
+            "uplink_device_mac": device.get("uplinkDeviceMac"),
+            "uplink_device_name": device.get("uplinkDeviceName"),
+            "uplink_device_port": device.get("uplinkDevicePort"),
+            "link_speed": device.get("linkSpeed"),
+            "duplex": device.get("duplex"),
+            # Tags and organization
+            "tag_name": device.get("tagName"),
+            "license_status": device.get("licenseStatus"),
+            "in_white_list": device.get("inWhiteList"),
+            "switch_consistent": device.get("switchConsistent"),
             # LED
             "led_setting": device.get("ledSetting"),
             # Location (if available)
             "site": device.get("site"),
+        }
+
+
+class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]
+    """Coordinator for Omada network clients."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_id: str,
+        site_name: str,
+        selected_client_macs: list[str],
+    ) -> None:
+        """Initialize the client coordinator.
+
+        Args:
+            hass: Home Assistant instance
+            api_client: Omada API client
+            site_id: Site ID for the clients
+            site_name: Human-readable site name
+            selected_client_macs: List of MAC addresses to track
+
+        """
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"Omada Clients ({site_name})",
+            update_interval=timedelta(seconds=SCAN_INTERVAL),
+        )
+        self.api_client = api_client
+        self.site_id = site_id
+        self.site_name = site_name
+        self.selected_client_macs = set(selected_client_macs)
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch client data from API.
+
+        Returns:
+            Dictionary mapping client MAC addresses to client data
+
+        """
+        _LOGGER.debug(
+            "Fetching client data for site %s (tracking %d clients)",
+            self.site_id,
+            len(self.selected_client_macs),
+        )
+
+        try:
+            # Fetch all clients from the site
+            result = await self.api_client.get_clients(
+                self.site_id, page=1, page_size=1000
+            )
+            all_clients = result.get("data", [])
+
+            # Filter to only the selected clients and index by MAC
+            clients_by_mac: dict[str, Any] = {}
+            for client in all_clients:
+                mac = client.get("mac")
+                if mac and mac in self.selected_client_macs:
+                    clients_by_mac[mac] = self._process_client(client)
+
+            _LOGGER.debug(
+                "Fetched %d/%d selected clients from site %s",
+                len(clients_by_mac),
+                len(self.selected_client_macs),
+                self.site_id,
+            )
+        except Exception as err:
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
+
+        return clients_by_mac
+
+    def _process_client(self, client: dict[str, Any]) -> dict[str, Any]:
+        """Process and normalize client data.
+
+        Args:
+            client: Raw client data from API
+
+        Returns:
+            Processed client dictionary with normalized fields
+
+        """
+        return {
+            # Identity
+            "mac": client.get("mac"),
+            "name": client.get("name") or client.get("hostName") or "Unknown",
+            "host_name": client.get("hostName"),
+            "ip": client.get("ip"),
+            "ipv6_list": client.get("ipv6List", []),
+            # Device info
+            "vendor": client.get("vendor"),
+            "device_type": client.get("deviceType"),
+            "device_category": client.get("deviceCategory"),
+            "os_name": client.get("osName"),
+            "model": client.get("model"),
+            # Connection info
+            "active": client.get("active", False),
+            "wireless": client.get("wireless", False),
+            "connect_dev_type": client.get("connectDevType"),
+            "ssid": client.get("ssid"),
+            "signal_level": client.get("signalLevel"),
+            "signal_rank": client.get("signalRank"),
+            "rssi": client.get("rssi"),
+            # AP connection (wireless)
+            "ap_name": client.get("apName"),
+            "ap_mac": client.get("apMac"),
+            "radio_id": client.get("radioId"),
+            "channel": client.get("channel"),
+            # Switch connection (wired)
+            "switch_name": client.get("switchName"),
+            "switch_mac": client.get("switchMac"),
+            "port": client.get("port"),
+            "port_name": client.get("portName"),
+            # Gateway connection
+            "gateway_name": client.get("gatewayName"),
+            "gateway_mac": client.get("gatewayMac"),
+            # Network
+            "network_name": client.get("networkName"),
+            "vid": client.get("vid"),
+            # Traffic
+            "activity": client.get("activity"),
+            "upload_activity": client.get("uploadActivity"),
+            "traffic_down": client.get("trafficDown"),
+            "traffic_up": client.get("trafficUp"),
+            # Status
+            "uptime": client.get("uptime"),
+            "last_seen": client.get("lastSeen"),
+            "blocked": client.get("blocked", False),
+            "guest": client.get("guest", False),
+            "auth_status": client.get("authStatus"),
         }

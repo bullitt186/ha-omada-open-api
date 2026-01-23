@@ -18,8 +18,11 @@ from .const import (
     DOMAIN,
     ICON_CLIENTS,
     ICON_CPU,
+    ICON_DEVICE_TYPE,
     ICON_FIRMWARE,
+    ICON_LINK,
     ICON_MEMORY,
+    ICON_TAG,
     ICON_UPTIME,
 )
 from .coordinator import OmadaSiteCoordinator
@@ -31,6 +34,29 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import StateType
+
+
+def _format_link_speed(speed: int | None) -> str | None:
+    """Format link speed enum to readable string.
+
+    0: Auto, 1: 10M, 2: 100M, 3: 1000M (1G), 4: 2500M (2.5G),
+    5: 10G, 6: 5G, 7: 25G, 8: 100G
+    """
+    if speed is None:
+        return None
+
+    speed_map = {
+        0: "Auto",
+        1: "10 Mbps",
+        2: "100 Mbps",
+        3: "1 Gbps",
+        4: "2.5 Gbps",
+        5: "10 Gbps",
+        6: "5 Gbps",
+        7: "25 Gbps",
+        8: "100 Gbps",
+    }
+    return speed_map.get(speed, f"Unknown ({speed})")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -87,7 +113,6 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="model",
         name="Model",
         icon=ICON_FIRMWARE,
-        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("model"),
         available_fn=lambda device: device.get("model") is not None,
     ),
@@ -96,9 +121,66 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="firmware_version",
         name="Firmware version",
         icon=ICON_FIRMWARE,
-        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("firmware_version"),
         available_fn=lambda device: device.get("firmware_version") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="device_type",
+        translation_key="device_type",
+        name="Device type",
+        icon=ICON_DEVICE_TYPE,
+        value_fn=lambda device: device.get("type"),
+        available_fn=lambda device: device.get("type") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="tag",
+        translation_key="tag",
+        name="Tag",
+        icon=ICON_TAG,
+        value_fn=lambda device: device.get("tag_name"),
+        available_fn=lambda device: device.get("tag_name") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="uplink_device",
+        translation_key="uplink_device",
+        name="Uplink device",
+        icon=ICON_LINK,
+        value_fn=lambda device: device.get("uplink_device_name"),
+        available_fn=lambda device: device.get("uplink_device_name") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="uplink_port",
+        translation_key="uplink_port",
+        name="Uplink port",
+        icon=ICON_LINK,
+        value_fn=lambda device: device.get("uplink_device_port"),
+        available_fn=lambda device: device.get("uplink_device_port") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="link_speed",
+        translation_key="link_speed",
+        name="Link speed",
+        icon=ICON_LINK,
+        value_fn=lambda device: _format_link_speed(device.get("link_speed")),
+        available_fn=lambda device: device.get("link_speed") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="public_ip",
+        translation_key="public_ip",
+        name="Public IP",
+        icon="mdi:ip-network",
+        value_fn=lambda device: device.get("public_ip"),
+        available_fn=lambda device: device.get("public_ip") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="ipv6",
+        translation_key="ipv6",
+        name="IPv6 addresses",
+        icon="mdi:ip-network",
+        value_fn=lambda device: ", ".join(device.get("ipv6", []))
+        if device.get("ipv6")
+        else None,
+        available_fn=lambda device: bool(device.get("ipv6")),
     ),
 )
 
@@ -148,11 +230,20 @@ class OmadaDeviceSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity): 
         device_data = coordinator.data.get("devices", {}).get(device_mac, {})
         device_name = device_data.get("name", "Unknown Device")
 
+        # Build connections list for MAC and IP addresses
+        connections = set()
+        if device_mac:
+            connections.add(("mac", device_mac))
+        if device_data.get("ip"):
+            connections.add(("ip", device_data.get("ip")))
+
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_mac)},
+            "connections": connections,
             "name": device_name,
             "manufacturer": "TP-Link",
             "model": device_data.get("model"),
+            "serial_number": device_data.get("sn"),
             "sw_version": device_data.get("firmware_version"),
             "configuration_url": coordinator.api_client.api_url,
             "via_device": (DOMAIN, coordinator.site_id),

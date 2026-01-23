@@ -91,11 +91,20 @@ class OmadaDeviceBinarySensor(
         device_data = coordinator.data.get("devices", {}).get(device_mac, {})
         device_name = device_data.get("name", "Unknown Device")
 
+        # Build connections list for MAC and IP addresses
+        connections = set()
+        if device_mac:
+            connections.add(("mac", device_mac))
+        if device_data.get("ip"):
+            connections.add(("ip", device_data.get("ip")))
+
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_mac)},
+            "connections": connections,
             "name": device_name,
             "manufacturer": "TP-Link",
             "model": device_data.get("model"),
+            "serial_number": device_data.get("sn"),
             "sw_version": device_data.get("firmware_version"),
             "configuration_url": coordinator.api_client.api_url,
             "via_device": (DOMAIN, coordinator.site_id),

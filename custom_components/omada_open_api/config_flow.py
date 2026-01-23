@@ -7,7 +7,12 @@ import logging
 from typing import Any
 
 import aiohttp
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.selector import (
@@ -27,6 +32,7 @@ from .const import (
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
+    CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     CONTROLLER_TYPE_CLOUD,
@@ -45,6 +51,13 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
     VERSION = 1
     MINOR_VERSION = 1
 
+    @staticmethod
+    def async_get_options_flow(
+        config_entry: ConfigEntry,
+    ) -> OptionsFlow:
+        """Get the options flow for this handler."""
+        return OmadaOptionsFlowHandler(config_entry)
+
     def __init__(self) -> None:
         """Initialize the config flow."""
         self._controller_type: str | None = None
@@ -57,6 +70,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         self._refresh_token: str | None = None
         self._token_expires_at: dt.datetime | None = None
         self._available_sites: list[dict[str, Any]] = []
+        self._selected_site_ids: list[str] = []
+        self._available_clients: list[dict[str, Any]] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -228,36 +243,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            selected_site_ids = user_input[CONF_SELECTED_SITES]
+            self._selected_site_ids = user_input[CONF_SELECTED_SITES]
 
-            # Get title from first selected site or use controller type
-            if selected_site_ids:
-                first_site = next(
-                    site
-                    for site in self._available_sites
-                    if site["siteId"] in selected_site_ids
-                )
-                title = f"Omada - {first_site['name']}"
-                if len(selected_site_ids) > 1:
-                    title += f" (+{len(selected_site_ids) - 1})"
-            else:
-                title = "Omada Controller"
-
-            # Create config entry
-            return self.async_create_entry(
-                title=title,
-                data={
-                    CONF_CONTROLLER_TYPE: self._controller_type,
-                    CONF_API_URL: self._api_url,
-                    CONF_OMADA_ID: self._omada_id,
-                    CONF_CLIENT_ID: self._client_id,
-                    CONF_CLIENT_SECRET: self._client_secret,
-                    CONF_ACCESS_TOKEN: self._access_token,
-                    CONF_REFRESH_TOKEN: self._refresh_token,
-                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
-                    CONF_SELECTED_SITES: selected_site_ids,
-                },
-            )
+            # Proceed to client selection
+            return await self.async_step_clients()
 
         # Create site selection options
         site_options = [
@@ -286,6 +275,124 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             errors=errors,
             description_placeholders={
                 "site_count": str(len(self._available_sites)),
+            },
+        )
+
+    async def async_step_clients(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle client selection step."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
+
+            # Get title from first selected site
+            if self._selected_site_ids:
+                first_site = next(
+                    site
+                    for site in self._available_sites
+                    if site["siteId"] in self._selected_site_ids
+                )
+                title = f"Omada - {first_site['name']}"
+                if len(self._selected_site_ids) > 1:
+                    title += f" (+{len(self._selected_site_ids) - 1})"
+            else:
+                title = "Omada Controller"
+
+            # Create config entry
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_CONTROLLER_TYPE: self._controller_type,
+                    CONF_API_URL: self._api_url,
+                    CONF_OMADA_ID: self._omada_id,
+                    CONF_CLIENT_ID: self._client_id,
+                    CONF_CLIENT_SECRET: self._client_secret,
+                    CONF_ACCESS_TOKEN: self._access_token,
+                    CONF_REFRESH_TOKEN: self._refresh_token,
+                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
+                    CONF_SELECTED_SITES: self._selected_site_ids,
+                    CONF_SELECTED_CLIENTS: selected_client_macs,
+                },
+            )
+
+        # Fetch all clients from all selected sites
+        try:
+            all_clients = []
+            for site_id in self._selected_site_ids:
+                clients_data = await self._get_clients(site_id)
+                all_clients.extend(clients_data)
+
+            self._available_clients = all_clients
+        except Exception:
+            _LOGGER.exception("Failed to fetch clients")
+            errors["base"] = "cannot_connect"
+
+        if not self._available_clients:
+            # No clients available, skip client selection
+            # Get title from first selected site
+            if self._selected_site_ids:
+                first_site = next(
+                    site
+                    for site in self._available_sites
+                    if site["siteId"] in self._selected_site_ids
+                )
+                title = f"Omada - {first_site['name']}"
+                if len(self._selected_site_ids) > 1:
+                    title += f" (+{len(self._selected_site_ids) - 1})"
+            else:
+                title = "Omada Controller"
+
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_CONTROLLER_TYPE: self._controller_type,
+                    CONF_API_URL: self._api_url,
+                    CONF_OMADA_ID: self._omada_id,
+                    CONF_CLIENT_ID: self._client_id,
+                    CONF_CLIENT_SECRET: self._client_secret,
+                    CONF_ACCESS_TOKEN: self._access_token,
+                    CONF_REFRESH_TOKEN: self._refresh_token,
+                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
+                    CONF_SELECTED_SITES: self._selected_site_ids,
+                    CONF_SELECTED_CLIENTS: [],
+                },
+            )
+
+        # Create client selection options
+        client_options = []
+        for client in self._available_clients[:200]:  # Limit to 200 to avoid UI issues
+            name = client.get("name") or client.get("hostName") or "Unknown"
+            mac = client.get("mac", "")
+            ip = client.get("ip", "N/A")
+            online = "🟢" if client.get("active") else "🔴"
+
+            client_options.append(
+                SelectOptionDict(
+                    value=mac,
+                    label=f"{online} {name} - {ip} ({mac})",
+                )
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(CONF_SELECTED_CLIENTS, default=[]): SelectSelector(
+                    SelectSelectorConfig(
+                        options=client_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="clients",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "client_count": str(len(self._available_clients)),
             },
         )
 
@@ -393,6 +500,58 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
 
             return result["result"]["data"]  # type: ignore[no-any-return]
 
+    async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch all clients for a site.
+
+        Args:
+            site_id: Site ID to get clients for
+
+        Returns:
+            List of client dictionaries
+
+        Raises:
+            aiohttp.ClientError: If connection fails
+
+        """
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Request body for client query
+        body = {
+            "page": 1,
+            "pageSize": 200,  # Get first 200 clients
+            "scope": 0,  # 0: all clients (online + offline)
+            "filters": {},
+        }
+
+        _LOGGER.debug("Fetching clients from site %s", site_id)
+
+        async with session.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            _LOGGER.debug("Clients endpoint response status: %s", response.status)
+            if response.status != 200:
+                response_text = await response.text()
+                _LOGGER.error(
+                    "Clients API error %s: %s", response.status, response_text
+                )
+                response.raise_for_status()
+
+            result = await response.json()
+
+            if result.get("errorCode") != 0:
+                error_msg = result.get("msg", "Unknown error")
+                raise InvalidAuthError(f"API error: {error_msg}")
+
+            return result["result"]["data"]  # type: ignore[no-any-return]
+
     async def async_step_reauth(
         self, entry_data: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -482,6 +641,164 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             data_schema=data_schema,
             errors=errors,
         )
+
+
+class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
+    """Handle options flow for Omada Open API."""
+
+    def __init__(self, config_entry: ConfigEntry) -> None:
+        """Initialize options flow."""
+        super().__init__()
+        self._api_url: str | None = None
+        self._omada_id: str | None = None
+        self._access_token: str | None = None
+        self._selected_site_ids: list[str] = []
+        self._available_clients: list[dict[str, Any]] = []
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Manage the options."""
+        return await self.async_step_client_selection()
+
+    async def async_step_client_selection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle client selection in options flow."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
+
+            # Update config entry with new client selection
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_SELECTED_CLIENTS: selected_client_macs,
+                },
+            )
+
+            # Reload the integration to apply changes
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+            return self.async_create_entry(title="", data={})
+
+        # Get credentials from config entry
+        self._api_url = self.config_entry.data[CONF_API_URL]
+        self._omada_id = self.config_entry.data[CONF_OMADA_ID]
+        self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
+        self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
+
+        # Fetch all clients from all selected sites
+        try:
+            all_clients = []
+            for site_id in self._selected_site_ids:
+                clients_data = await self._get_clients(site_id)
+                all_clients.extend(clients_data)
+
+            self._available_clients = all_clients
+        except Exception:
+            _LOGGER.exception("Failed to fetch clients")
+            errors["base"] = "cannot_connect"
+
+        if not self._available_clients and not errors:
+            # No clients available, return with empty selection
+            return self.async_create_entry(title="", data={})
+
+        # Get currently selected clients
+        current_selection = self.config_entry.data.get(CONF_SELECTED_CLIENTS, [])
+
+        # Create client selection options
+        client_options = []
+        for client in self._available_clients[:200]:  # Limit to 200
+            name = client.get("name") or client.get("hostName") or "Unknown"
+            mac = client.get("mac", "")
+            ip = client.get("ip", "N/A")
+            online = "🟢" if client.get("active") else "🔴"
+
+            client_options.append(
+                SelectOptionDict(
+                    value=mac,
+                    label=f"{online} {name} - {ip} ({mac})",
+                )
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_SELECTED_CLIENTS, default=current_selection
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=client_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="client_selection",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "client_count": str(len(self._available_clients)),
+                "selected_count": str(len(current_selection)),
+            },
+        )
+
+    async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch all clients for a site.
+
+        Args:
+            site_id: Site ID to get clients for
+
+        Returns:
+            List of client dictionaries
+
+        Raises:
+            aiohttp.ClientError: If connection fails
+
+        """
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Request body for client query
+        body = {
+            "page": 1,
+            "pageSize": 200,  # Get first 200 clients
+            "scope": 0,  # 0: all clients (online + offline)
+            "filters": {},
+        }
+
+        _LOGGER.debug("Fetching clients from site %s", site_id)
+
+        async with session.post(
+            url,
+            headers=headers,
+            json=body,
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            _LOGGER.debug("Clients endpoint response status: %s", response.status)
+            if response.status != 200:
+                response_text = await response.text()
+                _LOGGER.error(
+                    "Clients API error %s: %s", response.status, response_text
+                )
+                response.raise_for_status()
+
+            result = await response.json()
+
+            if result.get("errorCode") != 0:
+                error_msg = result.get("msg", "Unknown error")
+                raise InvalidAuthError(f"API error: {error_msg}")
+
+            return result["result"]["data"]  # type: ignore[no-any-return]
 
 
 class InvalidAuthError(Exception):

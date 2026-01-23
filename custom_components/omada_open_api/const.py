@@ -14,6 +14,7 @@ CONF_REFRESH_TOKEN = "refresh_token"
 CONF_TOKEN_EXPIRES = "token_expires"
 CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 CONF_SELECTED_SITES = "selected_sites"
+CONF_SELECTED_CLIENTS = "selected_clients"
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"
@@ -45,6 +46,7 @@ REGIONS = {
 API_AUTHORIZE_TOKEN = "/openapi/authorize/token"
 API_SITES = "/openapi/v1/{omada_id}/sites"
 API_DEVICES = "/openapi/v1/{omada_id}/sites/{site_id}/devices"
+API_CLIENTS = "/openapi/v2/{omada_id}/sites/{site_id}/clients"
 
 # Update intervals
 SCAN_INTERVAL = 60  # seconds
@@ -64,3 +66,7 @@ ICON_CPU = "mdi:cpu-64-bit"
 ICON_MEMORY = "mdi:memory"
 ICON_FIRMWARE = "mdi:chip"
 ICON_STATUS = "mdi:check-network"
+ICON_LINK = "mdi:ethernet"
+ICON_TAG = "mdi:tag"
+ICON_DEVICE_TYPE = "mdi:devices"
+ICON_SERIAL = "mdi:barcode"

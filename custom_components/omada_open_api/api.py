@@ -338,6 +338,62 @@ class OmadaApiClient:
         except aiohttp.ClientError as err:
             raise OmadaApiError(f"Connection error: {err}") from err
 
+    async def get_clients(
+        self, site_id: str, page: int = 1, page_size: int = 100
+    ) -> dict[str, Any]:
+        """Get all clients for a site.
+
+        Args:
+            site_id: Site ID to get clients for
+            page: Page number (starts at 1)
+            page_size: Number of clients per page (1-1000)
+
+        Returns:
+            Dictionary with client data including totalRows, currentPage, and data list
+
+        """
+        await self._ensure_valid_token()
+
+        endpoint = f"/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
+        url = f"{self._api_url}{endpoint}"
+
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Request body for client query
+        body = {
+            "page": page,
+            "pageSize": page_size,
+            "scope": 0,  # 0: all clients, 1: online, 2: offline, 3: blocked
+            "filters": {},
+        }
+
+        try:
+            async with self._session.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
+                    response.raise_for_status()
+
+                result = await response.json()
+
+                # Check for API error codes
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    raise OmadaApiError(f"API error: {error_msg}")
+
+                return result["result"]  # type: ignore[no-any-return]
+
+        except aiohttp.ClientError as err:
+            raise OmadaApiError(f"Connection error: {err}") from err
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

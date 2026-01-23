@@ -46,6 +46,13 @@
                     "selected_sites": "Sites to Monitor"
                 }
             },
+            "clients": {
+                "title": "Select Clients to Track (Optional)",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "data": {
+                    "selected_clients": "Clients to Track"
+                }
+            },
             "reauth_confirm": {
                 "title": "[%key:common::config_flow::title::reauth%]",
                 "description": "The Omada API credentials have expired or are invalid. Please re-enter your credentials to continue."
@@ -61,6 +68,17 @@
         "abort": {
             "already_configured": "This Omada controller is already configured",
             "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+        }
+    },
+    "options": {
+        "step": {
+            "client_selection": {
+                "title": "Modify Client Tracking",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "data": {
+                    "selected_clients": "Clients to Track"
+                }
+            }
         }
     },
     "entity": {
@@ -82,6 +100,42 @@
             },
             "firmware_version": {
                 "name": "Firmware version"
+            },
+            "device_type": {
+                "name": "Device type"
+            },
+            "tag": {
+                "name": "Tag"
+            },
+            "uplink_device": {
+                "name": "Uplink device"
+            },
+            "uplink_port": {
+                "name": "Uplink port"
+            },
+            "link_speed": {
+                "name": "Link speed"
+            },
+            "public_ip": {
+                "name": "Public IP"
+            },
+            "ipv6": {
+                "name": "IPv6 addresses"
+            },
+            "connection_status": {
+                "name": "Connection Status"
+            },
+            "ip_address": {
+                "name": "IP Address"
+            },
+            "signal_strength": {
+                "name": "Signal Strength"
+            },
+            "connected_to": {
+                "name": "Connected To"
+            },
+            "ssid": {
+                "name": "SSID"
             }
         },
         "binary_sensor": {
