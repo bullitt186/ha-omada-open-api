@@ -5,9 +5,14 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 
 **Purpose**: Provide information retrieved via the Omada Open API as entities within Home Assistant, enabling monitoring and control of Omada SDN infrastructure (controllers, access points, switches, gateways, and clients).
 
-**API Documentation**: https://use1-omada-northbound.tplinkcloud.com/doc.html#/home
+**API Documentation**:
+- **Official Documentation**: https://use1-omada-northbound.tplinkcloud.com/doc.html#/home
+- **OpenAPI Specification**: `/workspaces/ha-omada-open-api/openapi/openapi.json` (complete Swagger/OpenAPI spec)
 
-**Important**: When there are doubts or questions regarding the Omada Open API (endpoints, authentication flow, data structures, request/response formats, etc.), always consult the official API documentation at the URL above.
+**CRITICAL**: When there are doubts or questions regarding the Omada Open API (endpoints, authentication flow, data structures, request/response formats, parameters, etc.):
+1. **ALWAYS** consult the OpenAPI specification file at `openapi/openapi.json` FIRST
+2. Use the official documentation URL as a secondary reference
+3. The OpenAPI spec is the authoritative source for all endpoint definitions, parameters, request/response schemas, and data models
 
 ## Omada Open API Integration Specifics
 
