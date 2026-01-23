@@ -1,0 +1,224 @@
+"""Tests for Omada Open API client token management."""
+
+import datetime as dt
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from homeassistant.core import HomeAssistant
+import pytest
+
+from custom_components.omada_open_api.api import OmadaApiClient
+from custom_components.omada_open_api.const import (
+    CONF_ACCESS_TOKEN,
+    CONF_API_URL,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
+    CONF_OMADA_ID,
+    CONF_REFRESH_TOKEN,
+    CONF_TOKEN_EXPIRES_AT,
+)
+
+
+@pytest.fixture
+def mock_config_entry():
+    """Create a mock config entry for testing."""
+    entry = MagicMock()
+    entry.data = {
+        CONF_API_URL: "https://test-controller.example.com",
+        CONF_OMADA_ID: "test_omada_id",
+        CONF_CLIENT_ID: "test_client_id",
+        CONF_CLIENT_SECRET: "test_client_secret",
+        CONF_ACCESS_TOKEN: "old_access_token",
+        CONF_REFRESH_TOKEN: "old_refresh_token",
+        CONF_TOKEN_EXPIRES_AT: (
+            dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+        ).isoformat(),
+    }
+    entry.entry_id = "test_entry_id"
+    return entry
+
+
+async def test_token_refresh_before_expiry(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that tokens are refreshed automatically before expiry (5-min buffer)."""
+    # Set token to expire in 4 minutes (within 5-minute refresh buffer)
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=4)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch("aiohttp.ClientSession.post") as mock_post,
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+    ):
+        # Mock successful token refresh response
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {
+                "accessToken": "new_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "new_refresh_token",
+            },
+        }
+        mock_post.return_value.__aenter__.return_value = mock_response
+
+        # Call method that should trigger token refresh
+        await api_client._ensure_valid_token()  # noqa: SLF001
+
+        # Verify refresh endpoint was called
+        mock_post.assert_called_once()
+        call_args = mock_post.call_args
+        assert "/openapi/authorize/token" in call_args[0][0]
+        assert call_args[1]["params"]["grant_type"] == "refresh_token"
+
+        # Verify config entry was updated
+        mock_update.assert_called_once()
+        updated_data = mock_update.call_args[1]["data"]
+        assert updated_data[CONF_ACCESS_TOKEN] == "new_access_token"
+        assert updated_data[CONF_REFRESH_TOKEN] == "new_refresh_token"
+
+
+async def test_refresh_token_expiry_triggers_renewal(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that error -44114 triggers automatic fresh token request."""
+    # Set token to expire soon to trigger refresh attempt
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=2)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch("aiohttp.ClientSession.post") as mock_post,
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+    ):
+        # First call: refresh returns error -44114 (refresh token expired)
+        # Second call: get fresh tokens succeeds
+        refresh_response = AsyncMock()
+        refresh_response.status = 200
+        refresh_response.json.return_value = {
+            "errorCode": -44114,
+            "msg": "Refresh token expired",
+        }
+
+        fresh_token_response = AsyncMock()
+        fresh_token_response.status = 200
+        fresh_token_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {
+                "accessToken": "fresh_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "fresh_refresh_token",
+            },
+        }
+
+        mock_post.return_value.__aenter__.side_effect = [
+            refresh_response,
+            fresh_token_response,
+        ]
+
+        # Call method that should trigger refresh, then renewal
+        await api_client._ensure_valid_token()  # noqa: SLF001
+
+        # Verify both calls were made
+        assert mock_post.call_count == 2
+
+        # First call should be refresh_token grant
+        first_call = mock_post.call_args_list[0]
+        assert first_call[1]["params"]["grant_type"] == "refresh_token"
+
+        # Second call should be client_credentials grant
+        second_call = mock_post.call_args_list[1]
+        assert second_call[1]["params"]["grant_type"] == "client_credentials"
+
+        # Verify config entry was updated with fresh tokens
+        mock_update.assert_called()
+        updated_data = mock_update.call_args[1]["data"]
+        assert updated_data[CONF_ACCESS_TOKEN] == "fresh_access_token"
+        assert updated_data[CONF_REFRESH_TOKEN] == "fresh_refresh_token"
+
+
+async def test_token_persistence_to_config_entry(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that tokens are persisted to config entry after refresh."""
+    # Set token to expire in 3 minutes (triggers refresh)
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=3)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch("aiohttp.ClientSession.post") as mock_post,
+        patch.object(hass.config_entries, "async_update_entry") as mock_update,
+    ):
+        # Mock successful token refresh
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {
+                "accessToken": "persisted_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "persisted_refresh_token",
+            },
+        }
+        mock_post.return_value.__aenter__.return_value = mock_response
+
+        # Trigger token refresh
+        await api_client._ensure_valid_token()  # noqa: SLF001
+
+        # Verify config entry was updated
+        mock_update.assert_called_once()
+        updated_data = mock_update.call_args[1]["data"]
+        assert updated_data[CONF_ACCESS_TOKEN] == "persisted_access_token"
+        assert updated_data[CONF_REFRESH_TOKEN] == "persisted_refresh_token"
+        assert CONF_TOKEN_EXPIRES_AT in updated_data
+
+        # Verify the expiry time is set correctly (should be ~2 hours from now)
+        expiry_time = dt.datetime.fromisoformat(updated_data[CONF_TOKEN_EXPIRES_AT])
+        time_until_expiry = expiry_time - dt.datetime.now(dt.UTC)
+        # Should be between 1.9 and 2.0 hours (7200 seconds = 2 hours)
+        assert (
+            dt.timedelta(hours=1, minutes=54)
+            < time_until_expiry
+            < dt.timedelta(hours=2)
+        )
