@@ -288,3 +288,53 @@ async def test_complete_local_flow_with_token_storage(hass: HomeAssistant) -> No
         assert result["title"] == "Omada - Local Site"
         assert result["data"][CONF_ACCESS_TOKEN] == "test_access_token"
         assert result["data"][CONF_REFRESH_TOKEN] == "test_refresh_token"
+
+
+async def test_site_selection_multiple_sites(hass: HomeAssistant) -> None:
+    """Test selecting multiple sites creates entry with proper title."""
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value={
+                "accessToken": "test_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "test_refresh_token",
+            },
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=[
+                {"siteId": "site1", "name": "Office"},
+                {"siteId": "site2", "name": "Home"},
+                {"siteId": "site3", "name": "Warehouse"},
+            ],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "us"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        # Select multiple sites
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site1", "site2", "site3"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["title"] == "Omada - Office (+2)"
+        assert result["data"][CONF_SELECTED_SITES] == ["site1", "site2", "site3"]
+        assert len(result["data"][CONF_SELECTED_SITES]) == 3
