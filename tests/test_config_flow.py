@@ -8,11 +8,15 @@ from homeassistant.data_entry_flow import FlowResultType
 import pytest
 
 from custom_components.omada_open_api.const import (
+    CONF_ACCESS_TOKEN,
+    CONF_API_URL,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
     CONF_OMADA_ID,
+    CONF_REFRESH_TOKEN,
     CONF_REGION,
+    CONF_SELECTED_SITES,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
@@ -194,3 +198,93 @@ async def test_invalid_client_credentials_error_code(hass: HomeAssistant) -> Non
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "credentials"
     assert "base" in result["errors"]
+
+
+async def test_complete_cloud_flow_with_token_storage(hass: HomeAssistant) -> None:
+    """Test complete cloud controller flow with token storage in config entry."""
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value={
+                "accessToken": "test_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "test_refresh_token",
+            },
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=[{"siteId": "site123", "name": "Test Site"}],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "us"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site123"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["title"] == "Omada - Test Site"
+        assert result["data"][CONF_ACCESS_TOKEN] == "test_access_token"
+        assert result["data"][CONF_REFRESH_TOKEN] == "test_refresh_token"
+
+
+async def test_complete_local_flow_with_token_storage(hass: HomeAssistant) -> None:
+    """Test complete local controller flow with token storage in config entry."""
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value={
+                "accessToken": "test_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "test_refresh_token",
+            },
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=[{"siteId": "site456", "name": "Local Site"}],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: "local"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_API_URL: "https://omada.local:8043"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site456"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["title"] == "Omada - Local Site"
+        assert result["data"][CONF_ACCESS_TOKEN] == "test_access_token"
+        assert result["data"][CONF_REFRESH_TOKEN] == "test_refresh_token"
