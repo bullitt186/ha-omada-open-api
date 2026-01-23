@@ -38,7 +38,24 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 - **Device Hierarchy**: Controller → Sites → Devices (APs, Switches, Gateways)
 - **Client Information**: Track connected clients across network infrastructure
 - **Statistics & Metrics**: Retrieve network statistics, bandwidth usage, client counts
-- **Pagination Requirements**: ALL list-type endpoints (sites, devices, clients, etc.) REQUIRE pagination parameters `pageSize` and `page` in the query string, even when retrieving all items. Default: `{"pageSize": 100, "page": 1}`. Omitting these parameters results in 400 Bad Request errors.
+- **Pagination Requirements**:
+  - ALL list-type endpoints (sites, devices, clients, applications, etc.) REQUIRE pagination parameters `pageSize` and `page` in the query string
+  - Omitting these parameters results in 400 Bad Request errors
+  - **Multi-Page Fetching**: Even with `pageSize=1000`, you may need to fetch multiple pages. Always check `totalRows` in the response and implement a loop to fetch all pages
+  - Example: Applications endpoint returned 2467 total items across 3 pages with pageSize=1000
+  - Implement pagination loop:
+    ```python
+    all_items = []
+    page = 1
+    while True:
+        result = await fetch_page(page, pageSize=1000)
+        items = result["result"]["data"]
+        total = result["result"]["totalRows"]
+        all_items.extend(items)
+        if len(all_items) >= total or len(items) < pageSize:
+            break
+        page += 1
+    ```
 
 ### Data Models
 - **Controllers**: Omada controller information and status
@@ -47,6 +64,12 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 - **Switches**: Port status, PoE usage, client connections
 - **Gateways**: WAN/LAN status, traffic statistics, VPN connections
 - **Clients**: Connected devices with MAC, IP, signal strength, traffic
+- **Applications**: DPI-tracked applications with traffic data
+  - Field structure: `{"application": "app-name", "applicationId": 123, "family": "Category", "description": "..."}`
+  - **CRITICAL**: Use `application` for name (NOT `applicationName`, `name`, or `appName`)
+  - **CRITICAL**: Use `family` for category (NOT `familyName` or `category`)
+  - Requires DPI (Deep Packet Inspection) enabled on gateway
+  - Per-client traffic data available via `/dashboard/specificClientInfo/{clientMac}` endpoint
 
 ### Entity Types to Implement
 - **Sensors**: Device counts, client counts, bandwidth usage, uptime, signal strength
@@ -594,8 +617,117 @@ CONF_CLIENT_ID = "client_id"
 CONF_CLIENT_SECRET = "client_secret"
 CONF_API_URL = "api_url"
 CONF_SELECTED_SITES = "selected_sites"
+CONF_SELECTED_CLIENTS = "selected_clients"
+CONF_SELECTED_APPLICATIONS = "selected_applications"
 CONF_CONTROLLER_TYPE = "controller_type"
 
 # Use in tests
 from custom_components.omada_open_api.const import CONF_ACCESS_TOKEN
 ```
+
+### Translation Files & UI Strings
+**CRITICAL**: For proper UI display in config/options flows:
+1. **strings.json**: Primary translation file with all user-facing text
+2. **translations/en.json**: Required copy of strings.json for runtime translations
+3. Both files must be identical and kept in sync
+
+**Options Flow Menu Structure:**
+```json
+{
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configuration Options Title",
+        "menu_options": {
+          "option_key_1": "Display Name for Option 1",
+          "option_key_2": "Display Name for Option 2"
+        }
+      },
+      "option_key_1": {
+        "title": "Option 1 Form Title",
+        "description": "Detailed description...",
+        "data": {
+          "field_name": "Field Label"
+        }
+      }
+    }
+  }
+}
+```
+
+**Creating Translation Files:**
+```bash
+# After editing strings.json, always copy to translations/
+mkdir -p custom_components/omada_open_api/translations
+cp custom_components/omada_open_api/strings.json \
+   custom_components/omada_open_api/translations/en.json
+```
+
+### Debugging API Response Structures
+When uncertain about API field names or response structure:
+1. **JSON Dump Approach** (when logging doesn't work):
+   ```python
+   import json
+   with open("/tmp/debug_response.json", "w") as f:
+       json.dump(api_response, f, indent=2)
+   _LOGGER.warning("DEBUG: Response dumped to /tmp/debug_response.json")
+   ```
+2. User can then `cat /tmp/debug_response.json` to inspect exact structure
+3. **Remove debug code** before final commit
+4. This is more reliable than logging when dealing with complex nested structures
+
+### Application Traffic Tracking Implementation
+**Complete implementation** for per-client application traffic monitoring:
+
+**API Endpoints:**
+```python
+# Get all applications (requires pagination)
+GET /openapi/v1/{omadacId}/sites/{siteId}/applicationControl/applications
+Params: {"page": 1, "pageSize": 1000}
+
+# Get client app traffic
+GET /openapi/v1/{omadacId}/sites/{siteId}/dashboard/specificClientInfo/{clientMac}
+Params: {"startTime": timestamp_ms, "endTime": timestamp_ms}
+```
+
+**Coordinator Pattern:**
+```python
+class OmadaAppTrafficCoordinator(DataUpdateCoordinator):
+    """Coordinator for application traffic data with midnight reset."""
+
+    def __init__(self, ...):
+        self._last_reset = dt_util.start_of_local_day(dt_util.now())
+
+    async def _async_update_data(self):
+        """Fetch data from midnight to now, reset at midnight."""
+        now = dt_util.now()
+        today_start = dt_util.start_of_local_day(now)
+
+        # Check if day has changed
+        if today_start > self._last_reset:
+            self._last_reset = today_start
+            # Data will reset automatically as we fetch from new midnight
+```
+
+**Sensor Auto-Scaling:**
+```python
+def _auto_scale_bytes(bytes_value: int) -> tuple[float, str]:
+    """Auto-scale bytes to appropriate unit (B, KB, MB, GB, TB)."""
+    if bytes_value < 1024:
+        return (float(bytes_value), "B")
+    elif bytes_value < 1024**2:
+        return (bytes_value / 1024, "KB")
+    elif bytes_value < 1024**3:
+        return (bytes_value / 1024**2, "MB")
+    elif bytes_value < 1024**4:
+        return (bytes_value / 1024**3, "GB")
+    else:
+        return (bytes_value / 1024**4, "TB")
+```
+
+**Config Flow Integration:**
+- Add application selection step after client selection
+- Fetch all applications with pagination loop
+- Store selected application IDs in config entry
+- Provide options flow menu for modifying selections
+- Link sensors to client devices via device_info
