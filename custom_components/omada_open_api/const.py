@@ -15,6 +15,7 @@ CONF_TOKEN_EXPIRES = "token_expires"
 CONF_TOKEN_EXPIRES_AT = "token_expires_at"
 CONF_SELECTED_SITES = "selected_sites"
 CONF_SELECTED_CLIENTS = "selected_clients"
+CONF_SELECTED_APPLICATIONS = "selected_applications"
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"

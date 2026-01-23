@@ -53,6 +53,13 @@
                     "selected_clients": "Clients to Track"
                 }
             },
+            "applications": {
+                "title": "Select Applications to Track (Optional)",
+                "description": "Select which applications you want to track for network traffic monitoring. Found {app_count} application(s).\n\nFor each selected application, upload and download sensors will be created for each tracked client. Traffic data resets daily at midnight.\n\nThis is optional - you can skip this step or modify the selection later via integration options.\n\nNote: Application tracking requires DPI (Deep Packet Inspection) to be enabled on your gateway.",
+                "data": {
+                    "selected_applications": "Applications to Track"
+                }
+            },
             "reauth_confirm": {
                 "title": "[%key:common::config_flow::title::reauth%]",
                 "description": "The Omada API credentials have expired or are invalid. Please re-enter your credentials to continue."
@@ -72,11 +79,26 @@
     },
     "options": {
         "step": {
+            "init": {
+                "title": "Omada Configuration Options",
+                "description": "Select what you want to configure",
+                "menu_options": {
+                    "client_selection": "Modify Client Tracking",
+                    "application_selection": "Modify Application Tracking"
+                }
+            },
             "client_selection": {
                 "title": "Modify Client Tracking",
                 "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
                 "data": {
                     "selected_clients": "Clients to Track"
+                }
+            },
+            "application_selection": {
+                "title": "Modify Application Tracking",
+                "description": "Select which applications you want to track for network traffic monitoring. Found {app_count} application(s).\n\nCurrently tracking {selected_count} application(s).\n\nFor each selected application, upload and download sensors will be created for each tracked client. Traffic data resets daily at midnight.\n\nThe integration will reload automatically after saving.",
+                "data": {
+                    "selected_applications": "Applications to Track"
                 }
             }
         }

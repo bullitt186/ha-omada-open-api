@@ -32,6 +32,7 @@ from .const import (
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
+    CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
@@ -72,6 +73,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         self._available_sites: list[dict[str, Any]] = []
         self._selected_site_ids: list[str] = []
         self._available_clients: list[dict[str, Any]] = []
+        self._selected_client_macs: list[str] = []
+        self._available_applications: list[dict[str, Any]] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -285,37 +288,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
+            self._selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
 
-            # Get title from first selected site
-            if self._selected_site_ids:
-                first_site = next(
-                    site
-                    for site in self._available_sites
-                    if site["siteId"] in self._selected_site_ids
-                )
-                title = f"Omada - {first_site['name']}"
-                if len(self._selected_site_ids) > 1:
-                    title += f" (+{len(self._selected_site_ids) - 1})"
-            else:
-                title = "Omada Controller"
-
-            # Create config entry
-            return self.async_create_entry(
-                title=title,
-                data={
-                    CONF_CONTROLLER_TYPE: self._controller_type,
-                    CONF_API_URL: self._api_url,
-                    CONF_OMADA_ID: self._omada_id,
-                    CONF_CLIENT_ID: self._client_id,
-                    CONF_CLIENT_SECRET: self._client_secret,
-                    CONF_ACCESS_TOKEN: self._access_token,
-                    CONF_REFRESH_TOKEN: self._refresh_token,
-                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
-                    CONF_SELECTED_SITES: self._selected_site_ids,
-                    CONF_SELECTED_CLIENTS: selected_client_macs,
-                },
-            )
+            # Proceed to application selection
+            return await self.async_step_applications()
 
         # Fetch all clients from all selected sites
         try:
@@ -552,6 +528,177 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
 
             return result["result"]["data"]  # type: ignore[no-any-return]
 
+    async def _get_applications(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch all available applications for DPI tracking.
+
+        Args:
+            site_id: Site ID to get applications for
+
+        Returns:
+            List of application dictionaries with applicationId, applicationName, etc.
+
+        Raises:
+            aiohttp.ClientError: If connection fails
+
+        """
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        params = {
+            "page": 1,
+            "pageSize": 1000,  # Get all applications
+        }
+
+        _LOGGER.debug("Fetching applications from site %s", site_id)
+
+        async with session.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            _LOGGER.debug("Applications endpoint response status: %s", response.status)
+            if response.status != 200:
+                response_text = await response.text()
+                _LOGGER.error(
+                    "Applications API error %s: %s", response.status, response_text
+                )
+                response.raise_for_status()
+
+            result = await response.json()
+
+            if result.get("errorCode") != 0:
+                error_msg = result.get("msg", "Unknown error")
+                # Applications might not be supported, return empty list
+                _LOGGER.warning("Applications API error: %s", error_msg)
+                return []
+
+            return result["result"]["data"]  # type: ignore[no-any-return]
+
+    async def async_step_applications(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle application selection step."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_app_ids = user_input.get(CONF_SELECTED_APPLICATIONS, [])
+
+            # Get title from first selected site
+            if self._selected_site_ids:
+                first_site = next(
+                    site
+                    for site in self._available_sites
+                    if site["siteId"] in self._selected_site_ids
+                )
+                title = f"Omada - {first_site['name']}"
+                if len(self._selected_site_ids) > 1:
+                    title += f" (+{len(self._selected_site_ids) - 1})"
+            else:
+                title = "Omada Controller"
+
+            # Create config entry
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_CONTROLLER_TYPE: self._controller_type,
+                    CONF_API_URL: self._api_url,
+                    CONF_OMADA_ID: self._omada_id,
+                    CONF_CLIENT_ID: self._client_id,
+                    CONF_CLIENT_SECRET: self._client_secret,
+                    CONF_ACCESS_TOKEN: self._access_token,
+                    CONF_REFRESH_TOKEN: self._refresh_token,
+                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
+                    CONF_SELECTED_SITES: self._selected_site_ids,
+                    CONF_SELECTED_CLIENTS: self._selected_client_macs,
+                    CONF_SELECTED_APPLICATIONS: selected_app_ids,
+                },
+            )
+
+        # Fetch applications from the first selected site
+        try:
+            if self._selected_site_ids:
+                first_site_id = self._selected_site_ids[0]
+                self._available_applications = await self._get_applications(
+                    first_site_id
+                )
+        except Exception:
+            _LOGGER.exception("Failed to fetch applications")
+            errors["base"] = "cannot_connect"
+
+        if not self._available_applications:
+            # No applications available or DPI not supported, skip and create entry
+            if self._selected_site_ids:
+                first_site = next(
+                    site
+                    for site in self._available_sites
+                    if site["siteId"] in self._selected_site_ids
+                )
+                title = f"Omada - {first_site['name']}"
+                if len(self._selected_site_ids) > 1:
+                    title += f" (+{len(self._selected_site_ids) - 1})"
+            else:
+                title = "Omada Controller"
+
+            return self.async_create_entry(
+                title=title,
+                data={
+                    CONF_CONTROLLER_TYPE: self._controller_type,
+                    CONF_API_URL: self._api_url,
+                    CONF_OMADA_ID: self._omada_id,
+                    CONF_CLIENT_ID: self._client_id,
+                    CONF_CLIENT_SECRET: self._client_secret,
+                    CONF_ACCESS_TOKEN: self._access_token,
+                    CONF_REFRESH_TOKEN: self._refresh_token,
+                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
+                    CONF_SELECTED_SITES: self._selected_site_ids,
+                    CONF_SELECTED_CLIENTS: self._selected_client_macs,
+                    CONF_SELECTED_APPLICATIONS: [],
+                },
+            )
+
+        # Create application selection options (sorted by family then name)
+        app_options = []
+        for app in sorted(
+            self._available_applications,
+            key=lambda x: (x.get("family", ""), x.get("applicationName", "")),
+        ):
+            app_id = str(app.get("applicationId", ""))
+            app_name = app.get("applicationName", "Unknown")
+            family = app.get("family", "Other")
+
+            app_options.append(
+                SelectOptionDict(
+                    value=app_id,
+                    label=f"{app_name} ({family})",
+                )
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(CONF_SELECTED_APPLICATIONS, default=[]): SelectSelector(
+                    SelectSelectorConfig(
+                        options=app_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="applications",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "app_count": str(len(self._available_applications)),
+            },
+        )
+
     async def async_step_reauth(
         self, entry_data: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -654,12 +801,16 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
         self._access_token: str | None = None
         self._selected_site_ids: list[str] = []
         self._available_clients: list[dict[str, Any]] = []
+        self._available_applications: list[dict[str, Any]] = []
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage the options."""
-        return await self.async_step_client_selection()
+        """Manage the options - show menu."""
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["client_selection", "application_selection"],
+        )
 
     async def async_step_client_selection(
         self, user_input: dict[str, Any] | None = None
@@ -748,6 +899,94 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
             },
         )
 
+    async def async_step_application_selection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle application selection in options flow."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected_app_ids = user_input.get(CONF_SELECTED_APPLICATIONS, [])
+
+            # Update config entry with new application selection
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_SELECTED_APPLICATIONS: selected_app_ids,
+                },
+            )
+
+            # Reload the integration to apply changes
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+            return self.async_create_entry(title="", data={})
+
+        # Get credentials from config entry
+        self._api_url = self.config_entry.data[CONF_API_URL]
+        self._omada_id = self.config_entry.data[CONF_OMADA_ID]
+        self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
+        self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
+
+        # Fetch applications from the first selected site
+        try:
+            if self._selected_site_ids:
+                first_site_id = self._selected_site_ids[0]
+                self._available_applications = await self._get_applications(
+                    first_site_id
+                )
+        except Exception:
+            _LOGGER.exception("Failed to fetch applications")
+            errors["base"] = "cannot_connect"
+
+        if not self._available_applications and not errors:
+            # No applications available, return with empty selection
+            return self.async_create_entry(title="", data={})
+
+        # Get currently selected applications
+        current_selection = self.config_entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+
+        # Create application selection options (sorted by family then name)
+        app_options = []
+        for app in sorted(
+            self._available_applications,
+            key=lambda x: (x.get("family", ""), x.get("applicationName", "")),
+        ):
+            app_id = str(app.get("applicationId", ""))
+            app_name = app.get("applicationName", "Unknown")
+            family = app.get("family", "Other")
+
+            app_options.append(
+                SelectOptionDict(
+                    value=app_id,
+                    label=f"{app_name} ({family})",
+                )
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_SELECTED_APPLICATIONS, default=current_selection
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=app_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="application_selection",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "app_count": str(len(self._available_applications)),
+                "selected_count": str(len(current_selection)),
+            },
+        )
+
     async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
         """Fetch all clients for a site.
 
@@ -797,6 +1036,56 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
             if result.get("errorCode") != 0:
                 error_msg = result.get("msg", "Unknown error")
                 raise InvalidAuthError(f"API error: {error_msg}")
+
+            return result["result"]["data"]  # type: ignore[no-any-return]
+
+    async def _get_applications(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch all available applications for DPI tracking.
+
+        Args:
+            site_id: Site ID to get applications for
+
+        Returns:
+            List of application dictionaries
+
+        Raises:
+            aiohttp.ClientError: If connection fails
+
+        """
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        params = {
+            "page": 1,
+            "pageSize": 1000,  # Get all applications
+        }
+
+        _LOGGER.debug("Fetching applications from site %s", site_id)
+
+        async with session.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            _LOGGER.debug("Applications endpoint response status: %s", response.status)
+            if response.status != 200:
+                response_text = await response.text()
+                _LOGGER.error(
+                    "Applications API error %s: %s", response.status, response_text
+                )
+                response.raise_for_status()
+
+            result = await response.json()
+
+            if result.get("errorCode") != 0:
+                error_msg = result.get("msg", "Unknown error")
+                _LOGGER.warning("Applications API error: %s", error_msg)
+                return []
 
             return result["result"]["data"]  # type: ignore[no-any-return]
 

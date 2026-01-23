@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from datetime import timedelta
 import logging
 import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiClient, OmadaApiError
 from .const import DOMAIN, SCAN_INTERVAL
@@ -319,3 +321,136 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
             "guest": client.get("guest", False),
             "auth_status": client.get("authStatus"),
         }
+
+
+class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):  # type: ignore[misc]
+    """Coordinator for Omada application traffic data with daily reset."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_id: str,
+        site_name: str,
+        selected_client_macs: list[str],
+        selected_app_ids: list[str],
+    ) -> None:
+        """Initialize the app traffic coordinator.
+
+        Args:
+            hass: Home Assistant instance
+            api_client: Omada API client
+            site_id: Site ID for the clients
+            site_name: Human-readable site name
+            selected_client_macs: List of client MAC addresses to track
+            selected_app_ids: List of application IDs to track
+
+        """
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_app_traffic_{site_id}",
+            update_interval=timedelta(seconds=SCAN_INTERVAL),
+        )
+        self.api_client = api_client
+        self.site_id = site_id
+        self.site_name = site_name
+        self.selected_client_macs = selected_client_macs
+        self.selected_app_ids = selected_app_ids
+        self._last_reset: dt.datetime | None = None
+
+    def _get_midnight_today(self) -> dt.datetime:
+        """Get midnight of current day in HA timezone."""
+        now = dt_util.now()
+        midnight: dt.datetime = dt_util.start_of_local_day(now)
+        return midnight
+
+    def _should_reset(self) -> bool:
+        """Check if data should be reset (new day)."""
+        midnight_today = self._get_midnight_today()
+
+        if self._last_reset is None:
+            return True
+
+        # Reset if we've crossed into a new day
+        return self._last_reset < midnight_today
+
+    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        """Fetch application traffic data for all selected clients.
+
+        Returns:
+            Dictionary mapping client MAC -> app_id -> traffic data
+            Format: {
+                "AA:BB:CC:DD:EE:FF": {
+                    "123": {"upload": 1024, "download": 2048, "app_name": "Netflix"},
+                    "456": {"upload": 512, "download": 1024, "app_name": "YouTube"},
+                },
+            }
+
+        """
+        try:
+            # Check if we should reset (new day)
+            if self._should_reset():
+                _LOGGER.debug(
+                    "Resetting app traffic data for new day in site %s", self.site_name
+                )
+                self._last_reset = self._get_midnight_today()
+
+            # Get time range: midnight today to now
+            midnight = self._get_midnight_today()
+            now = dt_util.now()
+            start_timestamp = int(midnight.timestamp())
+            end_timestamp = int(now.timestamp())
+
+            # Fetch app traffic for each client
+            client_app_data: dict[str, dict[str, Any]] = {}
+
+            for client_mac in self.selected_client_macs:
+                try:
+                    # Get app traffic for this client
+                    app_traffic_list = await self.api_client.get_client_app_traffic(
+                        self.site_id,
+                        client_mac,
+                        start_timestamp,
+                        end_timestamp,
+                    )
+
+                    # Process and filter to only selected apps
+                    client_apps: dict[str, Any] = {}
+                    for app_data in app_traffic_list:
+                        app_id = str(app_data.get("applicationId", ""))
+
+                        if app_id in self.selected_app_ids:
+                            client_apps[app_id] = {
+                                "upload": app_data.get("upload", 0),
+                                "download": app_data.get("download", 0),
+                                "traffic": app_data.get("traffic", 0),
+                                "app_name": app_data.get("applicationName", "Unknown"),
+                                "app_description": app_data.get(
+                                    "applicationDescription"
+                                ),
+                                "family": app_data.get("familyName"),
+                            }
+
+                    if client_apps:
+                        client_app_data[client_mac] = client_apps
+
+                except OmadaApiError as err:
+                    _LOGGER.warning(
+                        "Failed to fetch app traffic for client %s: %s",
+                        client_mac,
+                        err,
+                    )
+                    # Continue with other clients even if one fails
+
+            _LOGGER.debug(
+                "Fetched app traffic for %d/%d clients in site %s",
+                len(client_app_data),
+                len(self.selected_client_macs),
+                self.site_name,
+            )
+
+        except OmadaApiError as err:
+            raise UpdateFailed(f"Error communicating with API: {err}") from err
+
+        return client_app_data

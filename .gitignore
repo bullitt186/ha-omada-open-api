@@ -82,3 +82,4 @@ config/home-assistant_v2.db*
 *.pyc
 .mypy_cache/
 .ruff_cache/
+openapi/openapi.json
