@@ -5,14 +5,30 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 
 **Purpose**: Provide information retrieved via the Omada Open API as entities within Home Assistant, enabling monitoring and control of Omada SDN infrastructure (controllers, access points, switches, gateways, and clients).
 
-**API Documentation**:
-- **Official Documentation**: https://use1-omada-northbound.tplinkcloud.com/doc.html#/home
-- **OpenAPI Specification**: `/workspaces/ha-omada-open-api/openapi/openapi.json` (complete Swagger/OpenAPI spec)
+## Documentation References
 
-**CRITICAL**: When there are doubts or questions regarding the Omada Open API (endpoints, authentication flow, data structures, request/response formats, parameters, etc.):
-1. **ALWAYS** consult the OpenAPI specification file at `openapi/openapi.json` FIRST
-2. Use the official documentation URL as a secondary reference
-3. The OpenAPI spec is the authoritative source for all endpoint definitions, parameters, request/response schemas, and data models
+### CRITICAL: Documentation Hierarchy
+**ALWAYS** consult official documentation before making any changes:
+
+1. **Home Assistant Developer Documentation**
+   - Use GitHub MCP tool to search: `home-assistant/developers.home-assistant`
+   - Authoritative source for: Integration patterns, best practices, quality standards, entity types, config flows, etc.
+   - **MUST** be followed strictly for all HA integration development
+
+2. **HACS Publishing Documentation**
+   - Use GitHub MCP tool to search: `hacs/documentation` (specifically `source/docs/publish/`)
+   - Authoritative source for: HACS requirements, repository structure, validation, publishing workflow
+   - **MUST** be followed strictly when preparing for HACS publication
+
+3. **Omada Open API Documentation**
+   - **Official Documentation**: https://use1-omada-northbound.tplinkcloud.com/doc.html#/home
+   - **OpenAPI Specification**: `/workspaces/ha-omada-open-api/openapi/openapi.json` (complete Swagger/OpenAPI spec)
+   - Authoritative source for: All endpoint definitions, parameters, request/response schemas, data models
+
+**When there are doubts or questions**:
+- **Home Assistant patterns**: Search `home-assistant/developers.home-assistant` FIRST
+- **HACS requirements**: Search `hacs/documentation` (source/docs/publish/) FIRST
+- **Omada API**: Consult `openapi/openapi.json` FIRST
 
 ## Omada Open API Integration Specifics
 
