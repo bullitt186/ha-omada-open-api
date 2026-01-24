@@ -8,6 +8,11 @@
       "type": "github",
       "repository": "hacs/documentation",
       "description": "HACS (Home Assistant Community Store) documentation for publishing integrations"
+    },
+    "ha-developer-docs": {
+      "type": "github",
+      "repository": "home-assistant/developers.home-assistant",
+      "description": "Home Assistant developer documentation for integration development best practices and patterns"
     }
   }
 }

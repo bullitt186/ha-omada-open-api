@@ -11,7 +11,7 @@ This document tracks compliance with HACS publishing requirements for the Omada 
 ### ✅ Repository Settings
 - [x] **Public repository** on GitHub
 - [x] **Description** set: "Home Assistant integration for TP-Link Omada SDN using the Open API"
-- [ ] **Topics** added (need to add GitHub topics)
+- [x] **Topics** added: home-assistant, home-assistant-integration, hacs, omada, tp-link, sdn, network-monitoring, custom-component
 - [x] **README.md** present with usage information
 - [x] **hacs.json** file in repository root
 
