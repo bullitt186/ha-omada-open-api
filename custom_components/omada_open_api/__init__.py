@@ -199,9 +199,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 len(app_coordinator.data),
             )
 
-    # Store API client and coordinators
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = {
+    # Store API client and coordinators in runtime_data
+    entry.runtime_data = {
         "api_client": api_client,
         "coordinators": coordinators,
         "client_coordinators": client_coordinators,

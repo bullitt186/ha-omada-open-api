@@ -49,7 +49,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada binary sensors from a config entry."""
-    data = hass.data[DOMAIN][entry.entry_id]
+    data = entry.runtime_data
     coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
 
     # Sort devices by dependency order to avoid via_device warnings

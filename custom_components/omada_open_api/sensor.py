@@ -270,7 +270,7 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada sensors from a config entry."""
-    data = hass.data[DOMAIN][entry.entry_id]
+    data = entry.runtime_data
     coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
     client_coordinators: list[OmadaClientCoordinator] = data.get(
         "client_coordinators", []
