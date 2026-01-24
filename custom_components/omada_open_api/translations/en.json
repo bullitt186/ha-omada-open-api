@@ -74,7 +74,7 @@
         },
         "abort": {
             "already_configured": "This Omada controller is already configured",
-            "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"
+            "reauth_successful": "Re-authentication successful"
         }
     },
     "options": {
