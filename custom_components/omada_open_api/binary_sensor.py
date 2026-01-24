@@ -52,14 +52,42 @@ async def async_setup_entry(
     data = hass.data[DOMAIN][entry.entry_id]
     coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
 
+    # Sort devices by dependency order to avoid via_device warnings
+    # 1. Gateways first (no via_device)
+    # 2. Switches second (via_device to gateway or other switch)
+    # 3. Other devices last (via_device to their uplink)
+    def get_device_sort_key(
+        coordinator: OmadaSiteCoordinator, device_mac: str
+    ) -> tuple[int, str]:
+        """Get sort key for device ordering."""
+        device_data = coordinator.data.get("devices", {}).get(device_mac, {})
+        device_type = device_data.get("type", "").lower()
+
+        # Priority order: gateway(0), switch(1), others(2)
+        if "gateway" in device_type:
+            return (0, device_mac)
+        if "switch" in device_type:
+            return (1, device_mac)
+        return (2, device_mac)
+
+    # Build sorted list of (coordinator, device_mac) tuples
+    device_list = [
+        (coordinator, device_mac)
+        for coordinator in coordinators.values()
+        for device_mac in coordinator.data.get("devices", {})
+    ]
+
+    # Sort by device type priority
+    device_list.sort(key=lambda x: get_device_sort_key(x[0], x[1]))
+
+    # Create binary sensors in sorted order
     entities: list[OmadaDeviceBinarySensor] = [
         OmadaDeviceBinarySensor(
             coordinator=coordinator,
             description=description,
             device_mac=device_mac,
         )
-        for coordinator in coordinators.values()
-        for device_mac in coordinator.data.get("devices", {})
+        for coordinator, device_mac in device_list
         for description in DEVICE_BINARY_SENSORS
     ]
 
@@ -98,7 +126,12 @@ class OmadaDeviceBinarySensor(
         if device_data.get("ip"):
             connections.add(("ip", device_data.get("ip")))
 
-        self._attr_device_info = {
+        # Determine device type and via_device
+        device_type = device_data.get("type", "").lower()
+        uplink_mac = device_data.get("uplink_device_mac")
+
+        # Build device info
+        device_info = {
             "identifiers": {(DOMAIN, device_mac)},
             "connections": connections,
             "name": device_name,
@@ -107,8 +140,16 @@ class OmadaDeviceBinarySensor(
             "serial_number": device_data.get("sn"),
             "sw_version": device_data.get("firmware_version"),
             "configuration_url": coordinator.api_client.api_url,
-            "via_device": (DOMAIN, coordinator.site_id),
         }
+
+        # Only set via_device for non-gateway devices
+        if "gateway" not in device_type and "router" not in device_type:
+            # For switches and other devices, use uplink device if available
+            if uplink_mac:
+                device_info["via_device"] = (DOMAIN, uplink_mac)
+            # No fallback - if no uplink, device is standalone
+
+        self._attr_device_info = device_info
 
     @property
     def is_on(self) -> bool:

@@ -338,6 +338,67 @@ class OmadaApiClient:
         except aiohttp.ClientError as err:
             raise OmadaApiError(f"Connection error: {err}") from err
 
+    async def get_device_uplink_info(
+        self, site_id: str, device_macs: list[str]
+    ) -> list[dict[str, Any]]:
+        """Get uplink information for specified devices.
+
+        Args:
+            site_id: Site ID
+            device_macs: List of device MAC addresses to query
+
+        Returns:
+            List of uplink info dictionaries containing uplinkDeviceMac,
+            uplinkDeviceName, uplinkDevicePort, linkSpeed, duplex
+
+        Raises:
+            OmadaApiError: If fetching uplink info fails
+
+        """
+        if not device_macs:
+            return []
+
+        await self._ensure_valid_token()
+
+        endpoint = f"/openapi/v1/{self._omada_id}/sites/{site_id}/devices/uplink-info"
+        url = f"{self._api_url}{endpoint}"
+
+        headers = {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
+        # Request body with device MACs (note: field name is "deviceMacs" not "macs")
+        body = {"deviceMacs": device_macs}
+
+        _LOGGER.debug(
+            "Fetching uplink info for %d devices from %s", len(device_macs), url
+        )
+
+        try:
+            async with self._session.post(
+                url,
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+            ) as response:
+                if response.status != 200:
+                    response_text = await response.text()
+                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
+                    response.raise_for_status()
+
+                result = await response.json()
+
+                # Check for API error codes
+                if result.get("errorCode") != 0:
+                    error_msg = result.get("msg", "Unknown error")
+                    raise OmadaApiError(f"API error: {error_msg}")
+
+                return result["result"]  # type: ignore[no-any-return]
+
+        except aiohttp.ClientError as err:
+            raise OmadaApiError(f"Connection error: {err}") from err
+
     async def get_clients(
         self, site_id: str, page: int = 1, page_size: int = 100
     ) -> dict[str, Any]:

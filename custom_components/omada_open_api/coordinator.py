@@ -69,10 +69,48 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
 
             # Pre-process device data for easy access by entities
             devices = {}
+            device_macs = []
             for device in devices_raw:
                 mac = device.get("mac")
                 if mac:
                     devices[mac] = self._process_device(device)
+                    device_macs.append(mac)
+
+            # Fetch uplink information for all devices
+            if device_macs:
+                try:
+                    uplink_info_list = await self.api_client.get_device_uplink_info(
+                        self.site_id, device_macs
+                    )
+
+                    # Merge uplink info into device data
+                    for uplink_info in uplink_info_list:
+                        device_mac = uplink_info.get(
+                            "deviceMac"
+                        )  # Note: API returns deviceMac not mac
+                        uplink_device_mac = uplink_info.get("uplinkDeviceMac")
+                        uplink_device_name = uplink_info.get("uplinkDeviceName")
+
+                        if device_mac and device_mac in devices:
+                            devices[device_mac]["uplink_device_mac"] = uplink_device_mac
+                            devices[device_mac]["uplink_device_name"] = (
+                                uplink_device_name
+                            )
+                            devices[device_mac]["uplink_device_port"] = uplink_info.get(
+                                "uplinkDevicePort"
+                            )
+                            devices[device_mac]["link_speed"] = uplink_info.get(
+                                "linkSpeed"
+                            )
+                            devices[device_mac]["duplex"] = uplink_info.get("duplex")
+
+                except OmadaApiError as err:
+                    _LOGGER.warning(
+                        "Failed to fetch uplink info for site %s: %s",
+                        self.site_name,
+                        err,
+                    )
+                    # Continue without uplink info - not critical
 
             _LOGGER.debug(
                 "Fetched %d devices for site %s", len(devices), self.site_name
