@@ -747,3 +747,93 @@ def _auto_scale_bytes(bytes_value: int) -> tuple[float, str]:
 - Store selected application IDs in config entry
 - Provide options flow menu for modifying selections
 - Link sensors to client devices via device_info
+
+## README Best Practices for HACS Integrations
+
+### Structure and Workflow
+
+#### 1. Title & Badges
+- Use a descriptive integration name matching the domain and pair it with a concise tagline. Include a small logo or banner if available. Place badges relevant to Home Assistant integrations—such as HACS status, release version, build status and licence—to make the project state transparent. Consider adding badges for test coverage or code quality if you run automated workflows.
+- Link to the GitHub release page and add a My Home Assistant button that opens a direct installation link. This button lets users install the integration in one click when they are logged into Home Assistant.
+
+#### 2. Integration Description & Motivation
+- Explain in a few sentences what the integration does, which devices or services it integrates and why it exists. A "Why?" section can help convey the benefit.
+- Describe the target audience (Home Assistant users) and main use cases (e.g. monitoring sensors, controlling devices).
+
+#### 3. Table of Contents
+- Generate a table of contents with links to all sections. HACS integration readmes can be lengthy, so navigation links help users find installation or configuration quickly.
+
+#### 4. Installation & Setup
+
+**HACS Installation (Recommended):**
+- Clarify that users need to have HACS installed in their Home Assistant instance and provide a link to the HACS setup guide.
+- If the repository is not part of the default HACS store, instruct users to:
+  1. Open HACS → Integrations
+  2. Choose Custom repositories
+  3. Enter the repository URL
+  4. Set the category to Integration
+- After adding the repository, they should search for the integration in HACS, click Install and allow Home Assistant to restart if prompted.
+- Finally, instruct them to go to Settings → Devices & Services, click Add Integration, search for the integration name and follow the on‑screen configuration flow.
+
+**Manual Installation:**
+- Provide fallback instructions for users who do not use HACS.
+- Ask them to download the latest release archive or clone the repository, then copy the integration folder (matching the domain) into the `custom_components` directory of their Home Assistant configuration.
+- After copying the files, they must restart Home Assistant and add the integration via Settings → Devices & Services.
+- If the integration supports YAML configuration only, include a full configuration example and explain each parameter.
+
+**Quick-Start Example:**
+- In both cases, offer a quick‑start example showing the minimal steps required to see the integration working.
+- Use UI screenshots or YAML snippets to demonstrate the first sensor or entity being created.
+
+#### 5. Configuration
+- Describe whether configuration is performed through the UI (config flow) or via `configuration.yaml`.
+- List and explain the fields presented during setup (API keys, hostnames, tokens, prefixes, filters).
+- Include an example `configuration.yaml` snippet for YAML‑based configuration, documenting required and optional parameters along with their data types and purposes.
+- If external credentials or API keys are needed, explain how to obtain them and note any network ports or firewall rules.
+
+#### 6. Usage & Examples
+- Provide examples of how the integration appears in Home Assistant: show typical sensors or controls, and demonstrate automations that use the integration.
+- Use YAML or automation snippets as examples.
+- Document available services, events and options in clear lists or tables. For example, list service calls with parameters, or event names fired by the integration.
+- Include recipes or use cases for deeper usage, such as automating tasks based on sensor values.
+
+#### 7. Feature Overview & Philosophy
+- Summarize the core features your integration offers (platforms implemented, supported devices, sensors or services).
+- Highlight unique benefits, such as local control, energy efficiency or advanced filtering.
+- Include a brief design philosophy explaining architectural choices or trade‑offs (e.g. asynchronous I/O, remote API usage).
+
+#### 8. Repository Structure & Metadata
+- Explain that the repository must include a valid `manifest.json` and `hacs.json` at the appropriate locations; these files define the domain, integration version, documentation URL, codeowners and other metadata required by HACS.
+- Developers should also register the integration's brand (icon and metadata) in the `home‑assistant/brands` repository before submitting to the community store.
+- Highlight that once the integration is accepted into the HACS default store, you can add a HACS badge to the README to signal its availability.
+- Include the My Home Assistant button to allow one‑click installation directly from Home Assistant.
+- Advise that the project should have at least one GitHub release, a descriptive repository description, a LICENSE file and a CHANGELOG.md.
+- A CONTRIBUTING.md file and GitHub Actions for linting/testing further enhance credibility.
+
+#### 9. Troubleshooting & Known Issues
+
+**Common Problems:**
+- **Integration not loading**: Check Home Assistant logs and validate that the `manifest.json` and `hacs.json` files are present and syntactically correct.
+- **HACS submission rejected**: Ensure that the integration's brand is registered, the repository structure follows HACS guidelines and all mandatory files (manifest, hacs.json, licence) are present.
+- **Authentication or connection errors**: Verify credentials, API keys and network ports, and mention firewall configuration where relevant.
+- List any known limitations or unsupported features, such as unsupported network modes or missing proxy support.
+- Encourage users to report issues via GitHub or the community forum.
+
+#### 10. Further Information
+- Link to the Home Assistant developer documentation, HACS documentation and any API or device documentation relevant to your integration.
+- Provide references to external resources such as templates, examples or community forum posts for advanced usage.
+
+#### 11. Community & Contribution
+- Encourage users to open issues, propose features or submit pull requests.
+- Reference a separate CONTRIBUTING.md file and the code of conduct.
+- Mention communication channels such as GitHub Discussions, the Home Assistant community forum or Discord for support and collaboration.
+
+#### 12. Licence & Legal
+- State the licence of the project and link to the LICENSE file.
+- Add acknowledgments or notes about third‑party libraries where appropriate.
+
+### Notes for README Creation
+- **Customization**: Adapt this template to the specific requirements of the project. The more complex the project, the more detailed the examples and explanations should be.
+- **Mark Assumptions**: If required details are missing (e.g., licence or target audience), clearly mark your assumptions and actively request a verification step.
+- **Currency**: Ensure that version notes and documentation links are up to date. Check releases regularly.
+- **Language & Style**: Use clear, precise language; emphasize keywords in bold; structure sections logically. Use English for code and specifications.
