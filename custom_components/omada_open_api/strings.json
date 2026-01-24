@@ -61,7 +61,7 @@
                 }
             },
             "reauth_confirm": {
-                "title": "[%key:common::config_flow::title::reauth%]",
+                "title": "Re-authenticate Omada Integration",
                 "description": "The Omada API credentials have expired or are invalid. Please re-enter your credentials to continue."
             }
         },
