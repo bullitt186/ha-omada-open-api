@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .api import OmadaApiAuthError, OmadaApiClient
 from .const import (
@@ -247,8 +247,9 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry: Config entry that was updated
 
     """
-    # Clean up devices that are no longer selected before reloading
+    # Clean up devices and entities that are no longer selected before reloading
     await _cleanup_devices(hass, entry)
+    await _cleanup_entities(hass, entry)
 
     await hass.config_entries.async_reload(entry.entry_id)
 
@@ -300,6 +301,57 @@ async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     if removed_count > 0:
         _LOGGER.info("Removed %d deselected device(s)", removed_count)
+
+
+async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entities for deselected applications.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+
+    """
+    entity_reg = er.async_get(hass)
+
+    # Get currently selected applications
+    selected_app_ids = entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+
+    if not selected_app_ids:
+        # No apps selected, remove all app traffic entities
+        _LOGGER.debug("No applications selected, will remove all app traffic entities")
+
+    # Normalize app IDs for comparison
+    selected_app_ids_normalized = {str(app_id) for app_id in selected_app_ids}
+
+    # Get all entities for this config entry
+    entities = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
+
+    removed_count = 0
+    for entity in entities:
+        # Check if this is an app traffic entity (format: {mac}_{app_id}_{upload/download}_app_traffic)
+        if entity.unique_id and entity.unique_id.endswith("_app_traffic"):
+            # Extract app_id from unique_id: "MAC_APPID_upload_app_traffic" or "MAC_APPID_download_app_traffic"
+            parts = entity.unique_id.split("_")
+            if len(parts) >= 4:  # MAC, APPID, upload/download, app, traffic
+                # App ID is between MAC and metric type (upload/download)
+                # Format: {mac}_{app_id}_{metric}_app_traffic
+                # So app_id is parts[-3] (third from end)
+                app_id = parts[-3]
+
+                # Check if this app is still selected
+                if app_id not in selected_app_ids_normalized:
+                    _LOGGER.info(
+                        "Removing entity for deselected application: %s (app_id: %s)",
+                        entity.entity_id,
+                        app_id,
+                    )
+                    entity_reg.async_remove(entity.entity_id)
+                    removed_count += 1
+
+    if removed_count > 0:
+        _LOGGER.info(
+            "Removed %d entity/entities for deselected applications", removed_count
+        )
 
 
 async def async_remove_config_entry_device(
