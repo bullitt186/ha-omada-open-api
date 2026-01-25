@@ -232,8 +232,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Unload platforms
     unload_ok: bool = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id)
+    # Runtime data is automatically cleaned up when entry is unloaded
+    # No need to manually remove it
 
     return unload_ok
 
