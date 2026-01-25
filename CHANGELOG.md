@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-01-25
+
+### Added
+- Automatic cleanup of devices when clients are deselected in options flow
+- Automatic cleanup of entities when applications are deselected in options flow
+- Device registry integration with proper removal of deselected tracked items
+- Entity registry integration with cleanup of orphaned application traffic sensors
+- MIT License file
+
+### Changed
+- Added prominent disclaimer in README about WIP status, AI development, and risks
+- Updated README with comprehensive warnings about cloud controller support and stability
+
+### Fixed
+- Fixed `KeyError` in `async_unload_entry` when reloading integration via options flow
+- Removed incorrect `hass.data[DOMAIN]` access in favor of `entry.runtime_data` pattern
+- Devices for deselected clients are now properly removed from device registry
+- Entities for deselected applications are now properly removed from entity registry
+
+### Technical Details
+- Device cleanup: Compares device identifiers against selected clients/sites lists
+- Entity cleanup: Parses app_id from entity unique_id and removes orphaned app traffic sensors
+- Both cleanups run automatically before integration reload during options flow changes
+- Normalized MAC address and ID comparison (uppercase with hyphens)
+
 ## [0.1.0] - 2026-01-25
 
 ### Added
@@ -43,4 +68,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth 2.0 credentials (Omada ID, Client ID, Client Secret)
 - DPI enabled on gateway for application traffic tracking
 
+[0.2.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.2.0
 [0.1.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.1.0
