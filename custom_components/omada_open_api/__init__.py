@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import device_registry as dr
 
 from .api import OmadaApiAuthError, OmadaApiClient
 from .const import (
@@ -246,4 +247,107 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry: Config entry that was updated
 
     """
+    # Clean up devices that are no longer selected before reloading
+    await _cleanup_devices(hass, entry)
+
     await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove devices that are no longer in the selected lists.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+
+    """
+    device_registry = dr.async_get(hass)
+
+    # Get currently selected items
+    selected_client_macs = entry.data.get(CONF_SELECTED_CLIENTS, [])
+    selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
+
+    # Normalize to uppercase with hyphens for comparison
+    selected_client_macs_normalized = {
+        mac.replace(":", "-").upper() for mac in selected_client_macs
+    }
+    selected_site_ids_normalized = {site_id.upper() for site_id in selected_site_ids}
+
+    # Get all devices for this config entry
+    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+
+    removed_count = 0
+    for device in devices:
+        should_remove = True
+
+        # Check if device is in selected lists
+        for identifier in device.identifiers:
+            if identifier[0] == DOMAIN:
+                device_id = identifier[1].upper()
+
+                # Keep if it's a selected client or site
+                if (
+                    device_id in selected_client_macs_normalized
+                    or device_id in selected_site_ids_normalized
+                ):
+                    should_remove = False
+                    break
+
+        if should_remove:
+            _LOGGER.info("Removing deselected device: %s", device.name)
+            device_registry.async_remove_device(device.id)
+            removed_count += 1
+
+    if removed_count > 0:
+        _LOGGER.info("Removed %d deselected device(s)", removed_count)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, entry: ConfigEntry, device_entry: Any
+) -> bool:
+    """Remove a device from the integration.
+
+    This is called when a user manually removes a device from the UI.
+    It's also used to clean up devices that are no longer tracked.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry
+        device_entry: Device entry to remove
+
+    Returns:
+        True if the device can be removed, False otherwise
+
+    """
+    # Get the list of selected clients and sites
+    selected_client_macs = entry.data.get(CONF_SELECTED_CLIENTS, [])
+    selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
+
+    # Normalize MAC addresses to match format (with hyphens)
+    selected_client_macs_normalized = {
+        mac.replace(":", "-").upper() for mac in selected_client_macs
+    }
+    selected_site_ids_normalized = {site_id.upper() for site_id in selected_site_ids}
+
+    # Check if this device is still in the selected lists
+    for identifier in device_entry.identifiers:
+        if identifier[0] == DOMAIN:
+            device_id = identifier[1].upper()
+
+            # Check if it's a selected client (client devices use MAC format)
+            if device_id in selected_client_macs_normalized:
+                _LOGGER.debug(
+                    "Device %s is still a selected client, not removing", device_id
+                )
+                return False
+
+            # Check if it's a selected site
+            if device_id in selected_site_ids_normalized:
+                _LOGGER.debug(
+                    "Device %s is still a selected site, not removing", device_id
+                )
+                return False
+
+    # Device is not in any selected list, allow removal
+    _LOGGER.info("Allowing removal of device %s", device_entry.name)
+    return True
