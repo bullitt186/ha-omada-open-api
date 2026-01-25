@@ -11,6 +11,20 @@
 
 ---
 
+## ⚠️ **DISCLAIMER**
+
+**This integration is currently a work in progress. Please read carefully before using:**
+
+- **🚧 Work in Progress**: This integration is under active development and may contain bugs or incomplete features.
+- **🤖 AI-Assisted Development**: This project has been heavily developed with the assistance of AI tools and may not follow all traditional development best practices.
+- **🔮 No Long-Term Support Guarantee**: The maintainer cannot guarantee continued support or maintenance of this integration in the medium to long term.
+- **⚠️ Use at Your Own Risk**: Users install and use this integration entirely at their own risk. Always test in a non-production environment first.
+- **☁️ Cloud Controller Untested**: Omada Cloud Controller support has not been thoroughly tested. Local controller support is the primary focus.
+
+**If you encounter issues or have concerns, please open an issue on GitHub. Contributions and testing feedback are welcome!**
+
+---
+
 ## Table of Contents
 
 - [About](#about)
