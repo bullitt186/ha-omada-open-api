@@ -8,7 +8,7 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 ## Documentation References
 
 ### CRITICAL: Documentation Hierarchy
-**ALWAYS** consult official documentation before making any changes:
+**ALWAYS** consult official documentation in GitHub repos before making any changes:
 
 1. **Home Assistant Developer Documentation**
    - Use GitHub MCP tool to search: `home-assistant/developers.home-assistant`
@@ -29,6 +29,10 @@ This project is a Home Assistant integration for TP-Link Omada SDN using the Ope
 - **Home Assistant patterns**: Search `home-assistant/developers.home-assistant` FIRST
 - **HACS requirements**: Search `hacs/documentation` (source/docs/publish/) FIRST
 - **Omada API**: Consult `openapi/openapi.json` FIRST
+
+**Enforcement**:
+- Always run a GitHub MCP search in the two documentation repos above before proposing or implementing changes that touch Home Assistant patterns, config flows, entities, services, or HACS publishing requirements.
+- If no relevant documentation is found, say so explicitly and continue with best-effort reasoning.
 
 ## Omada Open API Integration Specifics
 
