@@ -52,7 +52,8 @@ SAMPLE_DEVICE_AP = {
     "modelName": "EAP660 HD",
     "type": "ap",
     "status": 14,
-    "statusCategory": 0,
+    "statusCategory": 1,
+    "detailStatus": 14,
     "ip": "192.168.1.10",
     "firmwareVersion": "1.2.3",
     "cpuUtil": 15,
@@ -69,7 +70,8 @@ SAMPLE_DEVICE_SWITCH = {
     "model": "TL-SG3428X",
     "type": "switch",
     "status": 14,
-    "statusCategory": 0,
+    "statusCategory": 1,
+    "detailStatus": 14,
     "ip": "192.168.1.2",
     "firmwareVersion": "2.0.0",
     "cpuUtil": 5,
@@ -86,7 +88,8 @@ SAMPLE_DEVICE_GATEWAY = {
     "model": "ER8411",
     "type": "gateway",
     "status": 14,
-    "statusCategory": 0,
+    "statusCategory": 1,
+    "detailStatus": 14,
     "ip": "192.168.1.1",
     "publicIp": "1.2.3.4",
     "firmwareVersion": "3.0.0",
@@ -127,10 +130,26 @@ SAMPLE_CLIENT_WIRELESS = {
     "ssid": "MyWiFi",
     "signalLevel": -55,
     "rssi": -55,
+    "snr": 35,
     "apName": "Office AP",
     "apMac": "AA-BB-CC-DD-EE-01",
     "channel": 36,
     "uptime": 3600,
+    "trafficDown": 1_500_000_000,
+    "trafficUp": 500_000_000,
+    "activity": 2_500_000,
+    "uploadActivity": 1_200_000,
+    "powerSave": True,
+    "blocked": False,
+    "connectType": 1,
+    "wifiMode": 6,
+    "rxRate": 866_000,
+    "txRate": 433_000,
+    "signalRank": 4,
+    "healthScore": 85,
+    "vendor": "Apple",
+    "deviceType": "iPhone",
+    "osName": "iOS",
 }
 
 SAMPLE_CLIENT_WIRED = {
@@ -144,6 +163,15 @@ SAMPLE_CLIENT_WIRED = {
     "switchMac": "AA-BB-CC-DD-EE-02",
     "port": 10,
     "uptime": 7200,
+    "trafficDown": 5_000_000_000,
+    "trafficUp": 2_000_000_000,
+    "activity": 5_000_000,
+    "uploadActivity": 3_000_000,
+    "blocked": False,
+    "networkName": "LAN",
+    "vid": 1,
+    "portName": "Port 10",
+    "vendor": "Dell",
 }
 
 
@@ -204,6 +232,18 @@ def mock_api_client() -> MagicMock:
     )
     client.get_switch_ports_poe = AsyncMock(return_value=[])
     client.get_poe_usage = AsyncMock(return_value=[])
+    client.get_device_client_stats = AsyncMock(return_value=[])
+    client.reboot_device = AsyncMock()
+    client.reconnect_client = AsyncMock()
+    client.start_wlan_optimization = AsyncMock()
+    client.block_client = AsyncMock()
+    client.unblock_client = AsyncMock()
+    client.get_firmware_info = AsyncMock(return_value={})
+    client.start_online_upgrade = AsyncMock(return_value={})
+    client.get_led_setting = AsyncMock(return_value={"enable": True})
+    client.set_led_setting = AsyncMock(return_value={})
+    client.locate_device = AsyncMock()
+    client.get_ap_radios = AsyncMock(return_value={})
     return client
 
 

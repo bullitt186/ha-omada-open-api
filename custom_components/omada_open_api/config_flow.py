@@ -26,9 +26,12 @@ import voluptuous as vol
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_APP_SCAN_INTERVAL,
     CONF_CLIENT_ID,
+    CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
+    CONF_DEVICE_SCAN_INTERVAL,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
@@ -38,8 +41,13 @@ from .const import (
     CONF_TOKEN_EXPIRES_AT,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_LOCAL,
+    DEFAULT_APP_SCAN_INTERVAL,
+    DEFAULT_CLIENT_SCAN_INTERVAL,
+    DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     DOMAIN,
+    MAX_SCAN_INTERVAL,
+    MIN_SCAN_INTERVAL,
     REGIONS,
 )
 
@@ -836,7 +844,69 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
         """Manage the options - show menu."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["client_selection", "application_selection"],
+            menu_options=[
+                "client_selection",
+                "application_selection",
+                "update_intervals",
+            ],
+        )
+
+    async def async_step_update_intervals(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle update interval configuration."""
+        if user_input is not None:
+            # Update config entry with new intervals
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_DEVICE_SCAN_INTERVAL: user_input[CONF_DEVICE_SCAN_INTERVAL],
+                    CONF_CLIENT_SCAN_INTERVAL: user_input[CONF_CLIENT_SCAN_INTERVAL],
+                    CONF_APP_SCAN_INTERVAL: user_input[CONF_APP_SCAN_INTERVAL],
+                },
+            )
+
+            # Reload the integration to apply changes
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+
+            return self.async_create_entry(title="", data={})
+
+        # Get current values
+        current_device = self.config_entry.data.get(
+            CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
+        )
+        current_client = self.config_entry.data.get(
+            CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
+        )
+        current_app = self.config_entry.data.get(
+            CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL
+        )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_DEVICE_SCAN_INTERVAL, default=current_device
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
+                vol.Required(
+                    CONF_CLIENT_SCAN_INTERVAL, default=current_client
+                ): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
+                vol.Required(CONF_APP_SCAN_INTERVAL, default=current_app): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="update_intervals",
+            data_schema=data_schema,
         )
 
     async def async_step_client_selection(

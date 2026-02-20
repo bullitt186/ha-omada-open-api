@@ -15,14 +15,21 @@ from .clients import normalize_client_mac
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_APP_SCAN_INTERVAL,
     CONF_CLIENT_ID,
+    CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
+    CONF_DEVICE_SCAN_INTERVAL,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
+    CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
+    DEFAULT_APP_SCAN_INTERVAL,
+    DEFAULT_CLIENT_SCAN_INTERVAL,
+    DEFAULT_DEVICE_SCAN_INTERVAL,
     DOMAIN,
 )
 from .coordinator import (
@@ -42,6 +49,10 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.DEVICE_TRACKER,
+    Platform.SWITCH,
+    Platform.UPDATE,
 ]
 
 
@@ -101,6 +112,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     coordinators: dict[str, OmadaSiteCoordinator] = {}
     selected_site_ids: list[str] = entry.data.get(CONF_SELECTED_SITES, [])
 
+    # Get configured scan intervals
+    device_interval = entry.data.get(
+        CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
+    )
+    client_interval = entry.data.get(
+        CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
+    )
+    app_interval = entry.data.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
+
     # Get all sites to find names for selected sites
     all_sites = await api_client.get_sites()
     sites_by_id = {site["siteId"]: site for site in all_sites}
@@ -118,6 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             api_client=api_client,
             site_id=site_id,
             site_name=site_name,
+            scan_interval=device_interval,
         )
 
         # Perform initial data fetch
@@ -151,6 +172,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 site_id=site_id,
                 site_name=site_name,
                 selected_client_macs=selected_client_macs,
+                scan_interval=client_interval,
             )
 
             # Perform initial data fetch
@@ -190,6 +212,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 site_name=site_name,
                 selected_client_macs=selected_client_macs,
                 selected_app_ids=selected_app_ids,
+                scan_interval=app_interval,
             )
 
             # Perform initial data fetch
@@ -203,17 +226,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             )
 
     # Store API client and coordinators in runtime_data
+    #
+    # Check whether the API credentials have write access by performing a
+    # non-destructive probe on the first site.  When the credentials are
+    # viewer-only, controllable switches (PoE, LED) are not created.
+    has_write_access = True
+    if coordinators:
+        first_site_id = next(iter(coordinators))
+        has_write_access = await api_client.check_write_access(first_site_id)
+
     entry.runtime_data = {
         "api_client": api_client,
         "coordinators": coordinators,
         "client_coordinators": client_coordinators,
         "app_traffic_coordinators": app_traffic_coordinators,
+        "has_write_access": has_write_access,
     }
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Set up config entry update listener for token updates
+    # Snapshot current data so the update listener can detect real config changes
+    # vs. token-only updates.
+    hass.data.setdefault(f"{DOMAIN}_prev_data", {})[entry.entry_id] = dict(entry.data)
+
+    # Set up config entry update listener (skips reload on token-only changes)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
@@ -244,11 +281,43 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when it's updated.
 
+    Only reload when configuration actually changes (sites, clients,
+    applications, scan intervals).  Token-only updates are persisted by the
+    API client and do not require a reload.
+
     Args:
         hass: Home Assistant instance
         entry: Config entry that was updated
 
     """
+    # Keys that represent transient auth state — changes to only these
+    # should NOT trigger a full reload.
+    token_keys = {
+        CONF_ACCESS_TOKEN,
+        CONF_REFRESH_TOKEN,
+        CONF_TOKEN_EXPIRES_AT,
+        CONF_TOKEN_EXPIRES,
+    }
+
+    # Compare current runtime data snapshot with the new entry data.
+    # If only token keys differ, skip the reload.
+    prev_store: dict[str, dict[str, Any]] = hass.data.get(f"{DOMAIN}_prev_data", {})
+    previous_data = prev_store.get(entry.entry_id, {})
+    current_data = dict(entry.data)
+
+    if previous_data:
+        changed_keys = {
+            k
+            for k in current_data.keys() | previous_data.keys()
+            if current_data.get(k) != previous_data.get(k)
+        }
+        if changed_keys and changed_keys <= token_keys:
+            _LOGGER.debug("Skipping reload — only auth tokens changed")
+            prev_store[entry.entry_id] = current_data
+            return
+
+    prev_store[entry.entry_id] = current_data
+
     # Clean up devices and entities that are no longer selected before reloading
     await _cleanup_devices(hass, entry)
     await _cleanup_entities(hass, entry)

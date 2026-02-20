@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -12,19 +13,24 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
     ICON_CLIENTS,
     ICON_CPU,
     ICON_DEVICE_TYPE,
+    ICON_DOWNLOAD,
     ICON_FIRMWARE,
     ICON_LINK,
     ICON_MEMORY,
     ICON_POE,
+    ICON_SIGNAL,
+    ICON_STATUS,
     ICON_TAG,
+    ICON_UPLOAD,
     ICON_UPTIME,
 )
 from .coordinator import (
@@ -32,9 +38,17 @@ from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
 )
-from .devices import format_link_speed, get_device_sort_key
+from .devices import format_detail_status, format_link_speed, get_device_sort_key
 
 _LOGGER = logging.getLogger(__name__)
+
+# Human-readable labels for device type abbreviations from the API.
+DEVICE_TYPE_LABELS: dict[str, str] = {
+    "ap": "Access Point",
+    "gateway": "Gateway",
+    "switch": "Switch",
+    "olt": "OLT",
+}
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -93,9 +107,13 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="uptime",
         name="Uptime",
         icon=ICON_UPTIME,
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        value_fn=lambda device: device.get("uptime"),
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda device: (
+            dt_util.utcnow().replace(microsecond=0)
+            - dt.timedelta(seconds=device["uptime"])
+        )
+        if device.get("uptime") is not None
+        else None,
         available_fn=lambda device: device.get("uptime") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -141,7 +159,9 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="device_type",
         name="Device type",
         icon=ICON_DEVICE_TYPE,
-        value_fn=lambda device: device.get("type"),
+        value_fn=lambda device: DEVICE_TYPE_LABELS.get(
+            device.get("type", ""), device.get("type")
+        ),
         available_fn=lambda device: device.get("type") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -194,6 +214,54 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         else None,
         available_fn=lambda device: bool(device.get("ipv6")),
     ),
+    OmadaSensorEntityDescription(
+        key="detail_status",
+        translation_key="detail_status",
+        name="Detail status",
+        icon=ICON_STATUS,
+        value_fn=lambda device: format_detail_status(device.get("detail_status")),
+        available_fn=lambda device: device.get("detail_status") is not None,
+    ),
+)
+
+# Per-band client count sensors (AP-only, populated by coordinator)
+AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="clients_2g",
+        translation_key="clients_2g",
+        name="Clients 2.4 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_2g"),
+        available_fn=lambda device: device.get("client_num_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_5g",
+        translation_key="clients_5g",
+        name="Clients 5 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_5g"),
+        available_fn=lambda device: device.get("client_num_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_5g2",
+        translation_key="clients_5g2",
+        name="Clients 5 GHz-2",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_5g2"),
+        available_fn=lambda device: device.get("client_num_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_6g",
+        translation_key="clients_6g",
+        name="Clients 6 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_6g"),
+        available_fn=lambda device: device.get("client_num_6g") is not None,
+    ),
 )
 
 # Client sensor descriptions
@@ -239,6 +307,103 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon="mdi:wifi",
         value_fn=lambda client: client.get("ssid"),
         available_fn=lambda client: client.get("wireless", False),
+    ),
+    OmadaSensorEntityDescription(
+        key="downloaded",
+        translation_key="downloaded",
+        name="Downloaded",
+        icon=ICON_DOWNLOAD,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        suggested_display_precision=1,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=lambda client: (
+            round(client["traffic_down"] / 1_000_000, 1)
+            if client.get("traffic_down") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("traffic_down") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="uploaded",
+        translation_key="uploaded",
+        name="Uploaded",
+        icon=ICON_UPLOAD,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        suggested_display_precision=1,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=lambda client: (
+            round(client["traffic_up"] / 1_000_000, 1)
+            if client.get("traffic_up") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("traffic_up") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="rx_activity",
+        translation_key="rx_activity",
+        name="RX Activity",
+        icon=ICON_DOWNLOAD,
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement="MB/s",
+        suggested_display_precision=2,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: round((client.get("activity") or 0) / 1_000_000, 2),
+        available_fn=lambda client: client.get("active", False),
+    ),
+    OmadaSensorEntityDescription(
+        key="tx_activity",
+        translation_key="tx_activity",
+        name="TX Activity",
+        icon=ICON_UPLOAD,
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement="MB/s",
+        suggested_display_precision=2,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: round(
+            (client.get("upload_activity") or 0) / 1_000_000, 2
+        ),
+        available_fn=lambda client: client.get("active", False),
+    ),
+    OmadaSensorEntityDescription(
+        key="rssi",
+        translation_key="rssi",
+        name="RSSI",
+        icon=ICON_SIGNAL,
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        native_unit_of_measurement="dBm",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: client.get("rssi"),
+        available_fn=lambda client: (
+            client.get("wireless", False) and client.get("rssi") is not None
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="snr",
+        translation_key="snr",
+        name="SNR",
+        icon=ICON_SIGNAL,
+        native_unit_of_measurement="dB",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: client.get("snr"),
+        available_fn=lambda client: (
+            client.get("wireless", False) and client.get("snr") is not None
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="client_uptime",
+        translation_key="client_uptime",
+        name="Uptime",
+        icon=ICON_UPTIME,
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda client: (
+            dt_util.utcnow().replace(microsecond=0)
+            - dt.timedelta(seconds=client["uptime"])
+        )
+        if client.get("uptime") is not None
+        else None,
+        available_fn=lambda client: client.get("uptime") is not None,
     ),
 )
 
@@ -328,6 +493,22 @@ async def async_setup_entry(
         for coordinator, device_mac in device_list
         for description in DEVICE_SENSORS
     ]
+
+    # Create per-band client count sensors for AP devices
+    entities.extend(
+        OmadaDeviceSensor(
+            coordinator=coordinator,
+            description=description,
+            device_mac=device_mac,
+        )
+        for coordinator, device_mac in device_list
+        if coordinator.data.get("devices", {})
+        .get(device_mac, {})
+        .get("type", "")
+        .lower()
+        == "ap"
+        for description in AP_BAND_CLIENT_SENSORS
+    )
 
     # Create client sensors
     entities.extend(

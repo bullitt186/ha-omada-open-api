@@ -86,6 +86,8 @@ def _patch_api_client(**overrides):
     mock_instance.get_client_app_traffic = AsyncMock(return_value=[])
     mock_instance.get_switch_ports_poe = AsyncMock(return_value=[])
     mock_instance.get_poe_usage = AsyncMock(return_value=[])
+    mock_instance.get_device_client_stats = AsyncMock(return_value=[])
+    mock_instance.check_write_access = AsyncMock(return_value=True)
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
@@ -114,6 +116,7 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     runtime = entry.runtime_data
     assert "api_client" in runtime
     assert TEST_SITE_ID in runtime["coordinators"]
+    assert runtime["has_write_access"] is True
 
 
 async def test_setup_entry_with_clients(hass: HomeAssistant) -> None:
@@ -224,3 +227,62 @@ async def test_unload_entry(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+# ---------------------------------------------------------------------------
+# Reload listener tests
+# ---------------------------------------------------------------------------
+
+
+async def test_reload_skipped_on_token_only_update(hass: HomeAssistant) -> None:
+    """Test that updating only auth tokens does not trigger a full reload."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Simulate a token-only update (as the API client does on refresh).
+    # Patch async_reload to verify it is NOT called.
+    with (
+        patcher,
+        patch.object(
+            hass.config_entries, "async_reload", new=AsyncMock()
+        ) as mock_reload,
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_ACCESS_TOKEN: "new_token",
+                CONF_REFRESH_TOKEN: "new_refresh",
+                CONF_TOKEN_EXPIRES_AT: "2026-02-21T00:00:00+00:00",
+            },
+        )
+        await hass.async_block_till_done()
+
+        # Reload should NOT have been called.
+        mock_reload.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Write-access probe tests
+# ---------------------------------------------------------------------------
+
+
+async def test_setup_viewer_only_sets_no_write_access(hass: HomeAssistant) -> None:
+    """Test that viewer-only credentials set has_write_access to False."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        check_write_access=AsyncMock(return_value=False),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data["has_write_access"] is False

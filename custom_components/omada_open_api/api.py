@@ -113,7 +113,7 @@ class OmadaApiClient:
         -44113 (token invalid) by refreshing the token and retrying once.
 
         Args:
-            method: HTTP method ("get" or "post")
+            method: HTTP method ("get", "post", or "put")
             url: Full URL to request
             params: Query parameters
             json_data: JSON body (for POST requests)
@@ -190,7 +190,10 @@ class OmadaApiClient:
 
                     if error_code != 0:
                         error_msg = result.get("msg", "Unknown error")
-                        raise OmadaApiError(f"API error {error_code}: {error_msg}")
+                        raise OmadaApiError(
+                            f"API error {error_code}: {error_msg}",
+                            error_code=error_code,
+                        )
 
                     return result  # type: ignore[no-any-return]
 
@@ -590,6 +593,384 @@ class OmadaApiClient:
         )
         return all_ports
 
+    async def get_device_client_stats(
+        self,
+        site_id: str,
+        device_macs: list[str],
+    ) -> list[dict[str, Any]]:
+        """Get per-band client counts for devices.
+
+        Uses the global client stat endpoint to fetch per-radio client
+        counts (2.4 GHz, 5 GHz, 5 GHz-2, 6 GHz) for up to 1000 devices
+        in a single batch call.
+
+        Args:
+            site_id: Site ID the devices belong to
+            device_macs: List of device MAC addresses to query
+
+        Returns:
+            List of dicts, each with mac, clientNum, clientNum2g,
+            clientNum5g, clientNum5g2, clientNum6g
+
+        Raises:
+            OmadaApiError: If fetching client stats fails
+
+        """
+        if not device_macs:
+            return []
+
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/clients/stat/devices"
+        devices = [{"mac": mac, "siteId": site_id} for mac in device_macs]
+
+        _LOGGER.debug("Fetching per-band client stats for %d devices", len(device_macs))
+
+        result = await self._authenticated_request(
+            "post", url, json_data={"devices": devices}
+        )
+        return result.get("result", [])  # type: ignore[no-any-return]
+
+    async def set_port_profile_override(
+        self,
+        site_id: str,
+        switch_mac: str,
+        port: int,
+        *,
+        enable: bool,
+    ) -> None:
+        """Enable or disable profile override for a switch port.
+
+        Profile override must be enabled before changing PoE mode.
+
+        Args:
+            site_id: Site ID the switch belongs to
+            switch_mac: MAC address of the switch (AA-BB-CC-DD-EE-FF format)
+            port: Port number
+            enable: Whether to enable profile override
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/profile-override"
+        )
+        _LOGGER.debug(
+            "Setting profile override for %s port %d to %s",
+            switch_mac,
+            port,
+            enable,
+        )
+        await self._authenticated_request(
+            "put", url, json_data={"profileOverrideEnable": enable}
+        )
+
+    async def set_port_poe_mode(
+        self,
+        site_id: str,
+        switch_mac: str,
+        port: int,
+        *,
+        poe_enabled: bool,
+    ) -> None:
+        """Set PoE mode for a switch port.
+
+        Profile override must be enabled first via set_port_profile_override.
+
+        Args:
+            site_id: Site ID the switch belongs to
+            switch_mac: MAC address of the switch (AA-BB-CC-DD-EE-FF format)
+            port: Port number
+            poe_enabled: True for PoE on (802.3at/af), False for off
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/poe-mode"
+        )
+        poe_mode = 1 if poe_enabled else 0
+        _LOGGER.debug(
+            "Setting PoE mode for %s port %d to %d", switch_mac, port, poe_mode
+        )
+        await self._authenticated_request("put", url, json_data={"poeMode": poe_mode})
+
+    async def reboot_device(self, site_id: str, device_mac: str) -> None:
+        """Reboot a device (AP, switch, or gateway).
+
+        Args:
+            site_id: Site ID the device belongs to
+            device_mac: MAC address of the device (AA-BB-CC-DD-EE-FF format)
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/reboot"
+        )
+        _LOGGER.debug("Rebooting device %s", device_mac)
+        await self._authenticated_request("post", url)
+
+    async def reconnect_client(self, site_id: str, client_mac: str) -> None:
+        """Reconnect a wireless client.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/reconnect"
+        )
+        _LOGGER.debug("Reconnecting client %s", client_mac)
+        await self._authenticated_request("post", url)
+
+    async def start_wlan_optimization(self, site_id: str, *, strategy: int = 0) -> None:
+        """Start WLAN/RF optimization for a site.
+
+        Args:
+            site_id: Site ID to optimize
+            strategy: 0 = Global Optimization, 1 = Optimization Adjustment
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/cmd/rfPlanning/rrmOptimization"
+        )
+        _LOGGER.debug(
+            "Starting WLAN optimization for site %s (strategy=%d)", site_id, strategy
+        )
+        await self._authenticated_request(
+            "post", url, json_data={"optimizationStrategy": strategy}
+        )
+
+    async def block_client(self, site_id: str, client_mac: str) -> None:
+        """Block a client from the network.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/block"
+        )
+        _LOGGER.debug("Blocking client %s", client_mac)
+        await self._authenticated_request("post", url)
+
+    async def unblock_client(self, site_id: str, client_mac: str) -> None:
+        """Unblock a client from the network.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/unblock"
+        )
+        _LOGGER.debug("Unblocking client %s", client_mac)
+        await self._authenticated_request("post", url)
+
+    async def get_firmware_info(self, site_id: str, device_mac: str) -> dict[str, Any]:
+        """Get latest firmware information for a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+
+        Returns:
+            Dictionary with curFwVer, lastFwVer, fwReleaseLog
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/latest-firmware-info"
+        )
+        _LOGGER.debug("Fetching firmware info for %s", device_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def start_online_upgrade(
+        self, site_id: str, device_mac: str
+    ) -> dict[str, Any]:
+        """Start online firmware upgrade for a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+
+        Returns:
+            API response
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/start-online-upgrade"
+        )
+        _LOGGER.debug("Starting online upgrade for %s", device_mac)
+        result = await self._authenticated_request("post", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def get_led_setting(self, site_id: str) -> dict[str, Any]:
+        """Get LED setting for a site.
+
+        Args:
+            site_id: Site ID
+
+        Returns:
+            Dictionary with 'enable' boolean
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/led"
+        _LOGGER.debug("Fetching LED setting for site %s", site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def set_led_setting(self, site_id: str, *, enable: bool) -> dict[str, Any]:
+        """Set LED setting for a site.
+
+        Args:
+            site_id: Site ID
+            enable: Whether to enable LEDs
+
+        Returns:
+            API response
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/led"
+        _LOGGER.debug("Setting LED %s for site %s", "on" if enable else "off", site_id)
+        result = await self._authenticated_request(
+            "put", url, json_data={"enable": enable}
+        )
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def check_write_access(self, site_id: str) -> bool:
+        """Check if the API credentials have write access to a site.
+
+        Performs a non-destructive probe by reading the current LED setting
+        and writing the same value back. If the write succeeds the credentials
+        have editing rights; a permissions error means viewer-only access.
+
+        Args:
+            site_id: Site ID to test against
+
+        Returns:
+            True if write access is available, False otherwise.
+
+        """
+        try:
+            current = await self.get_led_setting(site_id)
+            led_enabled = current.get("enable", True)
+            await self.set_led_setting(site_id, enable=led_enabled)
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.info(
+                    "API credentials have viewer-only access to site %s "
+                    "(write probe returned error %s). "
+                    "PoE and LED switches will not be created",
+                    site_id,
+                    err.error_code,
+                )
+                return False
+            # Unexpected error — log but assume write access to avoid
+            # hiding entities unnecessarily.
+            _LOGGER.warning(
+                "Unexpected error during write-access probe for site %s: %s",
+                site_id,
+                err,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Write-access probe failed for site %s, assuming write access",
+                site_id,
+                exc_info=True,
+            )
+            return True
+        _LOGGER.debug("Write-access probe succeeded for site %s", site_id)
+        return True
+
+    async def locate_device(
+        self, site_id: str, device_mac: str, *, enable: bool
+    ) -> None:
+        """Enable or disable the locate function on a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+            enable: True to start locating, False to stop
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/locate"
+        )
+        _LOGGER.debug(
+            "%s locate for %s",
+            "Enabling" if enable else "Disabling",
+            device_mac,
+        )
+        await self._authenticated_request(
+            "post", url, json_data={"locateEnable": enable}
+        )
+
+    async def get_ap_radios(self, site_id: str, ap_mac: str) -> dict[str, Any]:
+        """Get radio information for an AP.
+
+        Args:
+            site_id: Site ID containing the AP
+            ap_mac: MAC address of the AP
+
+        Returns:
+            Dictionary with radio traffic and channel info per band
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/radios"
+        )
+        _LOGGER.debug("Fetching radio info for AP %s", ap_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""
@@ -608,6 +989,11 @@ class OmadaApiClient:
 
 class OmadaApiError(Exception):
     """General API exception."""
+
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        """Initialize with optional error code."""
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class OmadaApiAuthError(OmadaApiError):
