@@ -225,3 +225,42 @@ async def test_unload_entry(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+# ---------------------------------------------------------------------------
+# Reload listener tests
+# ---------------------------------------------------------------------------
+
+
+async def test_reload_skipped_on_token_only_update(hass: HomeAssistant) -> None:
+    """Test that updating only auth tokens does not trigger a full reload."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Simulate a token-only update (as the API client does on refresh).
+    # Patch async_reload to verify it is NOT called.
+    with (
+        patcher,
+        patch.object(
+            hass.config_entries, "async_reload", new=AsyncMock()
+        ) as mock_reload,
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_ACCESS_TOKEN: "new_token",
+                CONF_REFRESH_TOKEN: "new_refresh",
+                CONF_TOKEN_EXPIRES_AT: "2026-02-21T00:00:00+00:00",
+            },
+        )
+        await hass.async_block_till_done()
+
+        # Reload should NOT have been called.
+        mock_reload.assert_not_called()

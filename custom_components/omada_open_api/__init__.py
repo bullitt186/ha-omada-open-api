@@ -25,6 +25,7 @@ from .const import (
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
+    CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
@@ -235,7 +236,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Set up config entry update listener for token updates
+    # Snapshot current data so the update listener can detect real config changes
+    # vs. token-only updates.
+    hass.data.setdefault(f"{DOMAIN}_prev_data", {})[entry.entry_id] = dict(entry.data)
+
+    # Set up config entry update listener (skips reload on token-only changes)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
@@ -266,11 +271,43 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Reload config entry when it's updated.
 
+    Only reload when configuration actually changes (sites, clients,
+    applications, scan intervals).  Token-only updates are persisted by the
+    API client and do not require a reload.
+
     Args:
         hass: Home Assistant instance
         entry: Config entry that was updated
 
     """
+    # Keys that represent transient auth state — changes to only these
+    # should NOT trigger a full reload.
+    token_keys = {
+        CONF_ACCESS_TOKEN,
+        CONF_REFRESH_TOKEN,
+        CONF_TOKEN_EXPIRES_AT,
+        CONF_TOKEN_EXPIRES,
+    }
+
+    # Compare current runtime data snapshot with the new entry data.
+    # If only token keys differ, skip the reload.
+    prev_store: dict[str, dict[str, Any]] = hass.data.get(f"{DOMAIN}_prev_data", {})
+    previous_data = prev_store.get(entry.entry_id, {})
+    current_data = dict(entry.data)
+
+    if previous_data:
+        changed_keys = {
+            k
+            for k in current_data.keys() | previous_data.keys()
+            if current_data.get(k) != previous_data.get(k)
+        }
+        if changed_keys and changed_keys <= token_keys:
+            _LOGGER.debug("Skipping reload — only auth tokens changed")
+            prev_store[entry.entry_id] = current_data
+            return
+
+    prev_store[entry.entry_id] = current_data
+
     # Clean up devices and entities that are no longer selected before reloading
     await _cleanup_devices(hass, entry)
     await _cleanup_entities(hass, entry)
