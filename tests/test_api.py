@@ -1180,3 +1180,55 @@ async def test_start_wlan_optimization(hass: HomeAssistant, mock_config_entry) -
     call_url = mock_post.call_args[0][0]
     assert "/cmd/rfPlanning/rrmOptimization" in call_url
     assert mock_post.call_args[1]["json"] == {"optimizationStrategy": 0}
+
+
+async def test_block_client(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test block_client sends POST to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.block_client("site_001", "11-22-33-44-55-AA")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/clients/11-22-33-44-55-AA/block" in call_url
+
+
+async def test_unblock_client(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test unblock_client sends POST to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.unblock_client("site_001", "11-22-33-44-55-AA")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/clients/11-22-33-44-55-AA/unblock" in call_url

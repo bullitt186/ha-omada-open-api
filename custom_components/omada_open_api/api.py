@@ -752,6 +752,42 @@ class OmadaApiClient:
             "post", url, json_data={"optimizationStrategy": strategy}
         )
 
+    async def block_client(self, site_id: str, client_mac: str) -> None:
+        """Block a client from the network.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/block"
+        )
+        _LOGGER.debug("Blocking client %s", client_mac)
+        await self._authenticated_request("post", url)
+
+    async def unblock_client(self, site_id: str, client_mac: str) -> None:
+        """Unblock a client from the network.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/unblock"
+        )
+        _LOGGER.debug("Unblocking client %s", client_mac)
+        await self._authenticated_request("post", url)
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

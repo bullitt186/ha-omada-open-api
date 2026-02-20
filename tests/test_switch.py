@@ -1,8 +1,8 @@
-"""Tests for OmadaPoeSwitch entity."""
+"""Tests for Omada switch entities (PoE and client block)."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,11 +11,18 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from custom_components.omada_open_api.api import OmadaApiError
+from custom_components.omada_open_api.clients import process_client
 from custom_components.omada_open_api.const import DOMAIN
-from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
-from custom_components.omada_open_api.switch import OmadaPoeSwitch
+from custom_components.omada_open_api.coordinator import (
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+)
+from custom_components.omada_open_api.switch import (
+    OmadaClientBlockSwitch,
+    OmadaPoeSwitch,
+)
 
-from .conftest import TEST_SITE_ID, TEST_SITE_NAME
+from .conftest import SAMPLE_CLIENT_WIRELESS, TEST_SITE_ID, TEST_SITE_NAME
 
 # ---------------------------------------------------------------------------
 # Sample data
@@ -299,3 +306,163 @@ async def test_state_reflects_coordinator_update(hass: HomeAssistant) -> None:
     # Simulate coordinator update disabling PoE.
     switch.coordinator.data["poe_ports"]["AA-BB-CC-DD-EE-02_1"]["poe_enabled"] = False
     assert switch.is_on is False
+
+
+# ===========================================================================
+# OmadaClientBlockSwitch tests
+# ===========================================================================
+
+WIRELESS_MAC = "11-22-33-44-55-AA"
+WIRED_MAC = "11-22-33-44-55-BB"
+
+
+def _build_client_coordinator(
+    hass: HomeAssistant,
+    clients: dict[str, dict[str, Any]] | None = None,
+) -> OmadaClientCoordinator:
+    """Create a client coordinator with mock data."""
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=[WIRELESS_MAC, WIRED_MAC],
+    )
+    coordinator.data = clients or {}
+    coordinator.api_client.block_client = AsyncMock()
+    coordinator.api_client.unblock_client = AsyncMock()
+    return coordinator
+
+
+def _create_block_switch(
+    hass: HomeAssistant,
+    client_mac: str,
+    clients: dict[str, dict[str, Any]],
+) -> OmadaClientBlockSwitch:
+    """Create an OmadaClientBlockSwitch entity."""
+    coordinator = _build_client_coordinator(hass, clients)
+    return OmadaClientBlockSwitch(coordinator=coordinator, client_mac=client_mac)
+
+
+async def test_block_switch_unique_id(hass: HomeAssistant) -> None:
+    """Test block switch unique ID format."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.unique_id == f"omada_open_api_{WIRELESS_MAC}_block"
+
+
+async def test_block_switch_name(hass: HomeAssistant) -> None:
+    """Test block switch name includes client name."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.name == "Phone Network Access"
+
+
+async def test_block_switch_is_on_not_blocked(hass: HomeAssistant) -> None:
+    """Test switch is ON when client is NOT blocked."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.is_on is True
+
+
+async def test_block_switch_is_on_blocked(hass: HomeAssistant) -> None:
+    """Test switch is OFF when client IS blocked."""
+    raw = dict(SAMPLE_CLIENT_WIRELESS)
+    raw["blocked"] = True
+    data = process_client(raw)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.is_on is False
+
+
+async def test_block_switch_is_on_missing(hass: HomeAssistant) -> None:
+    """Test switch returns None when client missing."""
+    switch = _create_block_switch(hass, WIRELESS_MAC, {})
+    assert switch.is_on is None
+
+
+async def test_block_switch_available(hass: HomeAssistant) -> None:
+    """Test switch available when client exists."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.available is True
+
+
+async def test_block_switch_unavailable_missing(hass: HomeAssistant) -> None:
+    """Test switch unavailable when client missing."""
+    switch = _create_block_switch(hass, WIRELESS_MAC, {})
+    assert switch.available is False
+
+
+async def test_block_switch_unavailable_coordinator_failure(
+    hass: HomeAssistant,
+) -> None:
+    """Test switch unavailable on coordinator failure."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    switch.coordinator.last_update_success = False
+    assert switch.available is False
+
+
+async def test_block_switch_turn_off_blocks(hass: HomeAssistant) -> None:
+    """Test turning switch OFF blocks the client."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+
+    with patch.object(
+        switch.coordinator, "async_request_refresh", new=AsyncMock()
+    ) as mock_refresh:
+        await switch.async_turn_off()
+
+    coordinator.api_client.block_client.assert_called_once_with(
+        TEST_SITE_ID, WIRELESS_MAC
+    )
+    mock_refresh.assert_awaited_once()
+
+
+async def test_block_switch_turn_on_unblocks(hass: HomeAssistant) -> None:
+    """Test turning switch ON unblocks the client."""
+    raw = dict(SAMPLE_CLIENT_WIRELESS)
+    raw["blocked"] = True
+    data = process_client(raw)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+
+    with patch.object(
+        switch.coordinator, "async_request_refresh", new=AsyncMock()
+    ) as mock_refresh:
+        await switch.async_turn_on()
+
+    coordinator.api_client.unblock_client.assert_called_once_with(
+        TEST_SITE_ID, WIRELESS_MAC
+    )
+    mock_refresh.assert_awaited_once()
+
+
+async def test_block_switch_turn_off_api_error(hass: HomeAssistant) -> None:
+    """Test block switch handles API error gracefully."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+    coordinator.api_client.block_client.side_effect = OmadaApiError("fail")
+    # Should not raise.
+    await switch.async_turn_off()
+
+
+async def test_block_switch_turn_on_api_error(hass: HomeAssistant) -> None:
+    """Test unblock switch handles API error gracefully."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
+    switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
+    coordinator.api_client.unblock_client.side_effect = OmadaApiError("fail")
+    # Should not raise.
+    await switch.async_turn_on()
+
+
+async def test_block_switch_device_info(hass: HomeAssistant) -> None:
+    """Test block switch device info."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    info = switch.device_info
+    assert info is not None
+    assert info["identifiers"] == {("omada_open_api", f"client_{WIRELESS_MAC}")}

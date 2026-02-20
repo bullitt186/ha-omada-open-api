@@ -6,11 +6,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OmadaApiError
 from .const import DOMAIN
-from .coordinator import OmadaSiteCoordinator
+from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -29,13 +30,26 @@ async def async_setup_entry(
 ) -> None:
     """Set up Omada switch entities from a config entry."""
     data = entry.runtime_data
-    coordinators: dict[str, OmadaSiteCoordinator] = data.get("coordinators", {})
+    entities: list[SwitchEntity] = []
 
-    entities: list[OmadaPoeSwitch] = [
+    # PoE switches.
+    coordinators: dict[str, OmadaSiteCoordinator] = data.get("coordinators", {})
+    entities.extend(
         OmadaPoeSwitch(coordinator=coordinator, port_key=port_key)
         for coordinator in coordinators.values()
         for port_key in coordinator.data.get("poe_ports", {})
-    ]
+    )
+
+    # Client block/unblock switches.
+    client_coordinators: list[OmadaClientCoordinator] = data.get(
+        "client_coordinators", []
+    )
+    for coordinator in client_coordinators:
+        if coordinator.data:
+            entities.extend(
+                OmadaClientBlockSwitch(coordinator, client_mac)
+                for client_mac in coordinator.data
+            )
 
     async_add_entities(entities)
 
@@ -156,4 +170,85 @@ class OmadaPoeSwitch(
             return
 
         # Refresh coordinator data to reflect the change.
+        await self.coordinator.async_request_refresh()
+
+
+class OmadaClientBlockSwitch(
+    CoordinatorEntity[OmadaClientCoordinator],  # type: ignore[misc]
+    SwitchEntity,  # type: ignore[misc]
+):
+    """Switch entity to block/unblock a client.
+
+    When the switch is ON the client is allowed (not blocked).
+    When the switch is OFF the client is blocked.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SwitchDeviceClass.SWITCH
+    _attr_icon = "mdi:account-lock"
+
+    def __init__(
+        self,
+        coordinator: OmadaClientCoordinator,
+        client_mac: str,
+    ) -> None:
+        """Initialize the client block switch."""
+        super().__init__(coordinator)
+        self._client_mac = client_mac
+
+        client_data = coordinator.data.get(client_mac, {})
+        client_name = (
+            client_data.get("name") or client_data.get("host_name") or client_mac
+        )
+
+        self._attr_name = f"{client_name} Network Access"
+        self._attr_unique_id = f"{DOMAIN}_{client_mac}_block"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"client_{client_mac}")},
+        )
+
+    # ------------------------------------------------------------------
+    # State
+    # ------------------------------------------------------------------
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if client is NOT blocked (has network access)."""
+        client = self.coordinator.data.get(self._client_mac)
+        if client is None:
+            return None
+        # Inverted: is_on = not blocked.
+        return not client.get("blocked", False)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self.coordinator.data.get(self._client_mac) is not None
+
+    # ------------------------------------------------------------------
+    # Control
+    # ------------------------------------------------------------------
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Unblock the client (allow network access)."""
+        try:
+            await self.coordinator.api_client.unblock_client(
+                self.coordinator.site_id, self._client_mac
+            )
+        except OmadaApiError:
+            _LOGGER.exception("Failed to unblock client %s", self._client_mac)
+            return
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Block the client (deny network access)."""
+        try:
+            await self.coordinator.api_client.block_client(
+                self.coordinator.site_id, self._client_mac
+            )
+        except OmadaApiError:
+            _LOGGER.exception("Failed to block client %s", self._client_mac)
+            return
         await self.coordinator.async_request_refresh()
