@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -302,7 +303,7 @@ async def test_tx_activity_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_rx_activity_unavailable_when_none(hass: HomeAssistant) -> None:
-    """Test RX activity sensor unavailable when activity is None."""
+    """Test RX activity sensor defaults to 0 for active client with None activity."""
     data = _processed_wireless()
     data["activity"] = None
     sensor = _create_client_sensor(
@@ -311,7 +312,9 @@ async def test_rx_activity_unavailable_when_none(hass: HomeAssistant) -> None:
         {WIRELESS_MAC: data},
         "rx_activity",
     )
-    assert sensor.available is False
+    # Active client with None activity should be available and default to 0.
+    assert sensor.available is True
+    assert sensor.native_value == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -371,25 +374,31 @@ async def test_snr_sensor_unavailable_wired(hass: HomeAssistant) -> None:
 
 
 async def test_client_uptime_wireless(hass: HomeAssistant) -> None:
-    """Test uptime sensor returns value in seconds."""
+    """Test uptime sensor returns ISO timestamp (boot time)."""
     sensor = _create_client_sensor(
         hass,
         WIRELESS_MAC,
         {WIRELESS_MAC: _processed_wireless()},
         "client_uptime",
     )
-    assert sensor.native_value == 3600
+    value = sensor.native_value
+    assert isinstance(value, str)
+    parsed = _dt.datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None or "T" in value
 
 
 async def test_client_uptime_wired(hass: HomeAssistant) -> None:
-    """Test uptime sensor for wired client."""
+    """Test uptime sensor for wired client returns ISO timestamp."""
     sensor = _create_client_sensor(
         hass,
         WIRED_MAC,
         {WIRED_MAC: _processed_wired()},
         "client_uptime",
     )
-    assert sensor.native_value == 7200
+    value = sensor.native_value
+    assert isinstance(value, str)
+    parsed = _dt.datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None or "T" in value
 
 
 async def test_client_uptime_unavailable_when_none(hass: HomeAssistant) -> None:
@@ -434,6 +443,51 @@ async def test_client_sensor_coordinator_failure(hass: HomeAssistant) -> None:
     )
     sensor.coordinator.last_update_success = False
     assert sensor.available is False
+
+
+# ---------------------------------------------------------------------------
+# Activity availability for inactive clients
+# ---------------------------------------------------------------------------
+
+
+async def test_rx_activity_unavailable_when_inactive(hass: HomeAssistant) -> None:
+    """Test RX activity sensor unavailable when client is inactive."""
+    data = _processed_wireless()
+    data["active"] = False
+    sensor = _create_client_sensor(
+        hass,
+        WIRELESS_MAC,
+        {WIRELESS_MAC: data},
+        "rx_activity",
+    )
+    assert sensor.available is False
+
+
+async def test_tx_activity_unavailable_when_inactive(hass: HomeAssistant) -> None:
+    """Test TX activity sensor unavailable when client is inactive."""
+    data = _processed_wireless()
+    data["active"] = False
+    sensor = _create_client_sensor(
+        hass,
+        WIRELESS_MAC,
+        {WIRELESS_MAC: data},
+        "tx_activity",
+    )
+    assert sensor.available is False
+
+
+async def test_tx_activity_defaults_to_zero(hass: HomeAssistant) -> None:
+    """Test TX activity sensor defaults to 0 when field is None."""
+    data = _processed_wireless()
+    data["upload_activity"] = None
+    sensor = _create_client_sensor(
+        hass,
+        WIRELESS_MAC,
+        {WIRELESS_MAC: data},
+        "tx_activity",
+    )
+    assert sensor.available is True
+    assert sensor.native_value == 0.0
 
 
 async def test_signal_strength_unavailable_wired(hass: HomeAssistant) -> None:

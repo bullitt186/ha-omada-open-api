@@ -33,7 +33,9 @@ async def async_setup_entry(
     entities: list[ButtonEntity] = []
 
     # Device reboot buttons (one per device).
-    site_coordinators: list[OmadaSiteCoordinator] = data.get("site_coordinators", [])
+    site_coordinators: list[OmadaSiteCoordinator] = list(
+        data.get("coordinators", {}).values()
+    )
     for coordinator in site_coordinators:
         devices = coordinator.data.get("devices", {}) if coordinator.data else {}
         for device_mac in devices:

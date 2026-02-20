@@ -282,6 +282,41 @@ async def test_turn_off_poe_mode_error(hass: HomeAssistant) -> None:
 
 
 @pytest.mark.asyncio
+async def test_turn_on_poe_permissions_error(hass: HomeAssistant) -> None:
+    """Test PoE permissions error (-1007) logs a warning instead of exception."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "No permission", error_code=-1007
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_on()
+
+    # PoE mode should NOT be called since profile override failed with permissions.
+    api.set_port_poe_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_turn_off_poe_permissions_error_1005(hass: HomeAssistant) -> None:
+    """Test PoE permissions error (-1005) logs a warning instead of exception."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_poe_mode.side_effect = OmadaApiError("Access denied", error_code=-1005)
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_off()
+
+    # Profile override was called; PoE mode failed with permissions.
+    api.set_port_profile_override.assert_awaited_once()
+    api.set_port_poe_mode.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_turn_on_refreshes_coordinator(hass: HomeAssistant) -> None:
     """Test that successful turn_on triggers coordinator refresh."""
     switch = _create_switch(

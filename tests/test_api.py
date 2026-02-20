@@ -708,6 +708,42 @@ async def test_authenticated_request_api_error_code(
             await api_client.get_sites()
 
 
+async def test_authenticated_request_api_error_code_attribute(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test OmadaApiError includes error_code attribute from API response."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": -1007,
+        "msg": "No permission",
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        with pytest.raises(OmadaApiError) as exc_info:
+            await api_client.get_sites()
+        assert exc_info.value.error_code == -1007
+
+
+async def test_omada_api_error_default_error_code() -> None:
+    """Test OmadaApiError defaults error_code to None."""
+    err = OmadaApiError("generic error")
+    assert err.error_code is None
+
+
 # ---------------------------------------------------------------------------
 # get_switch_ports_poe tests
 # ---------------------------------------------------------------------------

@@ -190,7 +190,10 @@ class OmadaApiClient:
 
                     if error_code != 0:
                         error_msg = result.get("msg", "Unknown error")
-                        raise OmadaApiError(f"API error {error_code}: {error_msg}")
+                        raise OmadaApiError(
+                            f"API error {error_code}: {error_msg}",
+                            error_code=error_code,
+                        )
 
                     return result  # type: ignore[no-any-return]
 
@@ -940,6 +943,11 @@ class OmadaApiClient:
 
 class OmadaApiError(Exception):
     """General API exception."""
+
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        """Initialize with optional error code."""
+        super().__init__(message)
+        self.error_code = error_code
 
 
 class OmadaApiAuthError(OmadaApiError):

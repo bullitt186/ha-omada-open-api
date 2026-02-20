@@ -120,9 +120,10 @@ async def test_update_unavailable_coordinator_failure(hass: HomeAssistant) -> No
 
 
 async def test_update_latest_version_after_update(hass: HomeAssistant) -> None:
-    """Test latest_version is populated after async_update."""
+    """Test latest_version falls back to installed_version before first poll."""
     entity = _create_update_entity(hass)
-    assert entity.latest_version is None
+    # Before first poll, latest_version falls back to installed_version.
+    assert entity.latest_version == entity.installed_version
 
     await entity.async_update()
     assert entity.latest_version == "1.1.0"

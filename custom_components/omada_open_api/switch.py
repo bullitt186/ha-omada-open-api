@@ -52,7 +52,9 @@ async def async_setup_entry(
             )
 
     # LED switch (one per site).
-    site_coordinators: list[OmadaSiteCoordinator] = data.get("site_coordinators", [])
+    site_coordinators: list[OmadaSiteCoordinator] = list(
+        data.get("coordinators", {}).values()
+    )
     entities.extend(OmadaLedSwitch(coordinator) for coordinator in site_coordinators)
 
     async_add_entities(entities)
@@ -164,13 +166,22 @@ class OmadaPoeSwitch(
             await api.set_port_poe_mode(
                 site_id, self._switch_mac, self._port_num, poe_enabled=enabled
             )
-        except OmadaApiError:
-            _LOGGER.exception(
-                "Failed to set PoE %s for %s port %d",
-                "on" if enabled else "off",
-                self._switch_mac,
-                self._port_num,
-            )
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.warning(
+                    "Insufficient permissions to control PoE on %s port %d. "
+                    "Ensure the Open API application has "
+                    "'Site Device Manager Modify' permission",
+                    self._switch_mac,
+                    self._port_num,
+                )
+            else:
+                _LOGGER.exception(
+                    "Failed to set PoE %s for %s port %d",
+                    "on" if enabled else "off",
+                    self._switch_mac,
+                    self._port_num,
+                )
             return
 
         # Refresh coordinator data to reflect the change.

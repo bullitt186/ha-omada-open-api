@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -12,8 +13,9 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -39,6 +41,14 @@ from .coordinator import (
 from .devices import format_detail_status, format_link_speed, get_device_sort_key
 
 _LOGGER = logging.getLogger(__name__)
+
+# Human-readable labels for device type abbreviations from the API.
+DEVICE_TYPE_LABELS: dict[str, str] = {
+    "ap": "Access Point",
+    "gateway": "Gateway",
+    "switch": "Switch",
+    "olt": "OLT",
+}
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -97,9 +107,13 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="uptime",
         name="Uptime",
         icon=ICON_UPTIME,
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        value_fn=lambda device: device.get("uptime"),
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda device: (
+            dt_util.utcnow().replace(microsecond=0)
+            - dt.timedelta(seconds=device["uptime"])
+        ).isoformat()
+        if device.get("uptime") is not None
+        else None,
         available_fn=lambda device: device.get("uptime") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -145,7 +159,9 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="device_type",
         name="Device type",
         icon=ICON_DEVICE_TYPE,
-        value_fn=lambda device: device.get("type"),
+        value_fn=lambda device: DEVICE_TYPE_LABELS.get(
+            device.get("type", ""), device.get("type")
+        ),
         available_fn=lambda device: device.get("type") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -333,12 +349,8 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         native_unit_of_measurement="MB/s",
         suggested_display_precision=2,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda client: (
-            round(client["activity"] / 1_000_000, 2)
-            if client.get("activity") is not None
-            else None
-        ),
-        available_fn=lambda client: client.get("activity") is not None,
+        value_fn=lambda client: round((client.get("activity") or 0) / 1_000_000, 2),
+        available_fn=lambda client: client.get("active", False),
     ),
     OmadaSensorEntityDescription(
         key="tx_activity",
@@ -349,12 +361,10 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         native_unit_of_measurement="MB/s",
         suggested_display_precision=2,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda client: (
-            round(client["upload_activity"] / 1_000_000, 2)
-            if client.get("upload_activity") is not None
-            else None
+        value_fn=lambda client: round(
+            (client.get("upload_activity") or 0) / 1_000_000, 2
         ),
-        available_fn=lambda client: client.get("upload_activity") is not None,
+        available_fn=lambda client: client.get("active", False),
     ),
     OmadaSensorEntityDescription(
         key="rssi",
@@ -386,9 +396,13 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="client_uptime",
         name="Uptime",
         icon=ICON_UPTIME,
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
-        value_fn=lambda client: client.get("uptime"),
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=lambda client: (
+            dt_util.utcnow().replace(microsecond=0)
+            - dt.timedelta(seconds=client["uptime"])
+        ).isoformat()
+        if client.get("uptime") is not None
+        else None,
         available_fn=lambda client: client.get("uptime") is not None,
     ),
 )

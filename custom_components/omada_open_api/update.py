@@ -86,7 +86,9 @@ class OmadaDeviceUpdateEntity(
     @property
     def latest_version(self) -> str | None:
         """Return the latest available firmware version."""
-        return self._latest_version
+        if self._latest_version is not None:
+            return self._latest_version
+        return self.installed_version
 
     @property
     def release_summary(self) -> str | None:

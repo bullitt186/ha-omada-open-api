@@ -36,7 +36,9 @@ async def async_setup_entry(
     data = entry.runtime_data
 
     # --- Device trackers (APs, switches, gateways) ---
-    site_coordinators: list[OmadaSiteCoordinator] = data.get("site_coordinators", [])
+    site_coordinators: list[OmadaSiteCoordinator] = list(
+        data.get("coordinators", {}).values()
+    )
     for site_coordinator in site_coordinators:
         devices = (
             site_coordinator.data.get("devices", {}) if site_coordinator.data else {}

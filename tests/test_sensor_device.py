@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -81,18 +82,26 @@ async def test_client_num_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_uptime_sensor_string(hass: HomeAssistant) -> None:
-    """Test uptime sensor parses string format."""
+    """Test uptime sensor returns ISO timestamp (boot time)."""
     data = process_device(SAMPLE_DEVICE_AP)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "uptime")
-    # "2day(s) 5h 30m 10s" = 2*86400 + 5*3600 + 30*60 + 10 = 192610
-    assert sensor.native_value == 192610
+    # Uptime is 192610 seconds. Value should be an ISO timestamp string.
+    value = sensor.native_value
+    assert isinstance(value, str)
+    # Verify it's a valid ISO timestamp
+    parsed = _dt.datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None or "T" in value
 
 
 async def test_uptime_sensor_int(hass: HomeAssistant) -> None:
-    """Test uptime sensor accepts integer directly."""
+    """Test uptime sensor returns ISO timestamp for integer uptime."""
     data = process_device(SAMPLE_DEVICE_SWITCH)
     sensor = _create_device_sensor(hass, SWITCH_MAC, {SWITCH_MAC: data}, "uptime")
-    assert sensor.native_value == 90000
+    value = sensor.native_value
+    assert isinstance(value, str)
+    # Verify it's a valid ISO timestamp
+    parsed = _dt.datetime.fromisoformat(value)
+    assert parsed.tzinfo is not None or "T" in value
 
 
 async def test_cpu_util_sensor(hass: HomeAssistant) -> None:
@@ -126,10 +135,10 @@ async def test_model_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_device_type_sensor(hass: HomeAssistant) -> None:
-    """Test device type sensor."""
+    """Test device type sensor returns human-readable label."""
     data = process_device(SAMPLE_DEVICE_SWITCH)
     sensor = _create_device_sensor(hass, SWITCH_MAC, {SWITCH_MAC: data}, "device_type")
-    assert sensor.native_value == "switch"
+    assert sensor.native_value == "Switch"
 
 
 async def test_public_ip_sensor(hass: HomeAssistant) -> None:
@@ -318,4 +327,46 @@ async def test_device_sensor_coordinator_failure(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_AP)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "cpu_util")
     sensor.coordinator.last_update_success = False
+    assert sensor.available is False
+
+
+# ---------------------------------------------------------------------------
+# Device type label mapping
+# ---------------------------------------------------------------------------
+
+
+async def test_device_type_sensor_ap(hass: HomeAssistant) -> None:
+    """Test device type sensor returns 'Access Point' for ap type."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "device_type")
+    assert sensor.native_value == "Access Point"
+
+
+async def test_device_type_sensor_gateway(hass: HomeAssistant) -> None:
+    """Test device type sensor returns 'Gateway' for gateway type."""
+    data = process_device(SAMPLE_DEVICE_GATEWAY)
+    sensor = _create_device_sensor(
+        hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "device_type"
+    )
+    assert sensor.native_value == "Gateway"
+
+
+async def test_device_type_sensor_unknown_type(hass: HomeAssistant) -> None:
+    """Test device type sensor falls back to raw value for unknown type."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["type"] = "router"
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "device_type")
+    assert sensor.native_value == "router"
+
+
+# ---------------------------------------------------------------------------
+# Uptime as boot-time timestamp
+# ---------------------------------------------------------------------------
+
+
+async def test_uptime_unavailable_when_none(hass: HomeAssistant) -> None:
+    """Test uptime sensor unavailable when uptime is None."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["uptime"] = None
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "uptime")
     assert sensor.available is False
