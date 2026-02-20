@@ -1438,3 +1438,90 @@ async def test_get_ap_radios(hass: HomeAssistant, mock_config_entry) -> None:
     call_url = mock_get.call_args[0][0]
     assert "/aps/AA-BB-CC-DD-EE-01/radios" in call_url
     assert "radioTraffic2g" in result
+
+
+# ---------------------------------------------------------------------------
+# check_write_access tests
+# ---------------------------------------------------------------------------
+
+
+async def test_check_write_access_success(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test check_write_access returns True when write probe succeeds."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    get_response = AsyncMock()
+    get_response.status = 200
+    get_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"enable": True},
+    }
+
+    put_response = AsyncMock()
+    put_response.status = 200
+    put_response.json.return_value = {"errorCode": 0, "result": {}}
+
+    with (
+        patch("aiohttp.ClientSession.get") as mock_get,
+        patch("aiohttp.ClientSession.put") as mock_put,
+    ):
+        mock_get.return_value.__aenter__.return_value = get_response
+        mock_put.return_value.__aenter__.return_value = put_response
+        result = await api_client.check_write_access("site_001")
+
+    assert result is True
+    # The PUT should write back the same LED state that was read.
+    put_data = mock_put.call_args[1]["json"]
+    assert put_data == {"enable": True}
+
+
+async def test_check_write_access_viewer_only(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test check_write_access returns False on permissions error."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    get_response = AsyncMock()
+    get_response.status = 200
+    get_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"enable": True},
+    }
+
+    put_response = AsyncMock()
+    put_response.status = 200
+    put_response.json.return_value = {
+        "errorCode": -1007,
+        "msg": "No permission",
+    }
+
+    with (
+        patch("aiohttp.ClientSession.get") as mock_get,
+        patch("aiohttp.ClientSession.put") as mock_put,
+    ):
+        mock_get.return_value.__aenter__.return_value = get_response
+        mock_put.return_value.__aenter__.return_value = put_response
+        result = await api_client.check_write_access("site_001")
+
+    assert result is False

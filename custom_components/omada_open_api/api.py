@@ -876,6 +876,52 @@ class OmadaApiClient:
         )
         return result.get("result", {})  # type: ignore[no-any-return]
 
+    async def check_write_access(self, site_id: str) -> bool:
+        """Check if the API credentials have write access to a site.
+
+        Performs a non-destructive probe by reading the current LED setting
+        and writing the same value back. If the write succeeds the credentials
+        have editing rights; a permissions error means viewer-only access.
+
+        Args:
+            site_id: Site ID to test against
+
+        Returns:
+            True if write access is available, False otherwise.
+
+        """
+        try:
+            current = await self.get_led_setting(site_id)
+            led_enabled = current.get("enable", True)
+            await self.set_led_setting(site_id, enable=led_enabled)
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.info(
+                    "API credentials have viewer-only access to site %s "
+                    "(write probe returned error %s). "
+                    "PoE and LED switches will not be created",
+                    site_id,
+                    err.error_code,
+                )
+                return False
+            # Unexpected error — log but assume write access to avoid
+            # hiding entities unnecessarily.
+            _LOGGER.warning(
+                "Unexpected error during write-access probe for site %s: %s",
+                site_id,
+                err,
+            )
+            return True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Write-access probe failed for site %s, assuming write access",
+                site_id,
+                exc_info=True,
+            )
+            return True
+        _LOGGER.debug("Write-access probe succeeded for site %s", site_id)
+        return True
+
     async def locate_device(
         self, site_id: str, device_mac: str, *, enable: bool
     ) -> None:

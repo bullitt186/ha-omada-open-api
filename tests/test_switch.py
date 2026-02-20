@@ -21,6 +21,7 @@ from custom_components.omada_open_api.switch import (
     OmadaClientBlockSwitch,
     OmadaLedSwitch,
     OmadaPoeSwitch,
+    async_setup_entry,
 )
 
 from .conftest import SAMPLE_CLIENT_WIRELESS, TEST_SITE_ID, TEST_SITE_NAME
@@ -614,3 +615,41 @@ async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
     switch.coordinator.api_client.get_led_setting.side_effect = OmadaApiError("fail")
     await switch.async_update()
     assert switch.is_on is None
+
+
+# ---------------------------------------------------------------------------
+# Viewer-only access — no PoE / LED switches
+# ---------------------------------------------------------------------------
+
+
+async def test_setup_entry_viewer_only_skips_poe_and_led(
+    hass: HomeAssistant,
+) -> None:
+    """Test that PoE and LED switches are not created with viewer-only access."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = _build_coordinator_data(
+        {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+
+    entry = MagicMock()
+    entry.runtime_data = {
+        "coordinators": {TEST_SITE_ID: coordinator},
+        "client_coordinators": [],
+        "has_write_access": False,
+    }
+
+    added_entities: list = []
+
+    def capture_entities(entities: list) -> None:
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, entry, capture_entities)
+
+    # No PoE or LED switches should be created.
+    assert not any(isinstance(e, OmadaPoeSwitch) for e in added_entities)
+    assert not any(isinstance(e, OmadaLedSwitch) for e in added_entities)

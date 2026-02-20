@@ -31,14 +31,18 @@ async def async_setup_entry(
     """Set up Omada switch entities from a config entry."""
     data = entry.runtime_data
     entities: list[SwitchEntity] = []
+    has_write_access: bool = data.get("has_write_access", True)
 
-    # PoE switches.
+    # PoE switches (only when API credentials have editing rights).
     coordinators: dict[str, OmadaSiteCoordinator] = data.get("coordinators", {})
-    entities.extend(
-        OmadaPoeSwitch(coordinator=coordinator, port_key=port_key)
-        for coordinator in coordinators.values()
-        for port_key in coordinator.data.get("poe_ports", {})
-    )
+    if has_write_access:
+        entities.extend(
+            OmadaPoeSwitch(coordinator=coordinator, port_key=port_key)
+            for coordinator in coordinators.values()
+            for port_key in coordinator.data.get("poe_ports", {})
+        )
+    else:
+        _LOGGER.info("Skipping PoE switches — API credentials have viewer-only access")
 
     # Client block/unblock switches.
     client_coordinators: list[OmadaClientCoordinator] = data.get(
@@ -51,11 +55,14 @@ async def async_setup_entry(
                 for client_mac in coordinator.data
             )
 
-    # LED switch (one per site).
-    site_coordinators: list[OmadaSiteCoordinator] = list(
-        data.get("coordinators", {}).values()
-    )
-    entities.extend(OmadaLedSwitch(coordinator) for coordinator in site_coordinators)
+    # LED switch (one per site, only when API credentials have editing rights).
+    if has_write_access:
+        site_coordinators: list[OmadaSiteCoordinator] = list(
+            data.get("coordinators", {}).values()
+        )
+        entities.extend(
+            OmadaLedSwitch(coordinator) for coordinator in site_coordinators
+        )
 
     async_add_entities(entities)
 

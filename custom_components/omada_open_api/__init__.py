@@ -226,11 +226,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             )
 
     # Store API client and coordinators in runtime_data
+    #
+    # Check whether the API credentials have write access by performing a
+    # non-destructive probe on the first site.  When the credentials are
+    # viewer-only, controllable switches (PoE, LED) are not created.
+    has_write_access = True
+    if coordinators:
+        first_site_id = next(iter(coordinators))
+        has_write_access = await api_client.check_write_access(first_site_id)
+
     entry.runtime_data = {
         "api_client": api_client,
         "coordinators": coordinators,
         "client_coordinators": client_coordinators,
         "app_traffic_coordinators": app_traffic_coordinators,
+        "has_write_access": has_write_access,
     }
 
     # Set up platforms
