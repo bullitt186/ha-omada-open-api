@@ -7,7 +7,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 import pytest
 
-from custom_components.omada_open_api.api import OmadaApiClient
+from custom_components.omada_open_api.api import OmadaApiClient, OmadaApiError
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
@@ -464,3 +464,245 @@ async def test_refresh_connection_error_falls_back_to_client_credentials(
         # Second call should be client_credentials
         second_call = mock_post.call_args_list[1]
         assert second_call[1]["params"]["grant_type"] == "client_credentials"
+
+
+# ---------------------------------------------------------------------------
+# API method tests (get_sites, get_devices, get_clients, etc.)
+# ---------------------------------------------------------------------------
+
+
+async def test_get_sites(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_sites returns site list from API response."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    sites = [{"siteId": "site_1", "name": "Office"}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": sites, "totalRows": 1},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_sites()
+
+    assert result == sites
+    call_url = mock_get.call_args[0][0]
+    assert "/openapi/v1/test_omada_id/sites" in call_url
+
+
+async def test_get_devices(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_devices sends correct URL with site_id."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    devices = [{"mac": "AA-BB-CC-DD-EE-01", "name": "AP", "type": "ap"}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": devices, "totalRows": 1},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_devices("site_001")
+
+    assert result == devices
+    call_url = mock_get.call_args[0][0]
+    assert "/sites/site_001/devices" in call_url
+
+
+async def test_get_clients(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_clients uses POST with correct body."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    clients_data = {"data": [{"mac": "11:22:33:44:55:AA"}], "totalRows": 1}
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": clients_data,
+    }
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_clients("site_001", page=1, page_size=500)
+
+    assert result == clients_data
+    call_url = mock_post.call_args[0][0]
+    assert "/sites/site_001/clients" in call_url
+
+    # Verify POST body contains pagination.
+    call_kwargs = mock_post.call_args[1]
+    body = call_kwargs["json"]
+    assert body["page"] == 1
+    assert body["pageSize"] == 500
+
+
+async def test_get_device_uplink_info(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_device_uplink_info sends MAC list in POST body."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    uplink_data = [{"deviceMac": "AA-BB-CC-DD-EE-01", "linkSpeed": 3}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": uplink_data}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_device_uplink_info(
+            "site_001", ["AA-BB-CC-DD-EE-01"]
+        )
+
+    assert result == uplink_data
+    body = mock_post.call_args[1]["json"]
+    assert body["deviceMacs"] == ["AA-BB-CC-DD-EE-01"]
+
+
+async def test_get_device_uplink_info_empty_list(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_device_uplink_info with empty MAC list returns early."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    result = await api_client.get_device_uplink_info("site_001", [])
+    assert result == []
+
+
+async def test_get_client_app_traffic(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_client_app_traffic passes time range parameters."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    app_data = [{"applicationId": 100, "upload": 1024, "download": 2048}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": app_data}
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_client_app_traffic(
+            "site_001", "AA:BB:CC:DD:EE:FF", 1000000, 2000000
+        )
+
+    assert result == app_data
+    call_url = mock_get.call_args[0][0]
+    assert "/specificClientInfo/AA:BB:CC:DD:EE:FF" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["start"] == 1000000
+    assert call_params["end"] == 2000000
+
+
+async def test_authenticated_request_non_200_raises(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that non-200 HTTP status raises OmadaApiError."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 500
+    mock_response.text.return_value = "Internal Server Error"
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        with pytest.raises(OmadaApiError, match="HTTP 500"):
+            await api_client.get_sites()
+
+
+async def test_authenticated_request_api_error_code(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that non-zero API errorCode raises OmadaApiError."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": -30001,
+        "msg": "Permission denied",
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        with pytest.raises(OmadaApiError, match="Permission denied"):
+            await api_client.get_sites()
