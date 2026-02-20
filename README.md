@@ -7,7 +7,6 @@
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/bullitt186/ha-omada-open-api.svg?style=for-the-badge)](https://github.com/bullitt186/ha-omada-open-api/releases)
 [![License](https://img.shields.io/github/license/bullitt186/ha-omada-open-api.svg?style=for-the-badge)](LICENSE)
-[![Code Quality](https://img.shields.io/badge/code%20quality-A+-brightgreen?style=for-the-badge)](https://github.com/bullitt186/ha-omada-open-api)
 
 **Monitor and control your TP-Link Omada SDN infrastructure directly from Home Assistant.**
 
@@ -15,148 +14,79 @@
 
 ---
 
-## ⚠️ **DISCLAIMER**
+## Disclaimer
 
-**This integration is currently a work in progress. Please read carefully before using:**
-
-- **🚧 Work in Progress**: This integration is under active development and may contain bugs or incomplete features.
-- **🤖 AI-Assisted Development**: This project has been heavily developed with the assistance of AI tools and may not follow all traditional development best practices.
-- **🔮 No Long-Term Support Guarantee**: The maintainer cannot guarantee continued support or maintenance of this integration in the medium to long term.
-- **⚠️ Use at Your Own Risk**: Users install and use this integration entirely at their own risk. Always test in a non-production environment first.
-- **☁️ Cloud Controller Untested**: Omada Cloud Controller support has not been thoroughly tested. Local controller support is the primary focus.
-
-**If you encounter issues or have concerns, please open an issue on GitHub. Contributions and testing feedback are welcome!**
+> This integration is under active development and has been heavily developed with AI assistance. The maintainer cannot guarantee long-term support. Use at your own risk and always test in a non-production environment first. Contributions and feedback are welcome!
 
 ---
 
 ## Table of Contents
 
 - [About](#about)
-- [Why This Integration?](#why-this-integration)
 - [Features](#features)
 - [Installation](#installation)
-  - [HACS Installation (Recommended)](#hacs-installation-recommended)
-  - [Manual Installation](#manual-installation)
 - [Configuration](#configuration)
-  - [Obtaining API Credentials](#obtaining-api-credentials)
-  - [Integration Setup](#integration-setup)
-- [Usage & Examples](#usage--examples)
-  - [Entities Created](#entities-created)
-  - [Automation Examples](#automation-examples)
+- [Entities](#entities)
+- [Automation Examples](#automation-examples)
+- [Options](#options)
 - [Supported Devices](#supported-devices)
 - [Troubleshooting](#troubleshooting)
 - [Known Limitations](#known-limitations)
 - [Development](#development)
 - [Contributing](#contributing)
-- [Support](#support)
 - [License](#license)
 
 ---
 
 ## About
 
-This integration provides comprehensive monitoring and control of **TP-Link Omada SDN** (Software Defined Networking) infrastructure through the **Omada Open API**. It connects to your Omada Controller (cloud or local) and exposes network devices, clients, and statistics as Home Assistant entities.
+This integration connects to your **TP-Link Omada SDN** controller through the **Omada Open API** and exposes your network infrastructure as Home Assistant devices and entities. It supports cloud-managed and locally-hosted controllers.
 
-**Target Audience**: Home Assistant users with TP-Link Omada networking equipment who want to:
-- Monitor network device status and performance
-- Track connected clients across their network
-- Create automations based on network events
-- View real-time network statistics and bandwidth usage
-- Monitor application-level traffic (DPI data)
+With it you can:
 
----
+- Monitor access points, switches, and gateways (status, CPU, memory, uptime, PoE budgets)
+- Track connected clients with presence detection
+- Control PoE per switch port, toggle site-wide LEDs, and block/unblock clients
+- Reboot devices, trigger locate (LED flash), reconnect wireless clients, and start WLAN optimization
+- Install firmware updates directly from Home Assistant
+- Monitor per-client application traffic when DPI is enabled
+- Automate based on any of the above
 
-## Why This Integration?
-
-**Comprehensive Network Visibility**: Unlike basic router integrations, this provides deep insights into your entire Omada SDN infrastructure—access points, switches, gateways, and all connected clients.
-
-**Automation Ready**: Create powerful automations based on:
-- Device online/offline status
-- Client connectivity (presence detection)
-- Network bandwidth usage
-- Application traffic patterns
-- Device performance metrics
-
-**Cloud & Local Support**: Works with both cloud-managed and locally-hosted Omada Controllers via the official Open API.
-
-**OAuth 2.0 Authentication**: Secure authentication with automatic token refresh—set it up once and forget it.
+Authentication uses **OAuth 2.0 Client Credentials** with fully automatic token refresh — set it up once and forget it.
 
 ---
 
 ## Features
 
-### Device Monitoring
-- **Controllers**: Status and site information
-- **Access Points**: Client counts, uptime, channel, signal strength
-- **Switches**: Port status, PoE usage, uplink information
-- **Gateways**: WAN/LAN status, traffic statistics, public IP
+| Platform | What it provides |
+|---|---|
+| **Sensor** | Device metrics (clients, uptime, CPU, memory, model, firmware, link speed, public IP, etc.), per-band client counts for APs, client metrics (IP, RSSI, SNR, SSID, traffic, activity rates), PoE budget & per-port power, per-app traffic |
+| **Binary Sensor** | Device online/offline, firmware update available, client power-save mode |
+| **Device Tracker** | Presence detection for devices (APs, switches, gateways) and selected clients |
+| **Switch** | PoE enable/disable per switch port, site-wide LED toggle, client network access (block/unblock) |
+| **Button** | Device reboot, device locate (flash LEDs), wireless client reconnect, site-wide WLAN optimization |
+| **Update** | Firmware update entity with install action |
 
-### Client Tracking
-- **Device Tracker**: Presence detection for selected clients
-- **Client Sensors**: IP address, signal strength, connection status, SSID
-- **Application Traffic**: Per-client bandwidth usage by application (requires DPI)
-
-### Sensors
-- Device uptime, CPU/memory utilization, firmware version
-- Client counts per device
-- Network statistics (upload/download traffic)
-- Link speed and connectivity information
-
-### Binary Sensors
-- Device online/offline status
-
-### Platforms Implemented
-- ✅ **Sensor**: Comprehensive device and client metrics
-- ✅ **Binary Sensor**: Device connectivity status
-- ✅ **Device Tracker**: Client presence detection (planned)
+> **Note on permissions:** PoE and LED switches are only created when the API credentials have editing rights. If your credentials are viewer-only, the integration automatically detects this during setup and skips those controls — all monitoring entities are still created.
 
 ---
 
 ## Installation
 
-### HACS Installation (Recommended)
+### HACS (Recommended)
 
-**Prerequisites**: [HACS](https://hacs.xyz/) must be installed in your Home Assistant instance.
-
-1. **Add Custom Repository**:
-   - Open Home Assistant → **HACS** → **Integrations**
-   - Click the three dots in the top right → **Custom repositories**
-   - Enter repository URL: `https://github.com/bullitt186/ha-omada-open-api`
-   - Category: **Integration**
-   - Click **Add**
-
-2. **Install Integration**:
-   - Search for "**TP-Link Omada Open API**" in HACS
-   - Click **Download**
-   - Restart Home Assistant when prompted
-
-3. **Add Integration**:
-   - Go to **Settings** → **Devices & Services**
-   - Click **Add Integration**
-   - Search for "**TP-Link Omada Open API**"
-   - Follow the configuration flow
+1. Open **HACS → Integrations → ⋮ → Custom repositories**
+2. Add `https://github.com/bullitt186/ha-omada-open-api` as **Integration**
+3. Search for **TP-Link Omada Open API**, click **Download**, then restart Home Assistant
+4. Go to **Settings → Devices & Services → Add Integration** and search for **TP-Link Omada Open API**
 
 [![My Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=omada_open_api)
 
-### Manual Installation
+### Manual
 
-1. **Download Integration**:
-   ```bash
-   cd /config
-   mkdir -p custom_components
-   cd custom_components
-   git clone https://github.com/bullitt186/ha-omada-open-api.git omada_open_api
-   ```
-
-   Or download the [latest release](https://github.com/bullitt186/ha-omada-open-api/releases) and extract to `custom_components/omada_open_api/`
-
-2. **Restart Home Assistant**
-
-3. **Add Integration**:
-   - Go to **Settings** → **Devices & Services**
-   - Click **Add Integration**
-   - Search for "**TP-Link Omada Open API**"
-   - Follow the configuration flow
+1. Download the [latest release](https://github.com/bullitt186/ha-omada-open-api/releases) and copy the `omada_open_api` folder into your `custom_components/` directory
+2. Restart Home Assistant
+3. Add the integration via **Settings → Devices & Services**
 
 ---
 
@@ -164,204 +94,172 @@ This integration provides comprehensive monitoring and control of **TP-Link Omad
 
 ### Obtaining API Credentials
 
-To use this integration, you need **OAuth 2.0 credentials** from TP-Link:
+1. Log in to the [TP-Link Omada Cloud Portal](https://omada.tplinkcloud.com)
+2. Go to **Settings → Platform Integration → OpenAPI** (or your controller's equivalent)
+3. Create an application to obtain your **Client ID**, **Client Secret**, and note your **Omada ID** (controller ID)
 
-1. Visit the [TP-Link Omada API Portal](https://use1-omada-northbound.tplinkcloud.com/doc.html#/home)
-2. Log in with your TP-Link account
-3. Navigate to **API Credentials** section
-4. Create new OAuth 2.0 credentials:
-   - **Client ID**: Your application's client ID
-   - **Client Secret**: Your application's client secret
-   - **Omada ID**: Your controller's Omada Cloud ID
+### Setup Flow
 
-**Note**: These credentials provide access to your Omada Controller. Keep them secure.
+The integration guides you through a multi-step configuration:
 
-### Integration Setup
+1. **Controller type** — Cloud or local
+2. **Region** (cloud) or **API URL** (local)
+3. **Credentials** — Omada ID, Client ID, Client Secret
+4. **Sites** — Select one or more sites to monitor
+5. **Clients** *(optional)* — Select clients for presence detection and detailed monitoring
+6. **Applications** *(optional)* — Select DPI-tracked applications for per-client traffic sensors (requires DPI enabled on your gateway)
 
-The integration uses a **multi-step configuration flow**:
-
-#### Step 1: Controller Type
-Choose between:
-- **Cloud Controller**: Controller managed via TP-Link cloud
-- **Local Controller**: Self-hosted controller with Open API enabled
-
-#### Step 2: Region Selection (Cloud Only)
-Select your controller's region:
-- US East (use1)
-- US West (usw1)
-- Europe (eu1)
-- Asia Pacific (ap1)
-
-Or provide a custom API URL for local controllers.
-
-#### Step 3: OAuth Credentials
-Enter your API credentials:
-- **Omada ID**: Your controller's unique identifier
-- **Client ID**: OAuth 2.0 client ID
-- **Client Secret**: OAuth 2.0 client secret
-
-#### Step 4: Site Selection
-Select which Omada sites to monitor (supports multiple sites).
-
-#### Step 5: Client Selection (Optional)
-Select specific clients to track for device tracking and detailed monitoring.
-
-#### Step 6: Application Selection (Optional)
-Select applications to monitor for per-client traffic analysis (requires DPI enabled on gateway).
-
-### Configuration Example
-
-While this integration uses UI-based configuration (no YAML required), here's what the internal structure looks like:
-
-```yaml
-# This is handled automatically by the config flow
-# No manual configuration needed
-omada_open_api:
-  controller_type: cloud
-  api_url: https://use1-omada-northbound.tplinkcloud.com
-  omada_id: "your-omada-id"
-  client_id: "your-client-id"
-  client_secret: "your-client-secret"
-  sites:
-    - "site-id-1"
-    - "site-id-2"
-  selected_clients:
-    - "AA:BB:CC:DD:EE:FF"
-  selected_applications:
-    - "youtube"
-    - "netflix"
-```
-
-**Network Requirements**:
-- Outbound HTTPS (443) access to TP-Link cloud services (for cloud controllers)
-- Local network access to your Omada Controller (for local controllers)
-- DPI (Deep Packet Inspection) enabled on gateway (for application traffic monitoring)
+**Network requirements:**
+- Cloud: outbound HTTPS (443) to TP-Link cloud
+- Local: network access to your controller's API port
 
 ---
 
-## Usage & Examples
+## Entities
 
-### Entities Created
+### Per Device (AP, Switch, Gateway)
 
-Once configured, the integration creates entities for each device and selected client:
+| Entity | Example | Description |
+|---|---|---|
+| Sensor | `sensor.office_ap_connected_clients` | Connected client count |
+| Sensor | `sensor.office_ap_uptime` | Uptime as a timestamp |
+| Sensor | `sensor.office_ap_cpu_utilization` | CPU usage (%) |
+| Sensor | `sensor.office_ap_memory_utilization` | Memory usage (%) |
+| Sensor | `sensor.office_ap_clients_2_4_ghz` | 2.4 GHz clients (APs only) |
+| Sensor | `sensor.office_ap_clients_5_ghz` | 5 GHz clients (APs only) |
+| Sensor | `sensor.main_switch_poe_power_used` | PoE power draw (W) |
+| Sensor | `sensor.main_switch_poe_power_budget` | PoE power budget (W) |
+| Sensor | `sensor.main_switch_poe_power_remaining` | PoE remaining (%) |
+| Sensor | `sensor.main_switch_port_3_poe_power` | Per-port PoE power (W) |
+| Binary Sensor | `binary_sensor.office_ap_status` | Online / offline |
+| Binary Sensor | `binary_sensor.office_ap_firmware_update_available` | Firmware update needed |
+| Device Tracker | `device_tracker.office_ap` | Device presence (home/away) |
+| Switch | `switch.main_switch_port_3_poe` | PoE on/off per port |
+| Switch | `switch.home_led` | Site-wide LED on/off |
+| Button | `button.office_ap_reboot` | Reboot device |
+| Button | `button.office_ap_locate` | Flash LEDs / beep to locate |
+| Button | `button.home_wlan_optimization` | Start WLAN optimization |
+| Update | `update.office_ap_firmware` | Firmware with install action |
 
-#### Device Sensors (per Omada device)
-- `sensor.<device_name>_connected_clients` - Number of connected clients
-- `sensor.<device_name>_uptime` - Device uptime in seconds
-- `sensor.<device_name>_cpu_utilization` - CPU usage percentage
-- `sensor.<device_name>_memory_utilization` - Memory usage percentage
-- `sensor.<device_name>_model` - Device model
-- `sensor.<device_name>_firmware_version` - Current firmware version
-- `sensor.<device_name>_device_type` - Device type (AP, Switch, Gateway)
-- `sensor.<device_name>_uplink_device` - Connected uplink device name
-- `sensor.<device_name>_link_speed` - Uplink connection speed
+### Per Client
 
-#### Binary Sensors (per device)
-- `binary_sensor.<device_name>_status` - Online/offline status
+| Entity | Example | Description |
+|---|---|---|
+| Sensor | `sensor.johns_iphone_ip_address` | Current IP |
+| Sensor | `sensor.johns_iphone_rssi` | Signal strength (dBm) |
+| Sensor | `sensor.johns_iphone_snr` | Signal-to-noise ratio (dB) |
+| Sensor | `sensor.johns_iphone_ssid` | Connected network |
+| Sensor | `sensor.johns_iphone_connected_to` | Connected AP / switch |
+| Sensor | `sensor.johns_iphone_downloaded` | Total downloaded (MB) |
+| Sensor | `sensor.johns_iphone_uploaded` | Total uploaded (MB) |
+| Sensor | `sensor.johns_iphone_rx_activity` | RX rate (MB/s) |
+| Sensor | `sensor.johns_iphone_tx_activity` | TX rate (MB/s) |
+| Sensor | `sensor.johns_iphone_uptime` | Client uptime |
+| Binary Sensor | `binary_sensor.johns_iphone_power_save` | Power-save mode (wireless) |
+| Device Tracker | `device_tracker.johns_iphone` | Presence detection |
+| Switch | `switch.johns_iphone_network_access` | Block / unblock client |
+| Button | `button.johns_iphone_reconnect` | Reconnect wireless client |
 
-#### Client Sensors (per selected client)
-- `sensor.<client_name>_connection_status` - Connected/Disconnected
-- `sensor.<client_name>_ip_address` - Current IP address
-- `sensor.<client_name>_signal_strength` - WiFi signal strength (wireless only)
-- `sensor.<client_name>_connected_to` - Connected AP/switch/gateway name
-- `sensor.<client_name>_ssid` - Connected WiFi network (wireless only)
+### Per Client + Application (DPI)
 
-#### Application Traffic Sensors (per client & app)
-- `sensor.<client_name>_<app>_upload` - Upload traffic (auto-scaled: B/KB/MB/GB)
-- `sensor.<client_name>_<app>_download` - Download traffic (auto-scaled)
+| Entity | Example | Description |
+|---|---|---|
+| Sensor | `sensor.johns_iphone_youtube_download` | App download traffic (auto-scaled) |
+| Sensor | `sensor.johns_iphone_youtube_upload` | App upload traffic (auto-scaled) |
 
-### Automation Examples
+Application traffic sensors auto-scale their unit (B, KB, MB, GB, TB) and reset daily at midnight.
 
-#### Notify When Device Goes Offline
+---
+
+## Automation Examples
+
+### Alert When an AP Goes Offline
+
 ```yaml
 automation:
-  - alias: "Alert on AP Offline"
+  - alias: "AP offline alert"
     trigger:
       - platform: state
         entity_id: binary_sensor.living_room_ap_status
         to: "off"
     action:
-      - service: notify.mobile_app
+      - action: notify.mobile_app
         data:
           title: "Network Alert"
           message: "Living Room AP is offline!"
 ```
 
-#### Track Family Member Presence
+### Presence-Based Welcome Home
+
 ```yaml
 automation:
-  - alias: "Welcome Home"
+  - alias: "Welcome home"
     trigger:
       - platform: state
-        entity_id: sensor.johns_iphone_connection_status
-        to: "Connected"
+        entity_id: device_tracker.johns_iphone
+        to: "home"
     action:
-      - service: light.turn_on
+      - action: light.turn_on
         target:
           entity_id: light.entrance
 ```
 
-#### Monitor High Bandwidth Usage
-```yaml
-automation:
-  - alias: "High Streaming Usage Alert"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.living_room_tv_youtube_download
-        above: 10
-        # Above 10 GB
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "High YouTube usage detected on Living Room TV"
-```
+### High CPU Alert
 
-#### Device Performance Monitoring
 ```yaml
 automation:
-  - alias: "High CPU on Switch"
+  - alias: "High CPU on switch"
     trigger:
       - platform: numeric_state
         entity_id: sensor.main_switch_cpu_utilization
         above: 80
         for: "00:05:00"
     action:
-      - service: persistent_notification.create
+      - action: persistent_notification.create
         data:
           title: "Performance Alert"
-          message: "Main switch CPU usage above 80% for 5 minutes"
+          message: "Main switch CPU above 80% for 5 minutes"
 ```
+
+### Disable PoE at Night
+
+```yaml
+automation:
+  - alias: "Disable PoE on port 5 at night"
+    trigger:
+      - platform: time
+        at: "23:00:00"
+    action:
+      - action: switch.turn_off
+        target:
+          entity_id: switch.main_switch_port_5_poe
+```
+
+---
+
+## Options
+
+After initial setup, go to **Settings → Devices & Services → TP-Link Omada Open API → Configure** to access these options:
+
+| Option | Description |
+|---|---|
+| **Client selection** | Add or remove tracked clients |
+| **Application selection** | Add or remove tracked DPI applications |
+| **Update intervals** | Configure polling intervals for devices (default 60 s), clients (default 30 s), and app traffic (default 300 s). Range: 10 – 3600 seconds |
 
 ---
 
 ## Supported Devices
 
-This integration supports all TP-Link Omada SDN devices accessible via the Open API:
+All TP-Link Omada SDN devices accessible via the Open API are supported:
 
-### Controllers
-- ✅ Hardware Controllers (OC200, OC300)
-- ✅ Software Controllers (Windows/Linux)
-- ✅ Cloud-managed Controllers
+- **Controllers**: OC200, OC300, software controllers, cloud-managed controllers
+- **Access Points**: EAP series (WiFi 5/6/6E/7, indoor & outdoor)
+- **Switches**: JetStream and Smart Managed switches (PoE and non-PoE)
+- **Gateways**: ER and SafeStream series
+- **Clients**: Any device connected to the Omada network (wireless and wired)
 
-### Access Points
-- ✅ All Omada WiFi 6/6E/7 Access Points
-- ✅ Omada WiFi 5 Access Points
-- ✅ EAP series (indoor/outdoor)
-
-### Switches
-- ✅ JetStream Managed Switches
-- ✅ Smart Managed Switches with Omada support
-- ✅ PoE and non-PoE models
-
-### Gateways
-- ✅ ER series routers with Omada support
-- ✅ SafeStream routers
-
-### Clients
-- ✅ Any device connected to the Omada network
-- ✅ Wireless and wired clients
-
-**Note**: Device availability depends on your Omada Controller's API access level and firmware version.
+Device availability depends on your controller's firmware version and API access level.
 
 ---
 
@@ -369,97 +267,48 @@ This integration supports all TP-Link Omada SDN devices accessible via the Open 
 
 ### Integration Not Loading
 
-**Symptoms**: Integration doesn't appear in Home Assistant or fails to load.
-
-**Solutions**:
-1. Check Home Assistant logs: `Settings → System → Logs`
-2. Verify `manifest.json` exists in `custom_components/omada_open_api/`
-3. Verify `hacs.json` exists in repository root
-4. Restart Home Assistant after installation
-5. Ensure Home Assistant version ≥ 2024.1.0
+1. Check Home Assistant logs at **Settings → System → Logs**
+2. Verify `custom_components/omada_open_api/manifest.json` exists
+3. Restart Home Assistant after installation
 
 ### Authentication Errors
 
-**Symptoms**: "Invalid credentials" or "Authentication failed" errors.
-
-**Solutions**:
-1. Verify OAuth credentials are correct:
-   - Client ID matches exactly
-   - Client Secret has no extra spaces
-   - Omada ID is correct
-2. Check controller accessibility:
-   - Cloud: Verify region selection
-   - Local: Ensure API URL is correct and accessible
-   - Test API endpoint with curl or browser
-3. Check firewall rules:
-   - Allow outbound HTTPS (443) to TP-Link cloud
-   - Allow local network access to controller
-4. Try **Reauthentication**:
-   - Go to **Settings → Devices & Services**
-   - Click on integration → **Configure**
-   - Select **Reauthenticate**
+1. Double-check Client ID, Client Secret, and Omada ID — no extra spaces
+2. Verify region (cloud) or API URL (local) is correct
+3. Ensure outbound HTTPS is not blocked by a firewall
+4. Use **Settings → Devices & Services → TP-Link Omada Open API → Reauthenticate** to re-enter credentials
 
 ### No Entities Created
 
-**Symptoms**: Integration loads but no devices or entities appear.
-
-**Solutions**:
-1. Verify site selection during setup
-2. Check that devices exist in Omada Controller
-3. Ensure API user has proper permissions
-4. Check coordinator update logs for errors
-5. Try reloading the integration
+1. Verify you selected at least one site during setup
+2. Check that devices and clients exist in your Omada Controller
+3. Check logs for coordinator update errors
 
 ### Missing Application Traffic Sensors
 
-**Symptoms**: Client sensors appear but no app traffic sensors.
-
-**Solutions**:
-1. Enable **DPI** (Deep Packet Inspection) on gateway:
-   - Omada Controller → **Gateway** → **Settings** → **DPI**
-2. Verify applications are selected during config
-3. Ensure clients have recent traffic data
-4. Application data updates daily (resets at midnight)
+1. Enable **DPI** on your gateway: Omada Controller → Gateway → Settings → DPI
+2. Verify applications were selected during setup (or add them via Options → Application selection)
+3. Application data resets daily at midnight
 
 ### Entities Showing "Unavailable"
 
-**Symptoms**: Entities exist but show "Unavailable" state.
+1. Confirm the device is online in the Omada Controller
+2. Check logs for API errors
+3. Try increasing the polling interval via Options if you hit rate limits
 
-**Solutions**:
-1. Check device is online in Omada Controller
-2. Verify API credentials haven't expired
-3. Check Home Assistant logs for update errors
-4. Increase update interval if rate-limited
-5. Restart the integration
+### Token Errors
 
-### Token Refresh Errors
-
-**Symptoms**: "Token expired" or "Refresh failed" in logs.
-
-**Solutions**:
-- **Automatic Handling**: Integration automatically refreshes tokens
-- **Manual Fix**: Use reauthentication flow if automatic refresh fails
-- **Error -44114**: Refresh token expired - reauthenticate to get fresh tokens
+Token refresh is fully automatic. If you see persistent token errors in logs, use the **Reauthenticate** flow to obtain fresh credentials.
 
 ---
 
 ## Known Limitations
 
-- **Read-Only**: Currently provides monitoring only (no device control)
-- **Polling Interval**: Updates every 60 seconds (configurable in future)
-- **DPI Requirement**: Application traffic monitoring requires DPI enabled on gateway
-- **Cloud Dependency**: Cloud controllers require internet connectivity
-- **API Rate Limits**: Respects TP-Link API rate limits (rarely an issue)
-- **Local Controller**: Requires Open API enabled (not available on all firmware versions)
-
-**Planned Features**:
-- Device control (reboot, LED toggle)
-- Switch port configuration
-- Guest network toggle
-- PoE control per port
-- Custom update intervals
-
-**Report Issues**: Found a bug or limitation? Please [open an issue](https://github.com/bullitt186/ha-omada-open-api/issues).
+- **Cloud dependency**: Cloud controllers require internet connectivity
+- **DPI required**: Application traffic monitoring needs DPI enabled on the gateway
+- **Local controller**: Requires Open API enabled (not available on all firmware versions)
+- **API rate limits**: Respected automatically; rarely an issue with default polling intervals
+- **Viewer-only credentials**: PoE and LED switches are not created; all monitoring entities still work
 
 ---
 
@@ -469,117 +318,50 @@ This project uses VS Code devcontainers for a consistent development environment
 
 ### Prerequisites
 
-- **macOS**: Install [Docker Desktop](https://docs.docker.com/desktop/install/mac-install/)
-- **Linux**: Install [Docker Engine](https://docs.docker.com/engine/install/)
-- **Windows**: Install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and [Docker Engine](https://docs.docker.com/engine/install/)
-- [Visual Studio Code](https://code.visualstudio.com/)
-- [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+- Docker ([Desktop](https://docs.docker.com/desktop/) or [Engine](https://docs.docker.com/engine/install/))
+- [Visual Studio Code](https://code.visualstudio.com/) with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
 
 ### Getting Started
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/bullitt186/ha-omada-open-api.git
-   cd ha-omada-open-api
-   ```
-
-2. Open in VS Code and reopen in container when prompted
-
-3. The development Home Assistant instance will be available at http://localhost:8123
+```bash
+git clone https://github.com/bullitt186/ha-omada-open-api.git
+cd ha-omada-open-api
+# Open in VS Code → Reopen in Container
+# Dev HA instance at http://localhost:8123
+```
 
 ### Code Quality
 
-This project follows **Home Assistant's official coding standards**:
-
-- ✅ **Ruff** - Primary linter and formatter (88 char lines)
-- ✅ **Pylint** - Additional code quality checks
-- ✅ **Mypy** - Strict type checking
-- ✅ **Pre-commit hooks** - Auto-checks before commit
-- ✅ **Full type hints** - All functions must be typed
-- ✅ **PEP 8 & PEP 257** compliance
-
-### Development Commands
+Pre-commit hooks enforce **Ruff** (lint + format), **Pylint**, **Mypy**, and **pytest with a coverage gate** on every commit.
 
 ```bash
-# Code quality
-ruff format custom_components/         # Format code
-ruff check custom_components/          # Lint code
-mypy custom_components/omada_open_api/ # Type check
-pylint custom_components/omada_open_api/ # Additional checks
-
-# Testing
-pytest tests/ -v                       # Run tests
-pytest tests/ --cov=custom_components.omada_open_api --cov-report=html # With coverage
-
-# Run Home Assistant
-hass -c config                         # Start development instance
+ruff check custom_components/ && ruff format --check custom_components/
+mypy custom_components/omada_open_api/
+pytest tests/ -v
+pytest tests/ --cov=custom_components.omada_open_api --cov-report=html
 ```
-
-See [CODING_STANDARDS.md](CODING_STANDARDS.md) for detailed guidelines.
 
 ---
 
 ## Contributing
 
-Contributions are welcome! Whether it's:
+Contributions are welcome — bug reports, feature requests, pull requests, documentation, and testing with different Omada setups.
 
-- 🐛 **Bug reports** - Open an issue with reproduction steps
-- 💡 **Feature requests** - Describe your use case
-- 🔧 **Pull requests** - Submit improvements or fixes
-- 📖 **Documentation** - Help improve guides and examples
-- 🧪 **Testing** - Test with different Omada setups
-
-### How to Contribute
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
-3. **Make your changes** following coding standards
-4. **Add tests** for new functionality
-5. **Ensure all tests pass**: `pytest tests/`
-6. **Commit changes**: `git commit -m 'Add amazing feature'`
-7. **Push to branch**: `git push origin feature/amazing-feature`
-8. **Open a Pull Request**
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and development process.
-
-### Communication Channels
-
-- **GitHub Issues**: Bug reports and feature requests
-- **GitHub Discussions**: Questions and community support
-- **Pull Requests**: Code contributions
-
----
-
-## Support
-
-### Documentation & Resources
-
-- **Omada Open API Docs**: [TP-Link API Portal](https://use1-omada-northbound.tplinkcloud.com/doc.html#/home)
-- **Home Assistant Docs**: [Developer Documentation](https://developers.home-assistant.io/)
-- **HACS Docs**: [HACS Documentation](https://hacs.xyz/)
-- **OpenAPI Spec**: [openapi/openapi.json](openapi/openapi.json) (complete API schema)
-
-### Getting Help
-
-- **Issues**: [Report bugs or request features](https://github.com/bullitt186/ha-omada-open-api/issues)
-- **Discussions**: [Community Q&A](https://github.com/bullitt186/ha-omada-open-api/discussions)
-- **Home Assistant Community**: [Community Forum](https://community.home-assistant.io/)
+1. Fork the repository
+2. Create a feature branch
+3. Make changes and add tests
+4. Ensure all checks pass (`pytest`, `ruff`, `mypy`, `pylint`)
+5. Open a pull request
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
 
-### Acknowledgments
-
-- **Home Assistant Community**: For the excellent integration framework
-- **TP-Link**: For providing the Omada Open API
-- **HACS**: For simplifying custom component distribution
+**Acknowledgments**: Home Assistant community, TP-Link for the Omada Open API, HACS for custom component distribution.
 
 ---
-
-**Made with ❤️ for the Home Assistant community**
 
 [![GitHub stars](https://img.shields.io/github/stars/bullitt186/ha-omada-open-api.svg?style=social)](https://github.com/bullitt186/ha-omada-open-api/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/bullitt186/ha-omada-open-api.svg?style=social)](https://github.com/bullitt186/ha-omada-open-api/network)
