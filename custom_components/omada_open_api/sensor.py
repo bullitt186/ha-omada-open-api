@@ -111,7 +111,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         value_fn=lambda device: (
             dt_util.utcnow().replace(microsecond=0)
             - dt.timedelta(seconds=device["uptime"])
-        ).isoformat()
+        )
         if device.get("uptime") is not None
         else None,
         available_fn=lambda device: device.get("uptime") is not None,
@@ -400,7 +400,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         value_fn=lambda client: (
             dt_util.utcnow().replace(microsecond=0)
             - dt.timedelta(seconds=client["uptime"])
-        ).isoformat()
+        )
         if client.get("uptime") is not None
         else None,
         available_fn=lambda client: client.get("uptime") is not None,

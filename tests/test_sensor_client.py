@@ -374,7 +374,7 @@ async def test_snr_sensor_unavailable_wired(hass: HomeAssistant) -> None:
 
 
 async def test_client_uptime_wireless(hass: HomeAssistant) -> None:
-    """Test uptime sensor returns ISO timestamp (boot time)."""
+    """Test uptime sensor returns datetime (boot time)."""
     sensor = _create_client_sensor(
         hass,
         WIRELESS_MAC,
@@ -382,13 +382,12 @@ async def test_client_uptime_wireless(hass: HomeAssistant) -> None:
         "client_uptime",
     )
     value = sensor.native_value
-    assert isinstance(value, str)
-    parsed = _dt.datetime.fromisoformat(value)
-    assert parsed.tzinfo is not None or "T" in value
+    assert isinstance(value, _dt.datetime)
+    assert value.tzinfo is not None
 
 
 async def test_client_uptime_wired(hass: HomeAssistant) -> None:
-    """Test uptime sensor for wired client returns ISO timestamp."""
+    """Test uptime sensor for wired client returns datetime."""
     sensor = _create_client_sensor(
         hass,
         WIRED_MAC,
@@ -396,9 +395,8 @@ async def test_client_uptime_wired(hass: HomeAssistant) -> None:
         "client_uptime",
     )
     value = sensor.native_value
-    assert isinstance(value, str)
-    parsed = _dt.datetime.fromisoformat(value)
-    assert parsed.tzinfo is not None or "T" in value
+    assert isinstance(value, _dt.datetime)
+    assert value.tzinfo is not None
 
 
 async def test_client_uptime_unavailable_when_none(hass: HomeAssistant) -> None:

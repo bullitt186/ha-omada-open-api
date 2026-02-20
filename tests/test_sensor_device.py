@@ -82,26 +82,21 @@ async def test_client_num_sensor(hass: HomeAssistant) -> None:
 
 
 async def test_uptime_sensor_string(hass: HomeAssistant) -> None:
-    """Test uptime sensor returns ISO timestamp (boot time)."""
+    """Test uptime sensor returns datetime (boot time)."""
     data = process_device(SAMPLE_DEVICE_AP)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "uptime")
-    # Uptime is 192610 seconds. Value should be an ISO timestamp string.
     value = sensor.native_value
-    assert isinstance(value, str)
-    # Verify it's a valid ISO timestamp
-    parsed = _dt.datetime.fromisoformat(value)
-    assert parsed.tzinfo is not None or "T" in value
+    assert isinstance(value, _dt.datetime)
+    assert value.tzinfo is not None
 
 
 async def test_uptime_sensor_int(hass: HomeAssistant) -> None:
-    """Test uptime sensor returns ISO timestamp for integer uptime."""
+    """Test uptime sensor returns datetime for integer uptime."""
     data = process_device(SAMPLE_DEVICE_SWITCH)
     sensor = _create_device_sensor(hass, SWITCH_MAC, {SWITCH_MAC: data}, "uptime")
     value = sensor.native_value
-    assert isinstance(value, str)
-    # Verify it's a valid ISO timestamp
-    parsed = _dt.datetime.fromisoformat(value)
-    assert parsed.tzinfo is not None or "T" in value
+    assert isinstance(value, _dt.datetime)
+    assert value.tzinfo is not None
 
 
 async def test_cpu_util_sensor(hass: HomeAssistant) -> None:
