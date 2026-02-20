@@ -58,22 +58,8 @@ env/
 *.swo
 *~
 
-# Home Assistant
-config/.storage/
-config/deps/
-config/tts/
-config/www/
-config/*.db
-config/*.db-shm
-config/*.db-wal
-config/*.log
-config/secrets.yaml
-config/known_devices.yaml
-config/.HA_VERSION
-config/.uuid
-config/.ha_run.lock
-config/home-assistant.log*
-config/home-assistant_v2.db*
+# Home Assistant config (dev runtime)
+config/
 
 # macOS
 .DS_Store
