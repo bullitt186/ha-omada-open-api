@@ -11,6 +11,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .api import OmadaApiAuthError, OmadaApiClient
+from .clients import normalize_client_mac
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
@@ -29,6 +30,7 @@ from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
 )
+from .devices import normalize_site_id
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -270,9 +272,11 @@ async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
     # Normalize to uppercase with hyphens for comparison
     selected_client_macs_normalized = {
-        mac.replace(":", "-").upper() for mac in selected_client_macs
+        normalize_client_mac(mac) for mac in selected_client_macs
     }
-    selected_site_ids_normalized = {site_id.upper() for site_id in selected_site_ids}
+    selected_site_ids_normalized = {
+        normalize_site_id(site_id) for site_id in selected_site_ids
+    }
 
     # Get all devices for this config entry
     devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
@@ -377,9 +381,11 @@ async def async_remove_config_entry_device(
 
     # Normalize MAC addresses to match format (with hyphens)
     selected_client_macs_normalized = {
-        mac.replace(":", "-").upper() for mac in selected_client_macs
+        normalize_client_mac(mac) for mac in selected_client_macs
     }
-    selected_site_ids_normalized = {site_id.upper() for site_id in selected_site_ids}
+    selected_site_ids_normalized = {
+        normalize_site_id(site_id) for site_id in selected_site_ids
+    }
 
     # Check if this device is still in the selected lists
     for identifier in device_entry.identifiers:

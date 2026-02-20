@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, ICON_STATUS
 from .coordinator import OmadaSiteCoordinator
+from .devices import get_device_sort_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -56,20 +57,6 @@ async def async_setup_entry(
     # 1. Gateways first (no via_device)
     # 2. Switches second (via_device to gateway or other switch)
     # 3. Other devices last (via_device to their uplink)
-    def get_device_sort_key(
-        coordinator: OmadaSiteCoordinator, device_mac: str
-    ) -> tuple[int, str]:
-        """Get sort key for device ordering."""
-        device_data = coordinator.data.get("devices", {}).get(device_mac, {})
-        device_type = device_data.get("type", "").lower()
-
-        # Priority order: gateway(0), switch(1), others(2)
-        if "gateway" in device_type:
-            return (0, device_mac)
-        if "switch" in device_type:
-            return (1, device_mac)
-        return (2, device_mac)
-
     # Build sorted list of (coordinator, device_mac) tuples
     device_list = [
         (coordinator, device_mac)
@@ -78,7 +65,11 @@ async def async_setup_entry(
     ]
 
     # Sort by device type priority
-    device_list.sort(key=lambda x: get_device_sort_key(x[0], x[1]))
+    device_list.sort(
+        key=lambda x: get_device_sort_key(
+            x[0].data.get("devices", {}).get(x[1], {}), x[1]
+        )
+    )
 
     # Create binary sensors in sorted order
     entities: list[OmadaDeviceBinarySensor] = [

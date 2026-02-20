@@ -31,6 +31,7 @@ from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
 )
+from .devices import format_link_speed, get_device_sort_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,29 +42,6 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import StateType
-
-
-def _format_link_speed(speed: int | None) -> str | None:
-    """Format link speed enum to readable string.
-
-    0: Auto, 1: 10M, 2: 100M, 3: 1000M (1G), 4: 2500M (2.5G),
-    5: 10G, 6: 5G, 7: 25G, 8: 100G
-    """
-    if speed is None:
-        return None
-
-    speed_map = {
-        0: "Auto",
-        1: "10 Mbps",
-        2: "100 Mbps",
-        3: "1 Gbps",
-        4: "2.5 Gbps",
-        5: "10 Gbps",
-        6: "5 Gbps",
-        7: "25 Gbps",
-        8: "100 Gbps",
-    }
-    return speed_map.get(speed, f"Unknown ({speed})")
 
 
 def _auto_scale_bytes(
@@ -194,7 +172,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="link_speed",
         name="Link speed",
         icon=ICON_LINK,
-        value_fn=lambda device: _format_link_speed(device.get("link_speed")),
+        value_fn=lambda device: format_link_speed(device.get("link_speed")),
         available_fn=lambda device: device.get("link_speed") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -283,20 +261,6 @@ async def async_setup_entry(
     # 1. Gateways first (no via_device)
     # 2. Switches second (via_device to gateway or other switch)
     # 3. Other devices last (via_device to their uplink)
-    def get_device_sort_key(
-        coordinator: OmadaSiteCoordinator, device_mac: str
-    ) -> tuple[int, str]:
-        """Get sort key for device ordering."""
-        device_data = coordinator.data.get("devices", {}).get(device_mac, {})
-        device_type = device_data.get("type", "").lower()
-
-        # Priority order: gateway(0), switch(1), others(2)
-        if "gateway" in device_type:
-            return (0, device_mac)
-        if "switch" in device_type:
-            return (1, device_mac)
-        return (2, device_mac)
-
     # Build sorted list of (coordinator, device_mac) tuples
     device_list = [
         (coordinator, device_mac)
@@ -305,7 +269,11 @@ async def async_setup_entry(
     ]
 
     # Sort by device type priority
-    device_list.sort(key=lambda x: get_device_sort_key(x[0], x[1]))
+    device_list.sort(
+        key=lambda x: get_device_sort_key(
+            x[0].data.get("devices", {}).get(x[1], {}), x[1]
+        )
+    )
 
     # Create device sensors in sorted order
     entities: list[SensorEntity] = [
