@@ -1100,3 +1100,83 @@ async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> 
         )
 
     assert mock_put.call_args[1]["json"] == {"poeMode": 0}
+
+
+async def test_reboot_device(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test reboot_device sends POST to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.reboot_device("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/devices/AA-BB-CC-DD-EE-01/reboot" in call_url
+    assert "test_omada_id" in call_url
+
+
+async def test_reconnect_client(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test reconnect_client sends POST to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.reconnect_client("site_001", "11-22-33-44-55-AA")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/clients/11-22-33-44-55-AA/reconnect" in call_url
+
+
+async def test_start_wlan_optimization(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test start_wlan_optimization sends POST with strategy payload."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": {}}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.start_wlan_optimization("site_001")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/cmd/rfPlanning/rrmOptimization" in call_url
+    assert mock_post.call_args[1]["json"] == {"optimizationStrategy": 0}

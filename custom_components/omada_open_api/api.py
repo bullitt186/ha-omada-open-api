@@ -694,6 +694,64 @@ class OmadaApiClient:
         )
         await self._authenticated_request("put", url, json_data={"poeMode": poe_mode})
 
+    async def reboot_device(self, site_id: str, device_mac: str) -> None:
+        """Reboot a device (AP, switch, or gateway).
+
+        Args:
+            site_id: Site ID the device belongs to
+            device_mac: MAC address of the device (AA-BB-CC-DD-EE-FF format)
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/reboot"
+        )
+        _LOGGER.debug("Rebooting device %s", device_mac)
+        await self._authenticated_request("post", url)
+
+    async def reconnect_client(self, site_id: str, client_mac: str) -> None:
+        """Reconnect a wireless client.
+
+        Args:
+            site_id: Site ID the client belongs to
+            client_mac: MAC address of the client
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/clients/{client_mac}/reconnect"
+        )
+        _LOGGER.debug("Reconnecting client %s", client_mac)
+        await self._authenticated_request("post", url)
+
+    async def start_wlan_optimization(self, site_id: str, *, strategy: int = 0) -> None:
+        """Start WLAN/RF optimization for a site.
+
+        Args:
+            site_id: Site ID to optimize
+            strategy: 0 = Global Optimization, 1 = Optimization Adjustment
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/cmd/rfPlanning/rrmOptimization"
+        )
+        _LOGGER.debug(
+            "Starting WLAN optimization for site %s (strategy=%d)", site_id, strategy
+        )
+        await self._authenticated_request(
+            "post", url, json_data={"optimizationStrategy": strategy}
+        )
+
     @property
     def access_token(self) -> str:
         """Get current access token."""
