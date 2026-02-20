@@ -984,3 +984,119 @@ async def test_get_device_client_stats_empty_macs(
 
     result = await api_client.get_device_client_stats("site_001", [])
     assert result == []
+
+
+async def test_set_port_profile_override(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test set_port_profile_override sends correct PUT request."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.put") as mock_put:
+        mock_put.return_value.__aenter__.return_value = mock_response
+        await api_client.set_port_profile_override(
+            "site_001", "AA-BB-CC-DD-EE-02", 1, enable=True
+        )
+
+    call_url = mock_put.call_args[0][0]
+    assert "/switches/AA-BB-CC-DD-EE-02/ports/1/profile-override" in call_url
+    assert mock_put.call_args[1]["json"] == {"profileOverrideEnable": True}
+
+
+async def test_set_port_profile_override_disable(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test set_port_profile_override with enable=False."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.put") as mock_put:
+        mock_put.return_value.__aenter__.return_value = mock_response
+        await api_client.set_port_profile_override(
+            "site_001", "AA-BB-CC-DD-EE-02", 3, enable=False
+        )
+
+    assert mock_put.call_args[1]["json"] == {"profileOverrideEnable": False}
+
+
+async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test set_port_poe_mode with poe_enabled=True sends poeMode 1."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.put") as mock_put:
+        mock_put.return_value.__aenter__.return_value = mock_response
+        await api_client.set_port_poe_mode(
+            "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=True
+        )
+
+    call_url = mock_put.call_args[0][0]
+    assert "/switches/AA-BB-CC-DD-EE-02/ports/1/poe-mode" in call_url
+    assert mock_put.call_args[1]["json"] == {"poeMode": 1}
+
+
+async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test set_port_poe_mode with poe_enabled=False sends poeMode 0."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.put") as mock_put:
+        mock_put.return_value.__aenter__.return_value = mock_response
+        await api_client.set_port_poe_mode(
+            "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
+        )
+
+    assert mock_put.call_args[1]["json"] == {"poeMode": 0}

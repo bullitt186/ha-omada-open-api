@@ -113,7 +113,7 @@ class OmadaApiClient:
         -44113 (token invalid) by refreshing the token and retrying once.
 
         Args:
-            method: HTTP method ("get" or "post")
+            method: HTTP method ("get", "post", or "put")
             url: Full URL to request
             params: Query parameters
             json_data: JSON body (for POST requests)
@@ -625,6 +625,74 @@ class OmadaApiClient:
             "post", url, json_data={"devices": devices}
         )
         return result.get("result", [])  # type: ignore[no-any-return]
+
+    async def set_port_profile_override(
+        self,
+        site_id: str,
+        switch_mac: str,
+        port: int,
+        *,
+        enable: bool,
+    ) -> None:
+        """Enable or disable profile override for a switch port.
+
+        Profile override must be enabled before changing PoE mode.
+
+        Args:
+            site_id: Site ID the switch belongs to
+            switch_mac: MAC address of the switch (AA-BB-CC-DD-EE-FF format)
+            port: Port number
+            enable: Whether to enable profile override
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/profile-override"
+        )
+        _LOGGER.debug(
+            "Setting profile override for %s port %d to %s",
+            switch_mac,
+            port,
+            enable,
+        )
+        await self._authenticated_request(
+            "put", url, json_data={"profileOverrideEnable": enable}
+        )
+
+    async def set_port_poe_mode(
+        self,
+        site_id: str,
+        switch_mac: str,
+        port: int,
+        *,
+        poe_enabled: bool,
+    ) -> None:
+        """Set PoE mode for a switch port.
+
+        Profile override must be enabled first via set_port_profile_override.
+
+        Args:
+            site_id: Site ID the switch belongs to
+            switch_mac: MAC address of the switch (AA-BB-CC-DD-EE-FF format)
+            port: Port number
+            poe_enabled: True for PoE on (802.3at/af), False for off
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/poe-mode"
+        )
+        poe_mode = 1 if poe_enabled else 0
+        _LOGGER.debug(
+            "Setting PoE mode for %s port %d to %d", switch_mac, port, poe_mode
+        )
+        await self._authenticated_request("put", url, json_data={"poeMode": poe_mode})
 
     @property
     def access_token(self) -> str:
