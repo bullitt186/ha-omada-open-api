@@ -200,7 +200,9 @@ async def test_detail_status_unknown_code(hass: HomeAssistant) -> None:
 
 async def test_detail_status_unavailable_when_none(hass: HomeAssistant) -> None:
     """Test detail_status unavailable when not in data."""
-    data = process_device(SAMPLE_DEVICE_AP)
+    ap = dict(SAMPLE_DEVICE_AP)
+    del ap["detailStatus"]
+    data = process_device(ap)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "detail_status")
     assert sensor.available is False
 
