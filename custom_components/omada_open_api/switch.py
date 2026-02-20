@@ -51,6 +51,10 @@ async def async_setup_entry(
                 for client_mac in coordinator.data
             )
 
+    # LED switch (one per site).
+    site_coordinators: list[OmadaSiteCoordinator] = data.get("site_coordinators", [])
+    entities.extend(OmadaLedSwitch(coordinator) for coordinator in site_coordinators)
+
     async_add_entities(entities)
 
 
@@ -252,3 +256,75 @@ class OmadaClientBlockSwitch(
             _LOGGER.exception("Failed to block client %s", self._client_mac)
             return
         await self.coordinator.async_request_refresh()
+
+
+class OmadaLedSwitch(
+    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    SwitchEntity,  # type: ignore[misc]
+):
+    """Switch entity to control site-wide LED setting."""
+
+    _attr_has_entity_name = False
+    _attr_icon = "mdi:led-on"
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+    ) -> None:
+        """Initialize the LED switch."""
+        super().__init__(coordinator)
+        self._attr_name = f"{coordinator.site_name} LED"
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_led"
+        self._led_enabled: bool | None = None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if LED is enabled."""
+        return self._led_enabled
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    async def async_update(self) -> None:
+        """Fetch current LED state from the API."""
+        await super().async_update()
+        try:
+            result = await self.coordinator.api_client.get_led_setting(
+                self.coordinator.site_id
+            )
+            self._led_enabled = result.get("enable", False)
+        except OmadaApiError:
+            _LOGGER.debug(
+                "Could not fetch LED setting for site %s",
+                self.coordinator.site_id,
+            )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable LEDs."""
+        try:
+            await self.coordinator.api_client.set_led_setting(
+                self.coordinator.site_id, enable=True
+            )
+            self._led_enabled = True
+        except OmadaApiError:
+            _LOGGER.exception(
+                "Failed to enable LED for site %s", self.coordinator.site_id
+            )
+            return
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable LEDs."""
+        try:
+            await self.coordinator.api_client.set_led_setting(
+                self.coordinator.site_id, enable=False
+            )
+            self._led_enabled = False
+        except OmadaApiError:
+            _LOGGER.exception(
+                "Failed to disable LED for site %s", self.coordinator.site_id
+            )
+            return
+        self.async_write_ha_state()

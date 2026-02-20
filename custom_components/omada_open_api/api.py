@@ -788,6 +788,140 @@ class OmadaApiClient:
         _LOGGER.debug("Unblocking client %s", client_mac)
         await self._authenticated_request("post", url)
 
+    async def get_firmware_info(self, site_id: str, device_mac: str) -> dict[str, Any]:
+        """Get latest firmware information for a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+
+        Returns:
+            Dictionary with curFwVer, lastFwVer, fwReleaseLog
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/latest-firmware-info"
+        )
+        _LOGGER.debug("Fetching firmware info for %s", device_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def start_online_upgrade(
+        self, site_id: str, device_mac: str
+    ) -> dict[str, Any]:
+        """Start online firmware upgrade for a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+
+        Returns:
+            API response
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/start-online-upgrade"
+        )
+        _LOGGER.debug("Starting online upgrade for %s", device_mac)
+        result = await self._authenticated_request("post", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def get_led_setting(self, site_id: str) -> dict[str, Any]:
+        """Get LED setting for a site.
+
+        Args:
+            site_id: Site ID
+
+        Returns:
+            Dictionary with 'enable' boolean
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/led"
+        _LOGGER.debug("Fetching LED setting for site %s", site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def set_led_setting(self, site_id: str, *, enable: bool) -> dict[str, Any]:
+        """Set LED setting for a site.
+
+        Args:
+            site_id: Site ID
+            enable: Whether to enable LEDs
+
+        Returns:
+            API response
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/led"
+        _LOGGER.debug("Setting LED %s for site %s", "on" if enable else "off", site_id)
+        result = await self._authenticated_request(
+            "put", url, json_data={"enable": enable}
+        )
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def locate_device(
+        self, site_id: str, device_mac: str, *, enable: bool
+    ) -> None:
+        """Enable or disable the locate function on a device.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+            enable: True to start locating, False to stop
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/{device_mac}/locate"
+        )
+        _LOGGER.debug(
+            "%s locate for %s",
+            "Enabling" if enable else "Disabling",
+            device_mac,
+        )
+        await self._authenticated_request(
+            "post", url, json_data={"locateEnable": enable}
+        )
+
+    async def get_ap_radios(self, site_id: str, ap_mac: str) -> dict[str, Any]:
+        """Get radio information for an AP.
+
+        Args:
+            site_id: Site ID containing the AP
+            ap_mac: MAC address of the AP
+
+        Returns:
+            Dictionary with radio traffic and channel info per band
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/radios"
+        )
+        _LOGGER.debug("Fetching radio info for AP %s", ap_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

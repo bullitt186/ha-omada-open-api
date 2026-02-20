@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.button import (
     OmadaClientReconnectButton,
+    OmadaDeviceLocateButton,
     OmadaDeviceRebootButton,
     OmadaWlanOptimizationButton,
 )
@@ -65,6 +66,7 @@ def _build_site_coordinator(
     # Make api_client methods async.
     coordinator.api_client.reboot_device = AsyncMock()
     coordinator.api_client.start_wlan_optimization = AsyncMock()
+    coordinator.api_client.locate_device = AsyncMock()
     return coordinator
 
 
@@ -316,5 +318,74 @@ async def test_wlan_button_press_api_error(hass: HomeAssistant) -> None:
     coordinator = _build_site_coordinator(hass)
     button = OmadaWlanOptimizationButton(coordinator)
     coordinator.api_client.start_wlan_optimization.side_effect = OmadaApiError("fail")
+    with pytest.raises(OmadaApiError):
+        await button.async_press()
+
+
+# ===========================================================================
+# OmadaDeviceLocateButton tests
+# ===========================================================================
+
+
+async def test_locate_button_unique_id(hass: HomeAssistant) -> None:
+    """Test locate button unique ID format."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    assert button.unique_id == f"omada_open_api_{AP_MAC}_locate"
+
+
+async def test_locate_button_name(hass: HomeAssistant) -> None:
+    """Test locate button name includes device name."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    assert "Locate" in button.name
+
+
+async def test_locate_button_device_info(hass: HomeAssistant) -> None:
+    """Test locate button links to the device."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    info = button.device_info
+    assert info is not None
+    assert ("omada_open_api", AP_MAC) in info["identifiers"]
+
+
+async def test_locate_button_available(hass: HomeAssistant) -> None:
+    """Test locate button available when device exists."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    assert button.available is True
+
+
+async def test_locate_button_unavailable(hass: HomeAssistant) -> None:
+    """Test locate button unavailable when coordinator fails."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    coordinator.last_update_success = False
+    assert button.available is False
+
+
+async def test_locate_button_press(hass: HomeAssistant) -> None:
+    """Test pressing the locate button calls the API."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    await button.async_press()
+    coordinator.api_client.locate_device.assert_called_once_with(
+        TEST_SITE_ID, AP_MAC, enable=True
+    )
+
+
+async def test_locate_button_press_api_error(hass: HomeAssistant) -> None:
+    """Test locate button re-raises API errors."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    coordinator = _build_site_coordinator(hass, {AP_MAC: data})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    coordinator.api_client.locate_device.side_effect = OmadaApiError("fail")
     with pytest.raises(OmadaApiError):
         await button.async_press()

@@ -1232,3 +1232,173 @@ async def test_unblock_client(hass: HomeAssistant, mock_config_entry) -> None:
 
     call_url = mock_post.call_args[0][0]
     assert "/clients/11-22-33-44-55-AA/unblock" in call_url
+
+
+async def test_get_firmware_info(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_firmware_info sends GET to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"curFwVer": "1.0", "lastFwVer": "1.1", "fwReleaseLog": "Fix"},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_firmware_info("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/devices/AA-BB-CC-DD-EE-01/latest-firmware-info" in call_url
+    assert result.get("curFwVer") == "1.0"
+
+
+async def test_start_online_upgrade(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test start_online_upgrade sends POST to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.start_online_upgrade("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_post.call_args[0][0]
+    assert "/devices/AA-BB-CC-DD-EE-01/start-online-upgrade" in call_url
+
+
+async def test_get_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_led_setting sends GET to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"enable": True},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_led_setting("site_001")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/sites/site_001/led" in call_url
+    assert result.get("enable") is True
+
+
+async def test_set_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test set_led_setting sends PUT with enable payload."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.put") as mock_put:
+        mock_put.return_value.__aenter__.return_value = mock_response
+        await api_client.set_led_setting("site_001", enable=False)
+
+    call_url = mock_put.call_args[0][0]
+    assert "/sites/site_001/led" in call_url
+    assert mock_put.call_args[1]["json"] == {"enable": False}
+
+
+async def test_locate_device(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test locate_device sends POST with locateEnable payload."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        await api_client.locate_device("site_001", "AA-BB-CC-DD-EE-01", enable=True)
+
+    call_url = mock_post.call_args[0][0]
+    assert "/devices/AA-BB-CC-DD-EE-01/locate" in call_url
+    assert mock_post.call_args[1]["json"] == {"locateEnable": True}
+
+
+async def test_get_ap_radios(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_ap_radios sends GET to correct endpoint."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"radioTraffic2g": {"tx": 100, "rx": 200}},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_ap_radios("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/aps/AA-BB-CC-DD-EE-01/radios" in call_url
+    assert "radioTraffic2g" in result

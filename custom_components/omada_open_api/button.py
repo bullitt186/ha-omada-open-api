@@ -36,9 +36,9 @@ async def async_setup_entry(
     site_coordinators: list[OmadaSiteCoordinator] = data.get("site_coordinators", [])
     for coordinator in site_coordinators:
         devices = coordinator.data.get("devices", {}) if coordinator.data else {}
-        entities.extend(
-            OmadaDeviceRebootButton(coordinator, device_mac) for device_mac in devices
-        )
+        for device_mac in devices:
+            entities.append(OmadaDeviceRebootButton(coordinator, device_mac))
+            entities.append(OmadaDeviceLocateButton(coordinator, device_mac))
 
         # One WLAN optimization button per site.
         entities.append(OmadaWlanOptimizationButton(coordinator))
@@ -204,4 +204,62 @@ class OmadaWlanOptimizationButton(
                 "Failed to start WLAN optimization for site %s",
                 self.coordinator.site_name,
             )
+            raise
+
+
+class OmadaDeviceLocateButton(
+    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    ButtonEntity,  # type: ignore[misc]
+):
+    """Button entity to trigger the locate function on a device."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:crosshairs-gps"
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        device_mac: str,
+    ) -> None:
+        """Initialize the locate button."""
+        super().__init__(coordinator)
+        self._device_mac = device_mac
+        device_data = self._device_data
+        device_name = device_data.get("name", device_mac)
+        self._attr_name = f"{device_name} Locate"
+        self._attr_unique_id = f"{DOMAIN}_{device_mac}_locate"
+
+    @property
+    def _device_data(self) -> dict[str, Any]:
+        """Return the current device data from the coordinator."""
+        devices: dict[str, dict[str, Any]] = (
+            self.coordinator.data.get("devices", {}) if self.coordinator.data else {}
+        )
+        result: dict[str, Any] = devices.get(self._device_mac, {})
+        return result
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return device information to link this button to the device."""
+        device = self._device_data
+        if not device:
+            return None
+        return DeviceInfo(identifiers={(DOMAIN, self._device_mac)})
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return bool(self._device_data)
+
+    async def async_press(self) -> None:
+        """Handle the button press to locate the device."""
+        try:
+            await self.coordinator.api_client.locate_device(
+                self.coordinator.site_id, self._device_mac, enable=True
+            )
+            _LOGGER.info("Locate command sent to device %s", self._device_mac)
+        except OmadaApiError:
+            _LOGGER.exception("Failed to locate device %s", self._device_mac)
             raise

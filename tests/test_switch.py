@@ -19,6 +19,7 @@ from custom_components.omada_open_api.coordinator import (
 )
 from custom_components.omada_open_api.switch import (
     OmadaClientBlockSwitch,
+    OmadaLedSwitch,
     OmadaPoeSwitch,
 )
 
@@ -466,3 +467,115 @@ async def test_block_switch_device_info(hass: HomeAssistant) -> None:
     info = switch.device_info
     assert info is not None
     assert info["identifiers"] == {("omada_open_api", f"client_{WIRELESS_MAC}")}
+
+
+# ===========================================================================
+# OmadaLedSwitch tests
+# ===========================================================================
+
+
+def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
+    """Create an OmadaLedSwitch entity."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = {
+        "devices": {},
+        "poe_budget": {},
+        "poe_ports": {},
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+    }
+    coordinator.api_client.get_led_setting = AsyncMock(return_value={"enable": True})
+    coordinator.api_client.set_led_setting = AsyncMock(return_value={})
+    return OmadaLedSwitch(coordinator)
+
+
+async def test_led_switch_unique_id(hass: HomeAssistant) -> None:
+    """Test LED switch unique ID format."""
+    switch = _create_led_switch(hass)
+    assert switch.unique_id == f"omada_open_api_{TEST_SITE_ID}_led"
+
+
+async def test_led_switch_name(hass: HomeAssistant) -> None:
+    """Test LED switch name includes site name."""
+    switch = _create_led_switch(hass)
+    assert switch.name == f"{TEST_SITE_NAME} LED"
+
+
+async def test_led_switch_is_on_initial(hass: HomeAssistant) -> None:
+    """Test LED switch is_on is None before first update."""
+    switch = _create_led_switch(hass)
+    assert switch.is_on is None
+
+
+async def test_led_switch_is_on_after_update(hass: HomeAssistant) -> None:
+    """Test LED switch is_on reflects API after update."""
+    switch = _create_led_switch(hass)
+    await switch.async_update()
+    assert switch.is_on is True
+
+
+async def test_led_switch_available(hass: HomeAssistant) -> None:
+    """Test LED switch available when coordinator is healthy."""
+    switch = _create_led_switch(hass)
+    assert switch.available is True
+
+
+async def test_led_switch_unavailable(hass: HomeAssistant) -> None:
+    """Test LED switch unavailable on coordinator failure."""
+    switch = _create_led_switch(hass)
+    switch.coordinator.last_update_success = False
+    assert switch.available is False
+
+
+async def test_led_switch_turn_on(hass: HomeAssistant) -> None:
+    """Test turning LED switch ON calls set_led_setting(enable=True)."""
+    switch = _create_led_switch(hass)
+    switch.hass = hass
+    with patch.object(switch, "async_write_ha_state"):
+        await switch.async_turn_on()
+    switch.coordinator.api_client.set_led_setting.assert_called_once_with(
+        TEST_SITE_ID, enable=True
+    )
+    assert switch.is_on is True
+
+
+async def test_led_switch_turn_off(hass: HomeAssistant) -> None:
+    """Test turning LED switch OFF calls set_led_setting(enable=False)."""
+    switch = _create_led_switch(hass)
+    switch.hass = hass
+    with patch.object(switch, "async_write_ha_state"):
+        await switch.async_turn_off()
+    switch.coordinator.api_client.set_led_setting.assert_called_once_with(
+        TEST_SITE_ID, enable=False
+    )
+    assert switch.is_on is False
+
+
+async def test_led_switch_turn_on_api_error(hass: HomeAssistant) -> None:
+    """Test LED switch handles turn on error gracefully."""
+    switch = _create_led_switch(hass)
+    switch.coordinator.api_client.set_led_setting.side_effect = OmadaApiError("fail")
+    # Should not raise.
+    await switch.async_turn_on()
+    assert switch.is_on is None  # Stays None since never successfully fetched.
+
+
+async def test_led_switch_turn_off_api_error(hass: HomeAssistant) -> None:
+    """Test LED switch handles turn off error gracefully."""
+    switch = _create_led_switch(hass)
+    switch.coordinator.api_client.set_led_setting.side_effect = OmadaApiError("fail")
+    await switch.async_turn_off()
+    assert switch.is_on is None
+
+
+async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
+    """Test LED switch handles update error gracefully."""
+    switch = _create_led_switch(hass)
+    switch.coordinator.api_client.get_led_setting.side_effect = OmadaApiError("fail")
+    await switch.async_update()
+    assert switch.is_on is None

@@ -238,6 +238,12 @@ def mock_api_client() -> MagicMock:
     client.start_wlan_optimization = AsyncMock()
     client.block_client = AsyncMock()
     client.unblock_client = AsyncMock()
+    client.get_firmware_info = AsyncMock(return_value={})
+    client.start_online_upgrade = AsyncMock(return_value={})
+    client.get_led_setting = AsyncMock(return_value={"enable": True})
+    client.set_led_setting = AsyncMock(return_value={})
+    client.locate_device = AsyncMock()
+    client.get_ap_radios = AsyncMock(return_value={})
     return client
 
 
