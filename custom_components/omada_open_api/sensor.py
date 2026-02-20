@@ -20,11 +20,14 @@ from .const import (
     ICON_CLIENTS,
     ICON_CPU,
     ICON_DEVICE_TYPE,
+    ICON_DOWNLOAD,
     ICON_FIRMWARE,
     ICON_LINK,
     ICON_MEMORY,
     ICON_POE,
+    ICON_SIGNAL,
     ICON_TAG,
+    ICON_UPLOAD,
     ICON_UPTIME,
 )
 from .coordinator import (
@@ -239,6 +242,105 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon="mdi:wifi",
         value_fn=lambda client: client.get("ssid"),
         available_fn=lambda client: client.get("wireless", False),
+    ),
+    OmadaSensorEntityDescription(
+        key="downloaded",
+        translation_key="downloaded",
+        name="Downloaded",
+        icon=ICON_DOWNLOAD,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        suggested_display_precision=1,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=lambda client: (
+            round(client["traffic_down"] / 1_000_000, 1)
+            if client.get("traffic_down") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("traffic_down") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="uploaded",
+        translation_key="uploaded",
+        name="Uploaded",
+        icon=ICON_UPLOAD,
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        suggested_display_precision=1,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        value_fn=lambda client: (
+            round(client["traffic_up"] / 1_000_000, 1)
+            if client.get("traffic_up") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("traffic_up") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="rx_activity",
+        translation_key="rx_activity",
+        name="RX Activity",
+        icon=ICON_DOWNLOAD,
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement="MB/s",
+        suggested_display_precision=2,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: (
+            round(client["activity"] / 1_000_000, 2)
+            if client.get("activity") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("activity") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="tx_activity",
+        translation_key="tx_activity",
+        name="TX Activity",
+        icon=ICON_UPLOAD,
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement="MB/s",
+        suggested_display_precision=2,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: (
+            round(client["upload_activity"] / 1_000_000, 2)
+            if client.get("upload_activity") is not None
+            else None
+        ),
+        available_fn=lambda client: client.get("upload_activity") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="rssi",
+        translation_key="rssi",
+        name="RSSI",
+        icon=ICON_SIGNAL,
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
+        native_unit_of_measurement="dBm",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: client.get("rssi"),
+        available_fn=lambda client: (
+            client.get("wireless", False) and client.get("rssi") is not None
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="snr",
+        translation_key="snr",
+        name="SNR",
+        icon=ICON_SIGNAL,
+        native_unit_of_measurement="dB",
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda client: client.get("snr"),
+        available_fn=lambda client: (
+            client.get("wireless", False) and client.get("snr") is not None
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="client_uptime",
+        translation_key="client_uptime",
+        name="Uptime",
+        icon=ICON_UPTIME,
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        value_fn=lambda client: client.get("uptime"),
+        available_fn=lambda client: client.get("uptime") is not None,
     ),
 )
 

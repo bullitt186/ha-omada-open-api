@@ -127,10 +127,26 @@ SAMPLE_CLIENT_WIRELESS = {
     "ssid": "MyWiFi",
     "signalLevel": -55,
     "rssi": -55,
+    "snr": 35,
     "apName": "Office AP",
     "apMac": "AA-BB-CC-DD-EE-01",
     "channel": 36,
     "uptime": 3600,
+    "trafficDown": 1_500_000_000,
+    "trafficUp": 500_000_000,
+    "activity": 2_500_000,
+    "uploadActivity": 1_200_000,
+    "powerSave": True,
+    "blocked": False,
+    "connectType": 1,
+    "wifiMode": 6,
+    "rxRate": 866_000,
+    "txRate": 433_000,
+    "signalRank": 4,
+    "healthScore": 85,
+    "vendor": "Apple",
+    "deviceType": "iPhone",
+    "osName": "iOS",
 }
 
 SAMPLE_CLIENT_WIRED = {
@@ -144,6 +160,15 @@ SAMPLE_CLIENT_WIRED = {
     "switchMac": "AA-BB-CC-DD-EE-02",
     "port": 10,
     "uptime": 7200,
+    "trafficDown": 5_000_000_000,
+    "trafficUp": 2_000_000_000,
+    "activity": 5_000_000,
+    "uploadActivity": 3_000_000,
+    "blocked": False,
+    "networkName": "LAN",
+    "vid": 1,
+    "portName": "Port 10",
+    "vendor": "Dell",
 }
 
 

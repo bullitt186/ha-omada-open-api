@@ -12,8 +12,8 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, ICON_STATUS
-from .coordinator import OmadaSiteCoordinator
+from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
+from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import get_device_sort_key
 
 if TYPE_CHECKING:
@@ -43,6 +43,17 @@ DEVICE_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
     ),
 )
 
+CLIENT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
+    OmadaBinarySensorEntityDescription(
+        key="power_save",
+        translation_key="power_save",
+        name="Power Save",
+        icon=ICON_POWER_SAVE,
+        value_fn=lambda client: client.get("power_save", False),
+        available_fn=lambda client: client.get("wireless", False),
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -52,6 +63,9 @@ async def async_setup_entry(
     """Set up Omada binary sensors from a config entry."""
     data = entry.runtime_data
     coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
+    client_coordinators: list[OmadaClientCoordinator] = data.get(
+        "client_coordinators", []
+    )
 
     # Sort devices by dependency order to avoid via_device warnings
     # 1. Gateways first (no via_device)
@@ -72,7 +86,7 @@ async def async_setup_entry(
     )
 
     # Create binary sensors in sorted order
-    entities: list[OmadaDeviceBinarySensor] = [
+    entities: list[BinarySensorEntity] = [
         OmadaDeviceBinarySensor(
             coordinator=coordinator,
             description=description,
@@ -81,6 +95,18 @@ async def async_setup_entry(
         for coordinator, device_mac in device_list
         for description in DEVICE_BINARY_SENSORS
     ]
+
+    # Create client binary sensors
+    entities.extend(
+        OmadaClientBinarySensor(
+            coordinator=coordinator,
+            description=description,
+            client_mac=client_mac,
+        )
+        for coordinator in client_coordinators
+        for client_mac in coordinator.data
+        for description in CLIENT_BINARY_SENSORS
+    )
 
     async_add_entities(entities)
 
@@ -161,3 +187,50 @@ class OmadaDeviceBinarySensor(
             return False
 
         return self.entity_description.available_fn(device_data)
+
+
+class OmadaClientBinarySensor(
+    CoordinatorEntity[OmadaClientCoordinator],
+    BinarySensorEntity,
+):
+    """Representation of an Omada client binary sensor."""
+
+    entity_description: OmadaBinarySensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OmadaClientCoordinator,
+        description: OmadaBinarySensorEntityDescription,
+        client_mac: str,
+    ) -> None:
+        """Initialize the client binary sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._client_mac = client_mac
+        self._attr_unique_id = f"{client_mac}_{description.key}"
+
+        # Link to the client device
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, client_mac)},
+        }
+
+    @property
+    def is_on(self) -> bool:
+        """Return the state of the binary sensor."""
+        client_data = self.coordinator.data.get(self._client_mac)
+        if client_data is None:
+            return False
+        return self.entity_description.value_fn(client_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        client_data = self.coordinator.data.get(self._client_mac)
+        if client_data is None:
+            return False
+
+        return self.entity_description.available_fn(client_data)
