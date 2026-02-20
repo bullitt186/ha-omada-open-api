@@ -347,6 +347,26 @@ async def test_sensor(hass: HomeAssistant) -> None:
 3. Ensure all tests pass
 4. Follow semantic commit messages
 
+### Pre-Commit Checks
+This project uses **pre-commit** hooks (`.pre-commit-config.yaml`) that run automatically on every `git commit`. A commit is **blocked** if any hook fails. The hooks run in this order:
+
+1. **Ruff** — linting (with auto-fix) and formatting
+2. **Pre-commit-hooks** — trailing whitespace, end-of-file, YAML/JSON/TOML validation, merge conflicts, large files, line endings
+3. **Pylint** — additional code quality checks (on `custom_components/` only)
+4. **Mypy** — static type checking (on `custom_components/` only)
+5. **Pytest + Coverage Gate** — runs the full test suite with coverage measurement:
+   - If any test **fails**, the commit is blocked.
+   - If code coverage **drops** below the baseline stored in `.coverage-threshold`, the commit is blocked.
+   - If coverage **increases**, the baseline is automatically bumped and staged into the commit.
+   - The coverage gate script lives at `scripts/check_coverage.sh`.
+
+**CRITICAL — Test Coverage Requirement:**
+- **Every code change MUST be accompanied by tests** that cover the new or modified code.
+- Never commit code that would reduce the overall coverage percentage.
+- Before committing, always run `pytest tests/ --cov=custom_components.omada_open_api --cov-report=term-missing` to verify coverage is maintained or improved.
+- If adding new modules or features, write tests **before or alongside** the implementation.
+- The current coverage baseline is tracked in `.coverage-threshold` — this file is updated automatically by the pre-commit hook and should not be edited manually.
+
 ## Testing Strategy & Best Practices
 
 ### Test Organization
