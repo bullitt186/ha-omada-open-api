@@ -226,7 +226,8 @@ class OmadaClientBlockSwitch(
         self._attr_name = f"{client_name} Network Access"
         self._attr_unique_id = f"{DOMAIN}_{client_mac}_block"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"client_{client_mac}")},
+            identifiers={(DOMAIN, client_mac)},
+            name=client_name,
         )
 
     # ------------------------------------------------------------------

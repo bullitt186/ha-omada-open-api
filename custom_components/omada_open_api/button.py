@@ -144,7 +144,14 @@ class OmadaClientReconnectButton(
     @property
     def device_info(self) -> DeviceInfo | None:
         """Return device information to link this button to the client."""
-        return DeviceInfo(identifiers={(DOMAIN, f"client_{self._client_mac}")})
+        client_data = self.coordinator.data.get(self._client_mac, {})
+        client_name = (
+            client_data.get("name") or client_data.get("host_name") or self._client_mac
+        )
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._client_mac)},
+            name=client_name,
+        )
 
     @property
     def available(self) -> bool:

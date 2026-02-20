@@ -268,7 +268,7 @@ async def test_reconnect_button_device_info(hass: HomeAssistant) -> None:
     button = OmadaClientReconnectButton(coordinator, WIRELESS_MAC)
     info = button.device_info
     assert info is not None
-    assert info["identifiers"] == {("omada_open_api", f"client_{WIRELESS_MAC}")}
+    assert info["identifiers"] == {("omada_open_api", WIRELESS_MAC)}
 
 
 # ===========================================================================

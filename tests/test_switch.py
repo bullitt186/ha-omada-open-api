@@ -502,7 +502,7 @@ async def test_block_switch_device_info(hass: HomeAssistant) -> None:
     switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
     info = switch.device_info
     assert info is not None
-    assert info["identifiers"] == {("omada_open_api", f"client_{WIRELESS_MAC}")}
+    assert info["identifiers"] == {("omada_open_api", WIRELESS_MAC)}
 
 
 # ===========================================================================
