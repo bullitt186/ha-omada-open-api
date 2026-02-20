@@ -306,6 +306,108 @@ async def test_site_coordinator_poe_budget_empty(
 
 
 # ---------------------------------------------------------------------------
+# Per-band client stats (Step 2)
+# ---------------------------------------------------------------------------
+
+
+async def test_site_coordinator_fetches_per_band_client_stats(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that per-band client counts are merged into AP device data."""
+    mock_api_client.get_device_client_stats = AsyncMock(
+        return_value=[
+            {
+                "mac": "AA-BB-CC-DD-EE-01",
+                "clientNum": 12,
+                "clientNum2g": 4,
+                "clientNum5g": 6,
+                "clientNum5g2": 0,
+                "clientNum6g": 2,
+            }
+        ]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    ap = coordinator.data["devices"]["AA-BB-CC-DD-EE-01"]
+    assert ap["client_num_2g"] == 4
+    assert ap["client_num_5g"] == 6
+    assert ap["client_num_5g2"] == 0
+    assert ap["client_num_6g"] == 2
+
+    # Only AP MACs should be sent to the API.
+    call_args = mock_api_client.get_device_client_stats.call_args
+    assert call_args[0][1] == ["AA-BB-CC-DD-EE-01"]
+
+
+async def test_site_coordinator_band_stats_failure_graceful(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that per-band stats failure doesn't break the update."""
+    mock_api_client.get_device_client_stats = AsyncMock(
+        side_effect=OmadaApiError("Band stats unavailable")
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # AP device should still exist, just without band stats.
+    ap = coordinator.data["devices"]["AA-BB-CC-DD-EE-01"]
+    assert "client_num_2g" not in ap
+
+
+async def test_site_coordinator_no_aps_skips_band_stats(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that band stats call is skipped when there are no APs."""
+    # Override get_devices to return only a switch.
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[
+            {
+                "mac": "AA-BB-CC-DD-EE-02",
+                "name": "Core Switch",
+                "model": "TL-SG3428X",
+                "type": "switch",
+                "status": 14,
+                "ip": "192.168.1.2",
+                "firmwareVersion": "2.0.0",
+                "cpuUtil": 5,
+                "memUtil": 30,
+                "clientNum": 25,
+                "uptime": 90000,
+                "sn": "SN-SW-001",
+                "active": True,
+            }
+        ]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    mock_api_client.get_device_client_stats.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # OmadaClientCoordinator
 # ---------------------------------------------------------------------------
 

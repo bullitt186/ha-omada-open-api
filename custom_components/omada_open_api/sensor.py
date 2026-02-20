@@ -26,6 +26,7 @@ from .const import (
     ICON_MEMORY,
     ICON_POE,
     ICON_SIGNAL,
+    ICON_STATUS,
     ICON_TAG,
     ICON_UPLOAD,
     ICON_UPTIME,
@@ -35,7 +36,7 @@ from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
 )
-from .devices import format_link_speed, get_device_sort_key
+from .devices import format_detail_status, format_link_speed, get_device_sort_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -196,6 +197,54 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         if device.get("ipv6")
         else None,
         available_fn=lambda device: bool(device.get("ipv6")),
+    ),
+    OmadaSensorEntityDescription(
+        key="detail_status",
+        translation_key="detail_status",
+        name="Detail status",
+        icon=ICON_STATUS,
+        value_fn=lambda device: format_detail_status(device.get("detail_status")),
+        available_fn=lambda device: device.get("detail_status") is not None,
+    ),
+)
+
+# Per-band client count sensors (AP-only, populated by coordinator)
+AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="clients_2g",
+        translation_key="clients_2g",
+        name="Clients 2.4 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_2g"),
+        available_fn=lambda device: device.get("client_num_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_5g",
+        translation_key="clients_5g",
+        name="Clients 5 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_5g"),
+        available_fn=lambda device: device.get("client_num_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_5g2",
+        translation_key="clients_5g2",
+        name="Clients 5 GHz-2",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_5g2"),
+        available_fn=lambda device: device.get("client_num_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="clients_6g",
+        translation_key="clients_6g",
+        name="Clients 6 GHz",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: device.get("client_num_6g"),
+        available_fn=lambda device: device.get("client_num_6g") is not None,
     ),
 )
 
@@ -430,6 +479,22 @@ async def async_setup_entry(
         for coordinator, device_mac in device_list
         for description in DEVICE_SENSORS
     ]
+
+    # Create per-band client count sensors for AP devices
+    entities.extend(
+        OmadaDeviceSensor(
+            coordinator=coordinator,
+            description=description,
+            device_mac=device_mac,
+        )
+        for coordinator, device_mac in device_list
+        if coordinator.data.get("devices", {})
+        .get(device_mac, {})
+        .get("type", "")
+        .lower()
+        == "ap"
+        for description in AP_BAND_CLIENT_SENSORS
+    )
 
     # Create client sensors
     entities.extend(

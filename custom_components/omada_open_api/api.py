@@ -590,6 +590,42 @@ class OmadaApiClient:
         )
         return all_ports
 
+    async def get_device_client_stats(
+        self,
+        site_id: str,
+        device_macs: list[str],
+    ) -> list[dict[str, Any]]:
+        """Get per-band client counts for devices.
+
+        Uses the global client stat endpoint to fetch per-radio client
+        counts (2.4 GHz, 5 GHz, 5 GHz-2, 6 GHz) for up to 1000 devices
+        in a single batch call.
+
+        Args:
+            site_id: Site ID the devices belong to
+            device_macs: List of device MAC addresses to query
+
+        Returns:
+            List of dicts, each with mac, clientNum, clientNum2g,
+            clientNum5g, clientNum5g2, clientNum6g
+
+        Raises:
+            OmadaApiError: If fetching client stats fails
+
+        """
+        if not device_macs:
+            return []
+
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/clients/stat/devices"
+        devices = [{"mac": mac, "siteId": site_id} for mac in device_macs]
+
+        _LOGGER.debug("Fetching per-band client stats for %d devices", len(device_macs))
+
+        result = await self._authenticated_request(
+            "post", url, json_data={"devices": devices}
+        )
+        return result.get("result", [])  # type: ignore[no-any-return]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

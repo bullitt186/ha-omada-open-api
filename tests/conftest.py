@@ -229,6 +229,7 @@ def mock_api_client() -> MagicMock:
     )
     client.get_switch_ports_poe = AsyncMock(return_value=[])
     client.get_poe_usage = AsyncMock(return_value=[])
+    client.get_device_client_stats = AsyncMock(return_value=[])
     return client
 
 

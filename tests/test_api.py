@@ -910,3 +910,77 @@ async def test_get_poe_usage_empty(hass: HomeAssistant, mock_config_entry) -> No
         result = await api_client.get_poe_usage("site_001")
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_device_client_stats
+# ---------------------------------------------------------------------------
+
+
+async def test_get_device_client_stats(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_device_client_stats sends correct POST payload."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    stats = [
+        {
+            "mac": "AA-BB-CC-DD-EE-01",
+            "clientNum": 15,
+            "clientNum2g": 5,
+            "clientNum5g": 8,
+            "clientNum5g2": 0,
+            "clientNum6g": 2,
+        }
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": stats,
+    }
+
+    with patch("aiohttp.ClientSession.post") as mock_post:
+        mock_post.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_device_client_stats(
+            "site_001", ["AA-BB-CC-DD-EE-01"]
+        )
+
+    assert result == stats
+
+    call_url = mock_post.call_args[0][0]
+    assert "/clients/stat/devices" in call_url
+    assert "test_omada_id" in call_url
+
+    call_kwargs = mock_post.call_args[1]
+    assert call_kwargs["json"] == {
+        "devices": [{"mac": "AA-BB-CC-DD-EE-01", "siteId": "site_001"}]
+    }
+
+
+async def test_get_device_client_stats_empty_macs(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_device_client_stats returns empty list for no MACs."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    result = await api_client.get_device_client_stats("site_001", [])
+    assert result == []

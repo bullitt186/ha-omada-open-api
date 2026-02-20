@@ -98,6 +98,43 @@ def get_device_sort_key(
     return (2, device_mac)
 
 
+# Mapping of detailStatus codes to human-readable strings.
+DETAIL_STATUS_MAP: dict[int, str] = {
+    0: "Disconnected",
+    1: "Disconnected (Migrating)",
+    10: "Provisioning",
+    11: "Configuring",
+    12: "Upgrading",
+    13: "Rebooting",
+    14: "Connected",
+    15: "Connected (Wireless)",
+    16: "Connected (Migrating)",
+    17: "Connected (Wireless, Migrating)",
+    20: "Pending",
+    21: "Pending (Wireless)",
+    22: "Adopting",
+    23: "Adopting (Wireless)",
+    24: "Adopt Failed",
+    25: "Adopt Failed (Wireless)",
+    26: "Managed By Others",
+    27: "Managed By Others (Wireless)",
+    30: "Heartbeat Missed",
+    31: "Heartbeat Missed (Wireless)",
+    32: "Heartbeat Missed (Migrating)",
+    33: "Heartbeat Missed (Wireless, Migrating)",
+    40: "Isolated",
+    41: "Isolated (Migrating)",
+    50: "Slice Configuring",
+}
+
+
+def format_detail_status(status_code: int | None) -> str | None:
+    """Format detailStatus numeric code to human-readable string."""
+    if status_code is None:
+        return None
+    return DETAIL_STATUS_MAP.get(status_code, f"Unknown ({status_code})")
+
+
 def process_device(device: dict[str, Any]) -> dict[str, Any]:
     """Process raw device data into a normalized format.
 
