@@ -49,8 +49,16 @@ API_SITES = "/openapi/v1/{omada_id}/sites"
 API_DEVICES = "/openapi/v1/{omada_id}/sites/{site_id}/devices"
 API_CLIENTS = "/openapi/v2/{omada_id}/sites/{site_id}/clients"
 
-# Update intervals
-SCAN_INTERVAL = 60  # seconds
+# Update intervals (seconds)
+SCAN_INTERVAL = 60  # Default for all coordinators
+CONF_DEVICE_SCAN_INTERVAL = "device_scan_interval"
+CONF_CLIENT_SCAN_INTERVAL = "client_scan_interval"
+CONF_APP_SCAN_INTERVAL = "app_scan_interval"
+DEFAULT_DEVICE_SCAN_INTERVAL = 60
+DEFAULT_CLIENT_SCAN_INTERVAL = 30
+DEFAULT_APP_SCAN_INTERVAL = 300
+MIN_SCAN_INTERVAL = 10
+MAX_SCAN_INTERVAL = 3600
 
 # Device types
 DEVICE_TYPE_AP = "ap"

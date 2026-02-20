@@ -12,7 +12,7 @@ from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiClient, OmadaApiError
 from .clients import process_client
-from .const import DOMAIN, SCAN_INTERVAL
+from .const import DEFAULT_DEVICE_SCAN_INTERVAL, DOMAIN, SCAN_INTERVAL
 from .devices import process_device
 
 if TYPE_CHECKING:
@@ -30,6 +30,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
         api_client: OmadaApiClient,
         site_id: str,
         site_name: str,
+        scan_interval: int = DEFAULT_DEVICE_SCAN_INTERVAL,
     ) -> None:
         """Initialize the coordinator.
 
@@ -38,13 +39,14 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             api_client: Omada API client
             site_id: Site ID to fetch data for
             site_name: Site name for logging
+            scan_interval: Update interval in seconds
 
         """
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{site_id}",
-            update_interval=timedelta(seconds=SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.api_client = api_client
         self.site_id = site_id
@@ -255,6 +257,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
         site_id: str,
         site_name: str,
         selected_client_macs: list[str],
+        scan_interval: int = SCAN_INTERVAL,
     ) -> None:
         """Initialize the client coordinator.
 
@@ -264,13 +267,14 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
             site_id: Site ID for the clients
             site_name: Human-readable site name
             selected_client_macs: List of MAC addresses to track
+            scan_interval: Update interval in seconds
 
         """
         super().__init__(
             hass,
             _LOGGER,
             name=f"Omada Clients ({site_name})",
-            update_interval=timedelta(seconds=SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.api_client = api_client
         self.site_id = site_id
@@ -327,6 +331,7 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         site_name: str,
         selected_client_macs: list[str],
         selected_app_ids: list[str],
+        scan_interval: int = SCAN_INTERVAL,
     ) -> None:
         """Initialize the app traffic coordinator.
 
@@ -337,13 +342,14 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             site_name: Human-readable site name
             selected_client_macs: List of client MAC addresses to track
             selected_app_ids: List of application IDs to track
+            scan_interval: Update interval in seconds
 
         """
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_app_traffic_{site_id}",
-            update_interval=timedelta(seconds=SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.api_client = api_client
         self.site_id = site_id

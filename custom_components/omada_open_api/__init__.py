@@ -15,14 +15,20 @@ from .clients import normalize_client_mac
 from .const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_APP_SCAN_INTERVAL,
     CONF_CLIENT_ID,
+    CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
+    CONF_DEVICE_SCAN_INTERVAL,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
+    DEFAULT_APP_SCAN_INTERVAL,
+    DEFAULT_CLIENT_SCAN_INTERVAL,
+    DEFAULT_DEVICE_SCAN_INTERVAL,
     DOMAIN,
 )
 from .coordinator import (
@@ -103,6 +109,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     coordinators: dict[str, OmadaSiteCoordinator] = {}
     selected_site_ids: list[str] = entry.data.get(CONF_SELECTED_SITES, [])
 
+    # Get configured scan intervals
+    device_interval = entry.data.get(
+        CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
+    )
+    client_interval = entry.data.get(
+        CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
+    )
+    app_interval = entry.data.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
+
     # Get all sites to find names for selected sites
     all_sites = await api_client.get_sites()
     sites_by_id = {site["siteId"]: site for site in all_sites}
@@ -120,6 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             api_client=api_client,
             site_id=site_id,
             site_name=site_name,
+            scan_interval=device_interval,
         )
 
         # Perform initial data fetch
@@ -153,6 +169,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 site_id=site_id,
                 site_name=site_name,
                 selected_client_macs=selected_client_macs,
+                scan_interval=client_interval,
             )
 
             # Perform initial data fetch
@@ -192,6 +209,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 site_name=site_name,
                 selected_client_macs=selected_client_macs,
                 selected_app_ids=selected_app_ids,
+                scan_interval=app_interval,
             )
 
             # Perform initial data fetch

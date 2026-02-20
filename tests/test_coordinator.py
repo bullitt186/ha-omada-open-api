@@ -645,3 +645,66 @@ async def test_app_traffic_coordinator_no_selected_apps_returns_empty(
     assert coordinator.last_update_success is True
     # No matching apps → client not in data.
     assert len(coordinator.data) == 0
+
+
+# ---------------------------------------------------------------------------
+# Configurable scan intervals
+# ---------------------------------------------------------------------------
+
+
+async def test_site_coordinator_default_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test site coordinator uses default 60s interval when none specified."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    assert coordinator.update_interval == timedelta(seconds=60)
+
+
+async def test_site_coordinator_custom_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test site coordinator uses custom scan interval."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=120,
+    )
+    assert coordinator.update_interval == timedelta(seconds=120)
+
+
+async def test_client_coordinator_custom_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test client coordinator uses custom scan interval."""
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=[],
+        scan_interval=15,
+    )
+    assert coordinator.update_interval == timedelta(seconds=15)
+
+
+async def test_app_traffic_coordinator_custom_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test app traffic coordinator uses custom scan interval."""
+    coordinator = OmadaAppTrafficCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=[],
+        selected_app_ids=[],
+        scan_interval=600,
+    )
+    assert coordinator.update_interval == timedelta(seconds=600)
