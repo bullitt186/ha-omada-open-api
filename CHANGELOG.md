@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-20
+
+### Fixed
+- **Critical**: Fixed automatic token renewal by correcting API parameter placement per Omada Open API specification
+  - `_refresh_access_token()`: All parameters (`client_id`, `client_secret`, `refresh_token`, `grant_type`) now correctly sent as query string parameters with no request body
+  - `_get_fresh_tokens()`: `omadacId` now correctly sent in JSON body instead of query string
+- Added automatic retry logic for expired/invalid token errors (-44112, -44113) and HTTP 401 responses
+
+### Added
+- New `_authenticated_request()` wrapper for centralized authentication and retry handling across all API calls
+- Extended error code handling: -44111 (invalid grant type) and -44106 (invalid credentials) now trigger automatic client_credentials fallback
+- Connection error fallback: Network errors during token refresh now fall back to fresh client_credentials instead of failing
+- Open API Access Guide documentation for reference
+
+### Changed
+- Extracted `process_client()` and `normalize_client_mac()` into dedicated `clients.py` module
+- Extracted `process_device()`, `parse_uptime()`, `format_link_speed()`, `get_device_sort_key()`, and `normalize_site_id()` into dedicated `devices.py` module
+- Refactored all 6 API methods to use centralized `_authenticated_request()` wrapper
+- Updated `coordinator.py`, `sensor.py`, `binary_sensor.py`, and `__init__.py` to use shared helper modules
+
 ## [0.2.0] - 2026-01-25
 
 ### Added
@@ -68,5 +88,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth 2.0 credentials (Omada ID, Client ID, Client Secret)
 - DPI enabled on gateway for application traffic tracking
 
+[0.3.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.3.0
 [0.2.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.2.0
 [0.1.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.1.0
