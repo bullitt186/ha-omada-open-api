@@ -14,15 +14,19 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
+        exclude: \.pxd$
       - id: end-of-file-fixer
+        exclude: \.pxd$
       - id: check-yaml
         exclude: ^config/blueprints/  # Exclude HA blueprints with custom tags
       - id: check-added-large-files
+        args: ['--maxkb=2048']
       - id: check-merge-conflict
       - id: check-toml
       - id: check-json
       - id: mixed-line-ending
         args: ['--fix=lf']
+        exclude: \.pxd$
 
   - repo: https://github.com/PyCQA/pylint
     rev: v3.3.3
