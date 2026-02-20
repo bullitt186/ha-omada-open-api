@@ -1,7 +1,7 @@
 # Agent Instructions - Home Assistant Integration Development
 
 ## Overview
-This project is a Home Assistant integration for TP-Link Omada SDN using the Open API.
+This project is a Home Assistant integration for TP-Link Omada Open API.
 
 **Purpose**: Provide information retrieved via the Omada Open API as entities within Home Assistant, enabling monitoring and control of Omada SDN infrastructure (controllers, access points, switches, gateways, and clients).
 

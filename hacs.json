@@ -1,5 +1,5 @@
 {
-  "name": "TP-Link Omada SDN",
+  "name": "TP-Link Omada Open API",
   "homeassistant": "2024.1.0",
   "render_readme": true
 }

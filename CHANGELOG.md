@@ -53,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - 2026-01-25
 
 ### Added
-- Initial release of TP-Link Omada SDN integration
+- Initial release of TP-Link Omada Open API integration
 - OAuth 2.0 authentication with automatic token refresh and renewal
 - Support for cloud-based and local Omada controllers
 - Multi-site support with configurable site selection

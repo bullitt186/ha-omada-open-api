@@ -10,7 +10,7 @@ This document tracks compliance with HACS publishing requirements for the Omada 
 
 ### ✅ Repository Settings
 - [x] **Public repository** on GitHub
-- [x] **Description** set: "Home Assistant integration for TP-Link Omada SDN using the Open API"
+- [x] **Description** set: "Home Assistant integration for TP-Link Omada Open API"
 - [x] **Topics** added: home-assistant, home-assistant-integration, hacs, omada, tp-link, sdn, network-monitoring, custom-component
 - [x] **README.md** present with usage information
 - [x] **hacs.json** file in repository root
@@ -21,7 +21,7 @@ This document tracks compliance with HACS publishing requirements for the Omada 
   - Recommendation: Create first release tag matching manifest.json version (0.1.0)
 
 ### ✅ HACS Manifest (hacs.json)
-- [x] `name`: "TP-Link Omada SDN"
+- [x] `name`: "TP-Link Omada Open API"
 - [x] `homeassistant`: "2024.1.0" (minimum HA version)
 - [x] `render_readme`: true (render README in HACS)
 
@@ -58,7 +58,7 @@ This document tracks compliance with HACS publishing requirements for the Omada 
 
 ### ✅ manifest.json Requirements
 - [x] `domain`: "omada_open_api"
-- [x] `name`: "TP-Link Omada SDN"
+- [x] `name`: "TP-Link Omada Open API"
 - [x] `documentation`: "https://github.com/bullitt186/ha-omada-open-api"
 - [x] `issue_tracker`: "https://github.com/bullitt186/ha-omada-open-api/issues"
 - [x] `codeowners`: ["@bullitt186"]
@@ -116,7 +116,7 @@ This document tracks compliance with HACS publishing requirements for the Omada 
    ```json
    {
      "domain": "omada_open_api",
-     "name": "TP-Link Omada SDN",
+     "name": "TP-Link Omada Open API",
      "integrations": ["omada_open_api"]
    }
    ```

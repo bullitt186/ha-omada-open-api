@@ -1,6 +1,6 @@
 {
     "domain": "omada_open_api",
-    "name": "TP-Link Omada SDN",
+    "name": "TP-Link Omada Open API",
     "codeowners": [
         "@bullitt186"
     ],

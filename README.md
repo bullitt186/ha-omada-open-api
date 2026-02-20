@@ -1,4 +1,4 @@
-# TP-Link Omada SDN Integration for Home Assistant
+# TP-Link Omada Open API Integration for Home Assistant
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/bullitt186/ha-omada-open-api.svg?style=for-the-badge)](https://github.com/bullitt186/ha-omada-open-api/releases)
@@ -122,14 +122,14 @@ This integration provides comprehensive monitoring and control of **TP-Link Omad
    - Click **Add**
 
 2. **Install Integration**:
-   - Search for "**TP-Link Omada SDN**" in HACS
+   - Search for "**TP-Link Omada Open API**" in HACS
    - Click **Download**
    - Restart Home Assistant when prompted
 
 3. **Add Integration**:
    - Go to **Settings** → **Devices & Services**
    - Click **Add Integration**
-   - Search for "**TP-Link Omada SDN**"
+   - Search for "**TP-Link Omada Open API**"
    - Follow the configuration flow
 
 [![My Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=omada_open_api)
@@ -151,7 +151,7 @@ This integration provides comprehensive monitoring and control of **TP-Link Omad
 3. **Add Integration**:
    - Go to **Settings** → **Devices & Services**
    - Click **Add Integration**
-   - Search for "**TP-Link Omada SDN**"
+   - Search for "**TP-Link Omada Open API**"
    - Follow the configuration flow
 
 ---
