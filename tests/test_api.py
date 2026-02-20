@@ -3,6 +3,7 @@
 import datetime as dt
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 from homeassistant.core import HomeAssistant
 import pytest
 
@@ -85,6 +86,13 @@ async def test_token_refresh_before_expiry(
         assert "/openapi/authorize/token" in call_args[0][0]
         assert call_args[1]["params"]["grant_type"] == "refresh_token"
 
+        # Verify refresh_token grant puts ALL params in query string (no body)
+        refresh_params = call_args[1]["params"]
+        assert refresh_params["client_id"] == "test_client_id"
+        assert refresh_params["client_secret"] == "test_client_secret"
+        assert refresh_params["refresh_token"] == "old_refresh_token"
+        assert "json" not in call_args[1]  # No body for refresh_token grant
+
         # Verify config entry was updated
         mock_update.assert_called_once()
         updated_data = mock_update.call_args[1]["data"]
@@ -156,6 +164,11 @@ async def test_refresh_token_expiry_triggers_renewal(
         # Second call should be client_credentials grant
         second_call = mock_post.call_args_list[1]
         assert second_call[1]["params"]["grant_type"] == "client_credentials"
+        # client_credentials puts omadacId, client_id, client_secret in body
+        cred_body = second_call[1]["json"]
+        assert cred_body["omadacId"] == "test_omada_id"
+        assert cred_body["client_id"] == "test_client_id"
+        assert cred_body["client_secret"] == "test_client_secret"
 
         # Verify config entry was updated with fresh tokens
         mock_update.assert_called()
@@ -222,3 +235,232 @@ async def test_token_persistence_to_config_entry(
             < time_until_expiry
             < dt.timedelta(hours=2)
         )
+
+
+async def test_authenticated_request_retries_on_token_expired(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that _authenticated_request retries when API returns -44112 (token expired)."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
+        patch.object(
+            api_client, "_refresh_access_token", new_callable=AsyncMock
+        ) as mock_refresh,
+        patch.object(hass.config_entries, "async_update_entry"),
+    ):
+        # First call returns -44112 (token expired), second call succeeds
+        expired_response = AsyncMock()
+        expired_response.status = 200
+        expired_response.json.return_value = {
+            "errorCode": -44112,
+            "msg": "The access token has expired",
+        }
+
+        success_response = AsyncMock()
+        success_response.status = 200
+        success_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {"data": [{"siteId": "site1"}]},
+        }
+
+        mock_get.return_value.__aenter__.side_effect = [
+            expired_response,
+            success_response,
+        ]
+
+        # Make the refresh update the token so retry works
+        async def update_token() -> None:
+            api_client._access_token = "refreshed_token"  # noqa: SLF001
+
+        mock_refresh.side_effect = update_token
+
+        result = await api_client._authenticated_request(  # noqa: SLF001
+            "get",
+            "https://test-controller.example.com/openapi/v1/test/sites",
+            params={"pageSize": 100, "page": 1},
+        )
+
+        # Verify refresh was called
+        mock_refresh.assert_called_once()
+
+        # Verify second request succeeded
+        assert result["result"]["data"][0]["siteId"] == "site1"
+        assert mock_get.call_count == 2
+
+
+async def test_authenticated_request_retries_on_token_invalid(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that _authenticated_request retries on -44113 (token invalid)."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
+        patch.object(
+            api_client, "_refresh_access_token", new_callable=AsyncMock
+        ) as mock_refresh,
+        patch.object(hass.config_entries, "async_update_entry"),
+    ):
+        # First call returns -44113, second succeeds
+        invalid_response = AsyncMock()
+        invalid_response.status = 200
+        invalid_response.json.return_value = {
+            "errorCode": -44113,
+            "msg": "The access token is Invalid",
+        }
+
+        success_response = AsyncMock()
+        success_response.status = 200
+        success_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {"data": []},
+        }
+
+        mock_get.return_value.__aenter__.side_effect = [
+            invalid_response,
+            success_response,
+        ]
+
+        result = await api_client._authenticated_request(  # noqa: SLF001
+            "get",
+            "https://test-controller.example.com/openapi/v1/test/sites",
+        )
+
+        mock_refresh.assert_called_once()
+        assert result["errorCode"] == 0
+
+
+async def test_authenticated_request_retries_on_http_401(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that _authenticated_request retries on HTTP 401."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
+        patch.object(
+            api_client, "_refresh_access_token", new_callable=AsyncMock
+        ) as mock_refresh,
+        patch.object(hass.config_entries, "async_update_entry"),
+    ):
+        # First call returns HTTP 401, second succeeds
+        unauthorized_response = AsyncMock()
+        unauthorized_response.status = 401
+
+        success_response = AsyncMock()
+        success_response.status = 200
+        success_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {"data": []},
+        }
+
+        mock_get.return_value.__aenter__.side_effect = [
+            unauthorized_response,
+            success_response,
+        ]
+
+        result = await api_client._authenticated_request(  # noqa: SLF001
+            "get",
+            "https://test-controller.example.com/openapi/v1/test/sites",
+        )
+
+        mock_refresh.assert_called_once()
+        assert result["errorCode"] == 0
+
+
+async def test_refresh_connection_error_falls_back_to_client_credentials(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test that connection error during refresh falls back to client_credentials."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=2)
+    mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
+
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    with (
+        patch("aiohttp.ClientSession.post") as mock_post,
+        patch.object(hass.config_entries, "async_update_entry"),
+    ):
+        # First call: refresh raises connection error
+        # Second call: client_credentials succeeds
+        fresh_token_response = AsyncMock()
+        fresh_token_response.status = 200
+        fresh_token_response.json.return_value = {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {
+                "accessToken": "fresh_access_token",
+                "tokenType": "bearer",
+                "expiresIn": 7200,
+                "refreshToken": "fresh_refresh_token",
+            },
+        }
+
+        # Side effects: first raises error, second succeeds
+        mock_post.return_value.__aenter__.side_effect = [
+            aiohttp.ClientError("Connection refused"),
+            fresh_token_response,
+        ]
+
+        await api_client._ensure_valid_token()  # noqa: SLF001
+
+        # Verify both calls were made (refresh + client_credentials)
+        assert mock_post.call_count == 2
+
+        # Second call should be client_credentials
+        second_call = mock_post.call_args_list[1]
+        assert second_call[1]["params"]["grant_type"] == "client_credentials"

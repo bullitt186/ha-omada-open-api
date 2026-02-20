@@ -99,22 +99,126 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Config entry updated with new tokens")
 
-    async def _get_fresh_tokens(self) -> None:
-        """Get fresh tokens using client credentials (for expired refresh tokens).
+    async def _authenticated_request(
+        self,
+        method: str,
+        url: str,
+        *,
+        params: dict[str, Any] | None = None,
+        json_data: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Make an authenticated API request with automatic token renewal.
+
+        Handles HTTP 401 and API error codes -44112 (token expired) and
+        -44113 (token invalid) by refreshing the token and retrying once.
+
+        Args:
+            method: HTTP method ("get" or "post")
+            url: Full URL to request
+            params: Query parameters
+            json_data: JSON body (for POST requests)
+
+        Returns:
+            Parsed JSON response dictionary
 
         Raises:
-            OmadaApiException: If getting fresh tokens fails
+            OmadaApiError: If the request fails after retry
 
         """
-        _LOGGER.info(
-            "Refresh token expired, requesting fresh tokens using client credentials"
-        )
+        await self._ensure_valid_token()
+
+        for attempt in range(2):
+            headers = {
+                "Authorization": f"AccessToken={self._access_token}",
+                "Content-Type": "application/json",
+            }
+
+            try:
+                request_kwargs: dict[str, Any] = {
+                    "headers": headers,
+                    "timeout": aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+                }
+                if params:
+                    request_kwargs["params"] = params
+                if json_data is not None:
+                    request_kwargs["json"] = json_data
+
+                async with getattr(self._session, method)(
+                    url, **request_kwargs
+                ) as response:
+                    if response.status == 401:
+                        if attempt == 0:
+                            _LOGGER.debug(
+                                "HTTP 401 on API request, refreshing token and "
+                                "retrying (attempt %s)",
+                                attempt + 1,
+                            )
+                            async with self._token_refresh_lock:
+                                await self._refresh_access_token()
+                            continue
+                        response_text = await response.text()
+                        raise OmadaApiError(
+                            f"HTTP 401 after token refresh: {response_text}"
+                        )
+
+                    if response.status != 200:
+                        response_text = await response.text()
+                        _LOGGER.error(
+                            "HTTP error %s: %s", response.status, response_text
+                        )
+                        raise OmadaApiError(f"HTTP {response.status}: {response_text}")
+
+                    result = await response.json()
+                    error_code = result.get("errorCode")
+
+                    # Token-related errors: refresh and retry
+                    if error_code in (-44112, -44113):
+                        if attempt == 0:
+                            _LOGGER.info(
+                                "API returned token error %s: %s, refreshing "
+                                "token and retrying",
+                                error_code,
+                                result.get("msg", ""),
+                            )
+                            async with self._token_refresh_lock:
+                                await self._refresh_access_token()
+                            continue
+                        raise OmadaApiError(
+                            f"Token error {error_code} persists after refresh: "
+                            f"{result.get('msg', '')}"
+                        )
+
+                    if error_code != 0:
+                        error_msg = result.get("msg", "Unknown error")
+                        raise OmadaApiError(f"API error {error_code}: {error_msg}")
+
+                    return result  # type: ignore[no-any-return]
+
+            except aiohttp.ClientError as err:
+                raise OmadaApiError(f"Connection error: {err}") from err
+
+        # Should not reach here, but just in case
+        raise OmadaApiError("Request failed after all retry attempts")
+
+    async def _get_fresh_tokens(self) -> None:
+        """Get fresh tokens using client credentials grant.
+
+        Per the Omada API docs, only grant_type goes in the query string.
+        The omadacId, client_id, and client_secret go in the JSON body.
+
+        Raises:
+            OmadaApiAuthError: If getting fresh tokens fails
+
+        """
+        _LOGGER.info("Requesting fresh tokens using client_credentials grant")
         url = f"{self._api_url}/openapi/authorize/token"
+        # Per API docs: only grant_type in query string
         params = {
             "grant_type": "client_credentials",
-            "omadacId": self._omada_id,
         }
+        # Per API docs: omadacId, client_id, client_secret in JSON body
         data = {
+            "omadacId": self._omada_id,
             "client_id": self._client_id,
             "client_secret": self._client_secret,
         }
@@ -150,66 +254,83 @@ class OmadaApiClient:
                     seconds=token_data["expiresIn"]
                 )
 
-                _LOGGER.info("Fresh tokens obtained successfully")
+                _LOGGER.info(
+                    "Fresh tokens obtained successfully, expires in %s seconds",
+                    token_data["expiresIn"],
+                )
 
                 # Persist to config entry
                 await self._update_config_entry()
 
         except aiohttp.ClientError as err:
-            raise OmadaApiError(
+            raise OmadaApiAuthError(
                 f"Connection error getting fresh tokens: {err}"
             ) from err
 
     async def _refresh_access_token(self) -> None:
         """Refresh the access token using refresh token.
 
-        If refresh token is expired, automatically gets fresh tokens using client credentials.
+        Per the Omada API docs, refresh_token grant puts ALL parameters in the
+        query string with no request body. Refresh tokens are single-use: after
+        use, the old token is invalidated and a new one is returned.
+
+        If refresh token is expired or invalid, automatically gets fresh tokens
+        using client credentials.
 
         Raises:
-            OmadaApiException: If refresh fails
+            OmadaApiAuthError: If refresh fails
 
         """
         url = f"{self._api_url}/openapi/authorize/token"
+        # Per API docs: all params go in query string for refresh_token grant
         params = {
             "grant_type": "refresh_token",
-            "refresh_token": self._refresh_token,
-        }
-        data = {
             "client_id": self._client_id,
             "client_secret": self._client_secret,
+            "refresh_token": self._refresh_token,
         }
+
+        _LOGGER.debug("Attempting token refresh via refresh_token grant")
 
         try:
             async with self._session.post(
                 url,
                 params=params,
-                json=data,
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
                 if response.status == 401:
                     # Refresh token expired, get fresh tokens automatically
-                    _LOGGER.debug(
-                        "Refresh token expired, getting fresh tokens automatically"
+                    _LOGGER.info(
+                        "HTTP 401 during token refresh, falling back to "
+                        "client_credentials grant"
                     )
                     await self._get_fresh_tokens()
                     return
 
                 if response.status != 200:
-                    raise OmadaApiError(
-                        f"Token refresh failed with status {response.status}"
+                    _LOGGER.warning(
+                        "Token refresh returned HTTP %s, falling back to "
+                        "client_credentials grant",
+                        response.status,
                     )
+                    await self._get_fresh_tokens()
+                    return
 
                 result = await response.json()
+                error_code = result.get("errorCode")
 
-                if result.get("errorCode") != 0:
+                if error_code != 0:
                     error_msg = result.get("msg", "Unknown error")
-                    error_code = result.get("errorCode")
 
                     # Error code -44114: Refresh token expired
-                    if error_code == -44114:
+                    # Error code -44111: Invalid grant type
+                    # Error code -44106: Invalid client credentials
+                    if error_code in (-44114, -44111, -44106):
                         _LOGGER.info(
-                            "Refresh token expired (error %s), getting fresh tokens automatically",
+                            "Token refresh failed (error %s: %s), falling back "
+                            "to client_credentials grant",
                             error_code,
+                            error_msg,
                         )
                         await self._get_fresh_tokens()
                         return
@@ -219,7 +340,9 @@ class OmadaApiClient:
                         error_code,
                         error_msg,
                     )
-                    raise OmadaApiAuthError(f"API error: {error_msg}")
+                    raise OmadaApiAuthError(
+                        f"Token refresh failed: {error_msg} (code: {error_code})"
+                    )
 
                 token_data = result["result"]
                 self._access_token = token_data["accessToken"]
@@ -228,15 +351,27 @@ class OmadaApiClient:
                     seconds=token_data["expiresIn"]
                 )
 
-                _LOGGER.debug("Access token refreshed successfully")
+                _LOGGER.debug(
+                    "Access token refreshed successfully, expires in %s seconds",
+                    token_data["expiresIn"],
+                )
 
                 # Persist to config entry
                 await self._update_config_entry()
 
         except aiohttp.ClientError as err:
-            raise OmadaApiError(
-                f"Connection error during token refresh: {err}"
-            ) from err
+            _LOGGER.warning(
+                "Connection error during token refresh: %s, falling back to "
+                "client_credentials grant",
+                err,
+            )
+            try:
+                await self._get_fresh_tokens()
+            except (OmadaApiError, aiohttp.ClientError) as fresh_err:
+                raise OmadaApiError(
+                    f"Token refresh failed and client_credentials fallback "
+                    f"also failed: {fresh_err}"
+                ) from err
 
     async def get_sites(self) -> list[dict[str, Any]]:
         """Get list of sites from Omada controller.
@@ -245,51 +380,14 @@ class OmadaApiClient:
             List of site dictionaries
 
         Raises:
-            OmadaApiException: If API request fails
+            OmadaApiError: If API request fails
 
         """
-        await self._ensure_valid_token()
-
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites"
-        headers = {"Authorization": f"AccessToken={self._access_token}"}
-        # Add pagination parameters as required by Omada API
         params = {"pageSize": 100, "page": 1}
 
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 401:
-                    # Token might have expired between check and request, try once more
-                    await self._refresh_access_token()
-                    headers["Authorization"] = f"AccessToken={self._access_token}"
-                    async with self._session.get(
-                        url,
-                        headers=headers,
-                        params=params,
-                        timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-                    ) as retry_response:
-                        if retry_response.status != 200:
-                            raise OmadaApiError(
-                                f"Failed to get sites: {retry_response.status}"
-                            )
-                        result = await retry_response.json()
-                elif response.status != 200:
-                    raise OmadaApiError(f"Failed to get sites: {response.status}")
-                else:
-                    result = await response.json()
-
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result["result"]["data"]  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request("get", url, params=params)
+        return result["result"]["data"]  # type: ignore[no-any-return]
 
     async def get_devices(self, site_id: str) -> list[dict[str, Any]]:
         """Fetch devices for a specific site.
@@ -304,39 +402,13 @@ class OmadaApiClient:
             OmadaApiError: If fetching devices fails
 
         """
-        await self._ensure_valid_token()
-
-        session = async_get_clientsession(self._hass, verify_ssl=False)
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/devices"
-        headers = {"Authorization": f"AccessToken={self._access_token}"}
-        # Add pagination parameters
         params = {"pageSize": 100, "page": 1}
 
-        _LOGGER.debug("Fetching devices from %s with params %s", url, params)
+        _LOGGER.debug("Fetching devices from %s", url)
 
-        try:
-            async with session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                    response.raise_for_status()
-
-                result = await response.json()
-
-                # Check for API error codes
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result["result"]["data"]  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request("get", url, params=params)
+        return result["result"]["data"]  # type: ignore[no-any-return]
 
     async def get_device_uplink_info(
         self, site_id: str, device_macs: list[str]
@@ -358,46 +430,19 @@ class OmadaApiClient:
         if not device_macs:
             return []
 
-        await self._ensure_valid_token()
-
-        endpoint = f"/openapi/v1/{self._omada_id}/sites/{site_id}/devices/uplink-info"
-        url = f"{self._api_url}{endpoint}"
-
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
-
-        # Request body with device MACs (note: field name is "deviceMacs" not "macs")
-        body = {"deviceMacs": device_macs}
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/devices/uplink-info"
+        )
 
         _LOGGER.debug(
             "Fetching uplink info for %d devices from %s", len(device_macs), url
         )
 
-        try:
-            async with self._session.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                    response.raise_for_status()
-
-                result = await response.json()
-
-                # Check for API error codes
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result["result"]  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request(
+            "post", url, json_data={"deviceMacs": device_macs}
+        )
+        return result["result"]  # type: ignore[no-any-return]
 
     async def get_clients(
         self, site_id: str, page: int = 1, page_size: int = 100
@@ -410,20 +455,11 @@ class OmadaApiClient:
             page_size: Number of clients per page (1-1000)
 
         Returns:
-            Dictionary with client data including totalRows, currentPage, and data list
+            Dictionary with client data including totalRows, currentPage,
+            and data list
 
         """
-        await self._ensure_valid_token()
-
-        endpoint = f"/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
-        url = f"{self._api_url}{endpoint}"
-
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
-
-        # Request body for client query
+        url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
         body = {
             "page": page,
             "pageSize": page_size,
@@ -431,29 +467,8 @@ class OmadaApiClient:
             "filters": {},
         }
 
-        try:
-            async with self._session.post(
-                url,
-                headers=headers,
-                json=body,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                    response.raise_for_status()
-
-                result = await response.json()
-
-                # Check for API error codes
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result["result"]  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request("post", url, json_data=body)
+        return result["result"]  # type: ignore[no-any-return]
 
     async def get_applications(
         self, site_id: str, page: int = 1, page_size: int = 1000
@@ -466,48 +481,19 @@ class OmadaApiClient:
             page_size: Number of applications per page (1-1000)
 
         Returns:
-            Dictionary with application data including totalRows, currentPage, and data list
-            Each app has: applicationId, applicationName, description, family
+            Dictionary with application data including totalRows, currentPage,
+            and data list. Each app has: applicationId, applicationName,
+            description, family
 
         """
-        await self._ensure_valid_token()
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/applicationControl/applications"
+        )
+        params = {"page": page, "pageSize": page_size}
 
-        endpoint = f"/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
-        url = f"{self._api_url}{endpoint}"
-
-        params = {
-            "page": page,
-            "pageSize": page_size,
-        }
-
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                    response.raise_for_status()
-
-                result = await response.json()
-
-                # Check for API error codes
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result["result"]  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request("get", url, params=params)
+        return result["result"]  # type: ignore[no-any-return]
 
     async def get_client_app_traffic(
         self, site_id: str, client_mac: str, start: int, end: int
@@ -525,44 +511,14 @@ class OmadaApiClient:
             applicationId, applicationName, upload, download, traffic, etc.
 
         """
-        await self._ensure_valid_token()
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/dashboard/specificClientInfo/{client_mac}"
+        )
+        params = {"start": start, "end": end}
 
-        endpoint = f"/openapi/v1/{self._omada_id}/sites/{site_id}/dashboard/specificClientInfo/{client_mac}"
-        url = f"{self._api_url}{endpoint}"
-
-        params = {
-            "start": start,
-            "end": end,
-        }
-
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
-
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                    response.raise_for_status()
-
-                result = await response.json()
-
-                # Check for API error codes
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    raise OmadaApiError(f"API error: {error_msg}")
-
-                return result.get("result", [])  # type: ignore[no-any-return]
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiError(f"Connection error: {err}") from err
+        result = await self._authenticated_request("get", url, params=params)
+        return result.get("result", [])  # type: ignore[no-any-return]
 
     @property
     def access_token(self) -> str:
