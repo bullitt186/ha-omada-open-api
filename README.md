@@ -1,5 +1,9 @@
 # TP-Link Omada Open API Integration for Home Assistant
 
+<p align="center">
+  <img src="assets/logo@2x.png" alt="TP-Link Omada Open API" width="256">
+</p>
+
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg?style=for-the-badge)](https://github.com/hacs/integration)
 [![GitHub Release](https://img.shields.io/github/release/bullitt186/ha-omada-open-api.svg?style=for-the-badge)](https://github.com/bullitt186/ha-omada-open-api/releases)
 [![License](https://img.shields.io/github/license/bullitt186/ha-omada-open-api.svg?style=for-the-badge)](LICENSE)
