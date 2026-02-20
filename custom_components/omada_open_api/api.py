@@ -520,6 +520,34 @@ class OmadaApiClient:
         result = await self._authenticated_request("get", url, params=params)
         return result.get("result", [])  # type: ignore[no-any-return]
 
+    async def get_poe_usage(self, site_id: str) -> list[dict[str, Any]]:
+        """Get PoE usage summary for all switches in a site.
+
+        Fetches per-switch PoE budget data including total power,
+        power used, and percentage used.
+
+        Args:
+            site_id: Site ID to get PoE usage for
+
+        Returns:
+            List of switch PoE usage dictionaries, each containing mac,
+            name, portNum, totalPowerUsed, totalPercentUsed, totalPower,
+            and poePorts breakdown.
+
+        Raises:
+            OmadaApiError: If fetching PoE usage data fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/dashboard/poe-usage"
+        )
+
+        _LOGGER.debug("Fetching PoE usage from %s", url)
+
+        result = await self._authenticated_request("get", url)
+        return result.get("result", [])  # type: ignore[no-any-return]
+
     async def get_switch_ports_poe(self, site_id: str) -> list[dict[str, Any]]:
         """Get PoE information for all switch ports in a site.
 

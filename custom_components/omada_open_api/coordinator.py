@@ -117,6 +117,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 "Fetched %d devices for site %s", len(devices), self.site_name
             )
 
+            # Fetch PoE budget (per-switch totals) from dashboard
+            poe_budget = await self._fetch_poe_budget()
+
             # Fetch PoE port information for switches
             poe_ports: dict[str, dict[str, Any]] = {}
             try:
@@ -159,6 +162,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
 
             return {  # noqa: TRY300
                 "devices": devices,
+                "poe_budget": poe_budget,
                 "poe_ports": poe_ports,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
@@ -168,6 +172,41 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             raise UpdateFailed(
                 f"Error fetching data for site {self.site_name}: {err}"
             ) from err
+
+    async def _fetch_poe_budget(self) -> dict[str, dict[str, Any]]:
+        """Fetch per-switch PoE budget data from the dashboard endpoint.
+
+        Returns:
+            Dictionary keyed by switch MAC with budget metrics.
+
+        """
+        poe_budget: dict[str, dict[str, Any]] = {}
+        try:
+            poe_usage = await self.api_client.get_poe_usage(self.site_id)
+            for switch_info in poe_usage:
+                switch_mac = switch_info.get("mac", "")
+                if switch_mac:
+                    poe_budget[switch_mac] = {
+                        "mac": switch_mac,
+                        "name": switch_info.get("name", ""),
+                        "port_num": switch_info.get("portNum", 0),
+                        "total_power": switch_info.get("totalPower", 0),
+                        "total_power_used": switch_info.get("totalPowerUsed", 0),
+                        "total_percent_used": switch_info.get("totalPercentUsed", 0.0),
+                    }
+            _LOGGER.debug(
+                "Fetched PoE budget for %d switches in site %s",
+                len(poe_budget),
+                self.site_name,
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning(
+                "Failed to fetch PoE usage for site %s: %s",
+                self.site_name,
+                err,
+            )
+            # Continue without PoE budget - not critical
+        return poe_budget
 
 
 class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]

@@ -203,6 +203,7 @@ def mock_api_client() -> MagicMock:
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     client.get_switch_ports_poe = AsyncMock(return_value=[])
+    client.get_poe_usage = AsyncMock(return_value=[])
     return client
 
 
@@ -276,4 +277,23 @@ SAMPLE_POE_PORT_SWITCH_NOT_SUPPORTED = {
     "poeDisplayType": -1,
     "connectedStatus": 1,
     "switchSupportPoe": 0,
+}
+
+# PoE budget (dashboard/poe-usage) sample data
+SAMPLE_POE_USAGE = {
+    "mac": "AA-BB-CC-DD-EE-02",
+    "name": "Core Switch",
+    "portNum": 24,
+    "totalPowerUsed": 45,
+    "totalPercentUsed": 18.75,
+    "totalPower": 240,
+}
+
+SAMPLE_POE_USAGE_SECOND = {
+    "mac": "AA-BB-CC-DD-EE-99",
+    "name": "Edge Switch",
+    "portNum": 8,
+    "totalPowerUsed": 0,
+    "totalPercentUsed": 0.0,
+    "totalPower": 62,
 }

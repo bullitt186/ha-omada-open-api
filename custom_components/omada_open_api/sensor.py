@@ -243,6 +243,48 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
 )
 
 
+# PoE budget sensor descriptions (per-switch totals)
+POE_BUDGET_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="poe_power_budget",
+        translation_key="poe_power_budget",
+        name="PoE power budget",
+        icon=ICON_POE,
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.get("total_power"),
+        available_fn=lambda data: data.get("total_power") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="poe_power_used",
+        translation_key="poe_power_used",
+        name="PoE power used",
+        icon=ICON_POE,
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda data: data.get("total_power_used"),
+        available_fn=lambda data: data.get("total_power_used") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="poe_power_remaining_percent",
+        translation_key="poe_power_remaining_percent",
+        name="PoE power remaining",
+        icon=ICON_POE,
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda data: (
+            round(100.0 - data["total_percent_used"], 1)
+            if data.get("total_percent_used") is not None
+            else None
+        ),
+        available_fn=lambda data: data.get("total_percent_used") is not None,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -299,6 +341,18 @@ async def async_setup_entry(
             for client_mac in coordinator.data
             for description in CLIENT_SENSORS
         ]
+    )
+
+    # Create PoE budget sensors (per-switch totals)
+    entities.extend(
+        OmadaPoeBudgetSensor(
+            coordinator=coordinator,
+            description=description,
+            switch_mac=switch_mac,
+        )
+        for coordinator in coordinators.values()
+        for switch_mac in coordinator.data.get("poe_budget", {})
+        for description in POE_BUDGET_SENSORS
     )
 
     # Create PoE port sensors
@@ -497,6 +551,57 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+class OmadaPoeBudgetSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+    """Sensor for per-switch PoE power budget metrics."""
+
+    entity_description: OmadaSensorEntityDescription
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSensorEntityDescription,
+        switch_mac: str,
+    ) -> None:
+        """Initialize the PoE budget sensor.
+
+        Args:
+            coordinator: Site coordinator that provides PoE budget data
+            description: Sensor entity description
+            switch_mac: MAC address of the switch
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._switch_mac = switch_mac
+        self._attr_unique_id = f"{switch_mac}_{description.key}"
+
+        # Link to the parent switch device
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, switch_mac)},
+        }
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        budget_data = self.coordinator.data.get("poe_budget", {}).get(self._switch_mac)
+        if budget_data is None:
+            return None
+        return self.entity_description.value_fn(budget_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        budget_data = self.coordinator.data.get("poe_budget", {}).get(self._switch_mac)
+        if budget_data is None:
+            return False
+
+        return self.entity_description.available_fn(budget_data)
 
 
 # PoE display type mapping: max wattage per PoE standard

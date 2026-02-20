@@ -832,3 +832,81 @@ async def test_get_switch_ports_poe_empty(
         result = await api_client.get_switch_ports_poe("site_001")
 
     assert result == []
+
+
+async def test_get_poe_usage(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_poe_usage returns per-switch PoE budget data."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    poe_usage_data = [
+        {
+            "mac": "AA-BB-CC-DD-EE-02",
+            "name": "Switch-PoE-24",
+            "portNum": 24,
+            "totalPowerUsed": 45,
+            "totalPercentUsed": 18.75,
+            "totalPower": 240,
+            "poePorts": [],
+        }
+    ]
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": poe_usage_data,
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_poe_usage("site_001")
+
+    assert len(result) == 1
+    assert result[0]["mac"] == "AA-BB-CC-DD-EE-02"
+    assert result[0]["totalPower"] == 240
+    assert result[0]["totalPowerUsed"] == 45
+    assert result[0]["totalPercentUsed"] == 18.75
+
+    # Verify URL construction
+    call_url = mock_get.call_args[0][0]
+    assert "/dashboard/poe-usage" in call_url
+    assert "test_omada_id" in call_url
+    assert "site_001" in call_url
+
+
+async def test_get_poe_usage_empty(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_poe_usage with no PoE switches returns empty list."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": [],
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_poe_usage("site_001")
+
+    assert result == []

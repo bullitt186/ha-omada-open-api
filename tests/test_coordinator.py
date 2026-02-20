@@ -24,6 +24,7 @@ from .conftest import (
     SAMPLE_POE_PORT_INACTIVE,
     SAMPLE_POE_PORT_NOT_SUPPORTED,
     SAMPLE_POE_PORT_SWITCH_NOT_SUPPORTED,
+    SAMPLE_POE_USAGE,
     TEST_SITE_ID,
     TEST_SITE_NAME,
 )
@@ -229,6 +230,79 @@ async def test_site_coordinator_poe_empty_response(
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
     assert coordinator.data["poe_ports"] == {}
+
+
+# ---------------------------------------------------------------------------
+# OmadaSiteCoordinator - PoE Budget
+# ---------------------------------------------------------------------------
+
+
+async def test_site_coordinator_fetches_poe_budget(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that site coordinator fetches and processes PoE budget data."""
+    mock_api_client.get_poe_usage = AsyncMock(return_value=[SAMPLE_POE_USAGE])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    poe_budget = coordinator.data["poe_budget"]
+    assert len(poe_budget) == 1
+
+    mac = "AA-BB-CC-DD-EE-02"
+    assert mac in poe_budget
+    assert poe_budget[mac]["total_power"] == 240
+    assert poe_budget[mac]["total_power_used"] == 45
+    assert poe_budget[mac]["total_percent_used"] == 18.75
+    assert poe_budget[mac]["name"] == "Core Switch"
+    assert poe_budget[mac]["port_num"] == 24
+
+
+async def test_site_coordinator_poe_budget_failure_graceful(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that PoE budget fetch failure doesn't break the update."""
+    mock_api_client.get_poe_usage = AsyncMock(
+        side_effect=OmadaApiError("PoE budget endpoint unavailable")
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.data["poe_budget"] == {}
+    # Devices should still be present.
+    assert len(coordinator.data["devices"]) == 3
+
+
+async def test_site_coordinator_poe_budget_empty(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that empty PoE budget response results in empty dict."""
+    mock_api_client.get_poe_usage = AsyncMock(return_value=[])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.data["poe_budget"] == {}
 
 
 # ---------------------------------------------------------------------------

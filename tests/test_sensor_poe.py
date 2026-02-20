@@ -10,18 +10,26 @@ if TYPE_CHECKING:
 
 from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
-from custom_components.omada_open_api.sensor import POE_DISPLAY_TYPES, OmadaPoeSensor
+from custom_components.omada_open_api.sensor import (
+    POE_BUDGET_SENSORS,
+    POE_DISPLAY_TYPES,
+    OmadaPoeBudgetSensor,
+    OmadaPoeSensor,
+    OmadaSensorEntityDescription,
+)
 
 from .conftest import TEST_SITE_ID, TEST_SITE_NAME
 
 
 def _build_poe_coordinator_data(
     poe_ports: dict | None = None,
+    poe_budget: dict | None = None,
 ) -> dict:
-    """Build coordinator data dict with PoE ports."""
+    """Build coordinator data dict with PoE ports and budget."""
     return {
         "devices": {},
         "poe_ports": poe_ports or {},
+        "poe_budget": poe_budget or {},
         "site_id": TEST_SITE_ID,
         "site_name": TEST_SITE_NAME,
     }
@@ -282,3 +290,189 @@ async def test_poe_sensor_unknown_display_type(hass: HomeAssistant) -> None:
 
     attrs = sensor.extra_state_attributes
     assert attrs["poe_standard"] == "Unknown"
+
+
+# ---------------------------------------------------------------------------
+# OmadaPoeBudgetSensor
+# ---------------------------------------------------------------------------
+
+SAMPLE_BUDGET_DATA = {
+    "mac": "AA-BB-CC-DD-EE-02",
+    "name": "Core Switch",
+    "port_num": 24,
+    "total_power": 240,
+    "total_power_used": 45,
+    "total_percent_used": 18.75,
+}
+
+
+def _create_budget_sensor(
+    hass: HomeAssistant,
+    switch_mac: str,
+    description: OmadaSensorEntityDescription,
+    poe_budget: dict | None = None,
+) -> OmadaPoeBudgetSensor:
+    """Create an OmadaPoeBudgetSensor with a mock coordinator."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = _build_poe_coordinator_data(poe_budget=poe_budget)
+
+    return OmadaPoeBudgetSensor(
+        coordinator=coordinator,
+        description=description,
+        switch_mac=switch_mac,
+    )
+
+
+async def test_poe_budget_sensor_unique_id(hass: HomeAssistant) -> None:
+    """Test unique_id format for PoE budget sensor."""
+    description = POE_BUDGET_SENSORS[0]  # poe_power_budget
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+
+    assert sensor.unique_id == "AA-BB-CC-DD-EE-02_poe_power_budget"
+
+
+async def test_poe_budget_sensor_device_info(hass: HomeAssistant) -> None:
+    """Test device_info links to parent switch."""
+    description = POE_BUDGET_SENSORS[0]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+
+    assert sensor.device_info["identifiers"] == {(DOMAIN, "AA-BB-CC-DD-EE-02")}
+
+
+async def test_poe_budget_total_power(hass: HomeAssistant) -> None:
+    """Test native_value returns total PoE budget in watts."""
+    description = POE_BUDGET_SENSORS[0]  # poe_power_budget
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+
+    assert sensor.native_value == 240
+
+
+async def test_poe_budget_power_used(hass: HomeAssistant) -> None:
+    """Test native_value returns PoE power used in watts."""
+    description = POE_BUDGET_SENSORS[1]  # poe_power_used
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+
+    assert sensor.native_value == 45
+
+
+async def test_poe_budget_remaining_percent(hass: HomeAssistant) -> None:
+    """Test native_value returns remaining PoE percentage (100 - used%)."""
+    description = POE_BUDGET_SENSORS[2]  # poe_power_remaining_percent
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+
+    # 100.0 - 18.75 = 81.25
+    assert sensor.native_value == 81.2
+
+
+async def test_poe_budget_remaining_percent_zero_usage(hass: HomeAssistant) -> None:
+    """Test remaining percent is 100 when no PoE usage."""
+    budget_data = {**SAMPLE_BUDGET_DATA, "total_percent_used": 0.0}
+    description = POE_BUDGET_SENSORS[2]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": budget_data},
+    )
+
+    assert sensor.native_value == 100.0
+
+
+async def test_poe_budget_sensor_available(hass: HomeAssistant) -> None:
+    """Test sensor is available when budget data is present."""
+    description = POE_BUDGET_SENSORS[0]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+    # Simulate successful update.
+    sensor.coordinator.last_update_success = True
+
+    assert sensor.available is True
+
+
+async def test_poe_budget_sensor_unavailable_when_data_missing(
+    hass: HomeAssistant,
+) -> None:
+    """Test sensor is unavailable when switch budget data is gone."""
+    description = POE_BUDGET_SENSORS[0]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {},  # No budget data
+    )
+
+    assert sensor.available is False
+
+
+async def test_poe_budget_sensor_unavailable_when_update_failed(
+    hass: HomeAssistant,
+) -> None:
+    """Test sensor is unavailable when coordinator update failed."""
+    description = POE_BUDGET_SENSORS[0]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {"AA-BB-CC-DD-EE-02": SAMPLE_BUDGET_DATA},
+    )
+    sensor.coordinator.last_update_success = False
+
+    assert sensor.available is False
+
+
+async def test_poe_budget_sensor_native_value_missing_data(
+    hass: HomeAssistant,
+) -> None:
+    """Test native_value returns None when budget data is missing."""
+    description = POE_BUDGET_SENSORS[0]
+    sensor = _create_budget_sensor(
+        hass,
+        "AA-BB-CC-DD-EE-02",
+        description,
+        {},  # No budget data
+    )
+
+    assert sensor.native_value is None
+
+
+async def test_poe_budget_sensors_count() -> None:
+    """Test that POE_BUDGET_SENSORS contains exactly 3 descriptions."""
+    assert len(POE_BUDGET_SENSORS) == 3
+    keys = [d.key for d in POE_BUDGET_SENSORS]
+    assert "poe_power_budget" in keys
+    assert "poe_power_used" in keys
+    assert "poe_power_remaining_percent" in keys
