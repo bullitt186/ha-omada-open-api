@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-02-20
+
+### Changed
+- Renamed integration consistently to "TP-Link Omada Open API" across all files (manifest, HACS, README, etc.)
+
+### Added
+- Brand assets: icon and logo in standard and @2x resolutions
+
 ## [0.3.0] - 2026-02-20
 
 ### Fixed
@@ -88,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OAuth 2.0 credentials (Omada ID, Client ID, Client Secret)
 - DPI enabled on gateway for application traffic tracking
 
+[0.3.1]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.3.1
 [0.3.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.3.0
 [0.2.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.2.0
 [0.1.0]: https://github.com/bullitt186/ha-omada-open-api/releases/tag/v0.1.0
