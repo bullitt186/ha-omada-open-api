@@ -18,7 +18,15 @@ from custom_components.omada_open_api.coordinator import (
     OmadaSiteCoordinator,
 )
 
-from .conftest import SAMPLE_DEVICE_AP, TEST_SITE_ID, TEST_SITE_NAME
+from .conftest import (
+    SAMPLE_DEVICE_AP,
+    SAMPLE_POE_PORT_ACTIVE,
+    SAMPLE_POE_PORT_INACTIVE,
+    SAMPLE_POE_PORT_NOT_SUPPORTED,
+    SAMPLE_POE_PORT_SWITCH_NOT_SUPPORTED,
+    TEST_SITE_ID,
+    TEST_SITE_NAME,
+)
 
 # ---------------------------------------------------------------------------
 # OmadaSiteCoordinator
@@ -135,6 +143,92 @@ async def test_site_coordinator_empty_device_list(
     assert len(coordinator.data["devices"]) == 0
     # Uplink should not be called if there are no devices.
     mock_api_client.get_device_uplink_info.assert_not_called()
+
+
+async def test_site_coordinator_fetches_poe_ports(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that site coordinator fetches and filters PoE port data."""
+    mock_api_client.get_switch_ports_poe = AsyncMock(
+        return_value=[
+            SAMPLE_POE_PORT_ACTIVE,
+            SAMPLE_POE_PORT_INACTIVE,
+            SAMPLE_POE_PORT_NOT_SUPPORTED,
+            SAMPLE_POE_PORT_SWITCH_NOT_SUPPORTED,
+        ]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    poe_ports = coordinator.data["poe_ports"]
+    # Only ports with supportPoe=True AND switchSupportPoe=1 should be included.
+    # Port 3 (supportPoe=False) and switch-not-supported port should be excluded.
+    assert len(poe_ports) == 2
+
+    key_active = "AA-BB-CC-DD-EE-02_1"
+    assert key_active in poe_ports
+    assert poe_ports[key_active]["power"] == 12.5
+    assert poe_ports[key_active]["poe_enabled"] is True
+    assert poe_ports[key_active]["switch_name"] == "Core Switch"
+    assert poe_ports[key_active]["port_name"] == "Port 1"
+    assert poe_ports[key_active]["voltage"] == 53.2
+    assert poe_ports[key_active]["current"] == 235.0
+    assert poe_ports[key_active]["pd_class"] == "Class 4"
+    assert poe_ports[key_active]["poe_display_type"] == 4
+
+    key_inactive = "AA-BB-CC-DD-EE-02_2"
+    assert key_inactive in poe_ports
+    assert poe_ports[key_inactive]["power"] == 0.0
+    assert poe_ports[key_inactive]["poe_enabled"] is False
+
+
+async def test_site_coordinator_poe_failure_graceful(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that PoE fetch failure doesn't break the update."""
+    mock_api_client.get_switch_ports_poe = AsyncMock(
+        side_effect=OmadaApiError("PoE endpoint unavailable")
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # PoE ports should be empty dict, not missing.
+    assert coordinator.data["poe_ports"] == {}
+    # Devices should still be present.
+    assert len(coordinator.data["devices"]) == 3
+
+
+async def test_site_coordinator_poe_empty_response(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that empty PoE response results in empty poe_ports dict."""
+    mock_api_client.get_switch_ports_poe = AsyncMock(return_value=[])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.data["poe_ports"] == {}
 
 
 # ---------------------------------------------------------------------------

@@ -117,8 +117,49 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 "Fetched %d devices for site %s", len(devices), self.site_name
             )
 
+            # Fetch PoE port information for switches
+            poe_ports: dict[str, dict[str, Any]] = {}
+            try:
+                poe_data = await self.api_client.get_switch_ports_poe(self.site_id)
+                for port_info in poe_data:
+                    # Only include ports that support PoE on switches that support PoE
+                    if (
+                        port_info.get("supportPoe")
+                        and port_info.get("switchSupportPoe") == 1
+                    ):
+                        switch_mac = port_info.get("switchMac", "")
+                        port_num = port_info.get("port", 0)
+                        key = f"{switch_mac}_{port_num}"
+                        poe_ports[key] = {
+                            "switch_mac": switch_mac,
+                            "switch_name": port_info.get("switchName", ""),
+                            "port": port_num,
+                            "port_name": port_info.get("portName", f"Port {port_num}"),
+                            "poe_enabled": port_info.get("poe", 0) == 1,
+                            "power": port_info.get("power", 0.0),
+                            "voltage": port_info.get("voltage", 0.0),
+                            "current": port_info.get("current", 0.0),
+                            "poe_status": port_info.get("poeStatus", 0.0),
+                            "pd_class": port_info.get("pdClass", ""),
+                            "poe_display_type": port_info.get("poeDisplayType", -1),
+                            "connected_status": port_info.get("connectedStatus", 1),
+                        }
+                _LOGGER.debug(
+                    "Fetched %d PoE-capable ports for site %s",
+                    len(poe_ports),
+                    self.site_name,
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch PoE info for site %s: %s",
+                    self.site_name,
+                    err,
+                )
+                # Continue without PoE info - not critical
+
             return {  # noqa: TRY300
                 "devices": devices,
+                "poe_ports": poe_ports,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
             }

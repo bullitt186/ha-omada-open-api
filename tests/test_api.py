@@ -706,3 +706,129 @@ async def test_authenticated_request_api_error_code(
         mock_get.return_value.__aenter__.return_value = mock_response
         with pytest.raises(OmadaApiError, match="Permission denied"):
             await api_client.get_sites()
+
+
+# ---------------------------------------------------------------------------
+# get_switch_ports_poe tests
+# ---------------------------------------------------------------------------
+
+
+async def test_get_switch_ports_poe_single_page(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_switch_ports_poe fetches a single page of PoE data."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    poe_ports = [
+        {"port": 1, "switchMac": "AA-BB", "power": 12.5, "supportPoe": True},
+        {"port": 2, "switchMac": "AA-BB", "power": 0.0, "supportPoe": True},
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": poe_ports, "totalRows": 2},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_switch_ports_poe("site_001")
+
+    assert len(result) == 2
+    assert result[0]["power"] == 12.5
+    call_url = mock_get.call_args[0][0]
+    assert "/sites/site_001/switches/ports/poe-info" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 1000
+
+
+async def test_get_switch_ports_poe_multi_page(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_switch_ports_poe paginates across multiple pages."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    # Page 1: 1000 items, Page 2: 500 items (total 1500)
+    page1_ports = [{"port": i, "switchMac": "AA"} for i in range(1000)]
+    page2_ports = [{"port": i, "switchMac": "AA"} for i in range(1000, 1500)]
+
+    page1_response = AsyncMock()
+    page1_response.status = 200
+    page1_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": page1_ports, "totalRows": 1500},
+    }
+
+    page2_response = AsyncMock()
+    page2_response.status = 200
+    page2_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": page2_ports, "totalRows": 1500},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.side_effect = [
+            page1_response,
+            page2_response,
+        ]
+        result = await api_client.get_switch_ports_poe("site_001")
+
+    assert len(result) == 1500
+    assert mock_get.call_count == 2
+
+    # First call page=1, second call page=2
+    first_params = mock_get.call_args_list[0][1]["params"]
+    assert first_params["page"] == 1
+    second_params = mock_get.call_args_list[1][1]["params"]
+    assert second_params["page"] == 2
+
+
+async def test_get_switch_ports_poe_empty(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_switch_ports_poe with no PoE ports returns empty list."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": [], "totalRows": 0},
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_switch_ports_poe("site_001")
+
+    assert result == []

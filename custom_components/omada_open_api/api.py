@@ -520,6 +520,48 @@ class OmadaApiClient:
         result = await self._authenticated_request("get", url, params=params)
         return result.get("result", [])  # type: ignore[no-any-return]
 
+    async def get_switch_ports_poe(self, site_id: str) -> list[dict[str, Any]]:
+        """Get PoE information for all switch ports in a site.
+
+        Fetches all pages of PoE port data in a single loop.
+
+        Args:
+            site_id: Site ID to get PoE port data for
+
+        Returns:
+            List of PoE port dictionaries, each containing port, switchMac,
+            switchName, portName, supportPoe, poe, power, voltage, current,
+            poeStatus, pdClass, poeDisplayType, connectedStatus, etc.
+
+        Raises:
+            OmadaApiError: If fetching PoE data fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/ports/poe-info"
+        )
+        page_size = 1000
+        page = 1
+        all_ports: list[dict[str, Any]] = []
+
+        while True:
+            params = {"page": page, "pageSize": page_size}
+            result = await self._authenticated_request("get", url, params=params)
+            data = result.get("result", {})
+            ports = data.get("data", [])
+            total_rows = data.get("totalRows", 0)
+            all_ports.extend(ports)
+
+            if len(all_ports) >= total_rows or len(ports) < page_size:
+                break
+            page += 1
+
+        _LOGGER.debug(
+            "Fetched %d PoE port records for site %s", len(all_ports), site_id
+        )
+        return all_ports
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

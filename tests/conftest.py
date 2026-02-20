@@ -202,4 +202,78 @@ def mock_api_client() -> MagicMock:
     client.get_applications = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
+    client.get_switch_ports_poe = AsyncMock(return_value=[])
     return client
+
+
+# ---------------------------------------------------------------------------
+# PoE sample data
+# ---------------------------------------------------------------------------
+
+SAMPLE_POE_PORT_ACTIVE = {
+    "port": 1,
+    "switchMac": "AA-BB-CC-DD-EE-02",
+    "switchName": "Core Switch",
+    "portName": "Port 1",
+    "supportPoe": True,
+    "poe": 1,
+    "power": 12.5,
+    "voltage": 53.2,
+    "current": 235.0,
+    "poeStatus": 1.0,
+    "pdClass": "Class 4",
+    "poeDisplayType": 4,
+    "connectedStatus": 0,
+    "switchSupportPoe": 1,
+}
+
+SAMPLE_POE_PORT_INACTIVE = {
+    "port": 2,
+    "switchMac": "AA-BB-CC-DD-EE-02",
+    "switchName": "Core Switch",
+    "portName": "Port 2",
+    "supportPoe": True,
+    "poe": 0,
+    "power": 0.0,
+    "voltage": 0.0,
+    "current": 0.0,
+    "poeStatus": 0.0,
+    "pdClass": "",
+    "poeDisplayType": 4,
+    "connectedStatus": 1,
+    "switchSupportPoe": 1,
+}
+
+SAMPLE_POE_PORT_NOT_SUPPORTED = {
+    "port": 3,
+    "switchMac": "AA-BB-CC-DD-EE-02",
+    "switchName": "Core Switch",
+    "portName": "Port 3",
+    "supportPoe": False,
+    "poe": 0,
+    "power": 0.0,
+    "voltage": 0.0,
+    "current": 0.0,
+    "poeStatus": 0.0,
+    "pdClass": "",
+    "poeDisplayType": -1,
+    "connectedStatus": 1,
+    "switchSupportPoe": 1,
+}
+
+SAMPLE_POE_PORT_SWITCH_NOT_SUPPORTED = {
+    "port": 1,
+    "switchMac": "AA-BB-CC-DD-EE-99",
+    "switchName": "Non-PoE Switch",
+    "portName": "Port 1",
+    "supportPoe": True,
+    "poe": 0,
+    "power": 0.0,
+    "voltage": 0.0,
+    "current": 0.0,
+    "poeStatus": 0.0,
+    "pdClass": "",
+    "poeDisplayType": -1,
+    "connectedStatus": 1,
+    "switchSupportPoe": 0,
+}

@@ -12,7 +12,7 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower, UnitOfTime
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -23,6 +23,7 @@ from .const import (
     ICON_FIRMWARE,
     ICON_LINK,
     ICON_MEMORY,
+    ICON_POE,
     ICON_TAG,
     ICON_UPTIME,
 )
@@ -300,6 +301,16 @@ async def async_setup_entry(
         ]
     )
 
+    # Create PoE port sensors
+    entities.extend(
+        OmadaPoeSensor(
+            coordinator=coordinator,
+            port_key=port_key,
+        )
+        for coordinator in coordinators.values()
+        for port_key in coordinator.data.get("poe_ports", {})
+    )
+
     # Create app traffic sensors
     entities.extend(
         [
@@ -486,6 +497,104 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+# PoE display type mapping: max wattage per PoE standard
+POE_DISPLAY_TYPES: dict[int, str] = {
+    -1: "Not Supported",
+    0: "PoE",
+    1: "PoE (4W)",
+    2: "PoE (7W)",
+    3: "PoE (15.4W)",
+    4: "PoE+ (30W)",
+    5: "PoE++ (45W)",
+    6: "PoE++ (60W)",
+    7: "PoE++ (75W)",
+    8: "PoE++ (90W)",
+    9: "PoE++ (100W)",
+}
+
+
+class OmadaPoeSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+    """Sensor for PoE power consumption on a switch port."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_suggested_display_precision = 1
+    _attr_icon = ICON_POE
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        port_key: str,
+    ) -> None:
+        """Initialize the PoE sensor.
+
+        Args:
+            coordinator: Site coordinator that provides PoE data
+            port_key: Key in poe_ports dict (format: switchMac_portNum)
+
+        """
+        super().__init__(coordinator)
+        self._port_key = port_key
+
+        port_data = coordinator.data.get("poe_ports", {}).get(port_key, {})
+        switch_mac = port_data.get("switch_mac", "")
+        port_num = port_data.get("port", 0)
+        port_name = port_data.get("port_name", f"Port {port_num}")
+
+        self._attr_unique_id = f"{switch_mac}_port{port_num}_poe_power"
+        self._attr_name = f"{port_name} PoE power"
+
+        # Link to the parent switch device
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, switch_mac)},
+        }
+
+    @property
+    def native_value(self) -> float | None:
+        """Return PoE power consumption in watts."""
+        port_data = self.coordinator.data.get("poe_ports", {}).get(self._port_key)
+        if port_data is None:
+            return None
+        power: float = port_data.get("power", 0.0)
+        return power
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra state attributes."""
+        port_data = self.coordinator.data.get("poe_ports", {}).get(self._port_key)
+        if port_data is None:
+            return {}
+
+        attrs: dict[str, Any] = {
+            "port": port_data.get("port"),
+            "port_name": port_data.get("port_name"),
+            "poe_enabled": port_data.get("poe_enabled"),
+            "voltage": port_data.get("voltage"),
+            "current": port_data.get("current"),
+        }
+
+        # Add PD class if present
+        if pd_class := port_data.get("pd_class"):
+            attrs["pd_class"] = pd_class
+
+        # Add PoE standard description
+        poe_type = port_data.get("poe_display_type", -1)
+        attrs["poe_standard"] = POE_DISPLAY_TYPES.get(poe_type, "Unknown")
+
+        return attrs
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+
+        port_data = self.coordinator.data.get("poe_ports", {}).get(self._port_key)
+        return port_data is not None
 
 
 class OmadaClientAppTrafficSensor(
