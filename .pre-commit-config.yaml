@@ -40,3 +40,13 @@ repos:
         exclude: custom_components/omada_open_api/binary_sensor.py
         additional_dependencies:
           - types-requests
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest tests/ -x -q
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
