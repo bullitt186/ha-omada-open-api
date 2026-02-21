@@ -686,11 +686,6 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
 
         # Set device info
         client_data = coordinator.data.get(client_mac, {})
-        _LOGGER.debug(
-            "Initializing client sensor for MAC %s, data available: %s",
-            client_mac,
-            bool(client_data),
-        )
         client_name = (
             client_data.get("name") or client_data.get("host_name") or client_mac
         )
@@ -731,12 +726,14 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
             "configuration_url": coordinator.api_client.api_url,
             "via_device": via_device,
         }
-        _LOGGER.debug(
-            "Client sensor device_info for %s: parent=%s, via_device=%s",
-            client_name,
-            parent_device_mac,
-            via_device,
-        )
+        # Only log device info once per client (for signal strength sensor)
+        if description.key == "signal_strength":
+            _LOGGER.debug(
+                "Client device %s: parent=%s, via_device=%s",
+                client_name,
+                parent_device_mac,
+                via_device,
+            )
 
     @property
     def native_value(self) -> StateType:
