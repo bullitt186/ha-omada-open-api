@@ -199,6 +199,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             for stat in client_stats:
                 mac = stat.get("mac")
                 if mac and mac in devices:
+                    devices[mac]["client_num"] = stat.get("clientNum", 0)
                     devices[mac]["client_num_2g"] = stat.get("clientNum2g", 0)
                     devices[mac]["client_num_5g"] = stat.get("clientNum5g", 0)
                     devices[mac]["client_num_5g2"] = stat.get("clientNum5g2", 0)

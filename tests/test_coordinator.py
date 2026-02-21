@@ -338,6 +338,7 @@ async def test_site_coordinator_fetches_per_band_client_stats(
     assert coordinator.last_update_success is True
 
     ap = coordinator.data["devices"]["AA-BB-CC-DD-EE-01"]
+    assert ap["client_num"] == 12
     assert ap["client_num_2g"] == 4
     assert ap["client_num_5g"] == 6
     assert ap["client_num_5g2"] == 0

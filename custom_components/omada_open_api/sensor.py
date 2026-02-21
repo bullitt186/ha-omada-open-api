@@ -23,7 +23,6 @@ from .const import (
     ICON_CPU,
     ICON_DEVICE_TYPE,
     ICON_DOWNLOAD,
-    ICON_FIRMWARE,
     ICON_LINK,
     ICON_MEMORY,
     ICON_POE,
@@ -91,6 +90,7 @@ class OmadaSensorEntityDescription(SensorEntityDescription):  # type: ignore[mis
 
     value_fn: Callable[[dict[str, Any]], StateType]
     available_fn: Callable[[dict[str, Any]], bool] = lambda device: True
+    applicable_types: tuple[str, ...] | None = None
 
 
 DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
@@ -101,6 +101,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device.get("client_num", 0),
+        applicable_types=("ap",),
     ),
     OmadaSensorEntityDescription(
         key="uptime",
@@ -139,22 +140,6 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         available_fn=lambda device: device.get("mem_util") is not None,
     ),
     OmadaSensorEntityDescription(
-        key="model",
-        translation_key="model",
-        name="Model",
-        icon=ICON_FIRMWARE,
-        value_fn=lambda device: device.get("model"),
-        available_fn=lambda device: device.get("model") is not None,
-    ),
-    OmadaSensorEntityDescription(
-        key="firmware_version",
-        translation_key="firmware_version",
-        name="Firmware version",
-        icon=ICON_FIRMWARE,
-        value_fn=lambda device: device.get("firmware_version"),
-        available_fn=lambda device: device.get("firmware_version") is not None,
-    ),
-    OmadaSensorEntityDescription(
         key="device_type",
         translation_key="device_type",
         name="Device type",
@@ -179,6 +164,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon=ICON_LINK,
         value_fn=lambda device: device.get("uplink_device_name"),
         available_fn=lambda device: device.get("uplink_device_name") is not None,
+        applicable_types=("ap", "switch"),
     ),
     OmadaSensorEntityDescription(
         key="uplink_port",
@@ -187,6 +173,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon=ICON_LINK,
         value_fn=lambda device: device.get("uplink_device_port"),
         available_fn=lambda device: device.get("uplink_device_port") is not None,
+        applicable_types=("ap", "switch"),
     ),
     OmadaSensorEntityDescription(
         key="link_speed",
@@ -195,6 +182,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon=ICON_LINK,
         value_fn=lambda device: format_link_speed(device.get("link_speed")),
         available_fn=lambda device: device.get("link_speed") is not None,
+        applicable_types=("ap", "switch"),
     ),
     OmadaSensorEntityDescription(
         key="public_ip",
@@ -203,6 +191,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon="mdi:ip-network",
         value_fn=lambda device: device.get("public_ip"),
         available_fn=lambda device: device.get("public_ip") is not None,
+        applicable_types=("gateway",),
     ),
     OmadaSensorEntityDescription(
         key="ipv6",
@@ -238,7 +227,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
         key="clients_5g",
         translation_key="clients_5g",
-        name="Clients 5 GHz",
+        name="Clients 5 GHz-1",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda device: device.get("client_num_5g"),
@@ -483,7 +472,7 @@ async def async_setup_entry(
         )
     )
 
-    # Create device sensors in sorted order
+    # Create device sensors in sorted order, respecting applicable_types
     entities: list[SensorEntity] = [
         OmadaDeviceSensor(
             coordinator=coordinator,
@@ -492,6 +481,12 @@ async def async_setup_entry(
         )
         for coordinator, device_mac in device_list
         for description in DEVICE_SENSORS
+        if description.applicable_types is None
+        or coordinator.data.get("devices", {})
+        .get(device_mac, {})
+        .get("type", "")
+        .lower()
+        in description.applicable_types
     ]
 
     # Create per-band client count sensors for AP devices

@@ -18,7 +18,6 @@ from custom_components.omada_open_api.devices import process_device
 
 from .conftest import (
     SAMPLE_DEVICE_AP,
-    SAMPLE_DEVICE_GATEWAY,
     SAMPLE_DEVICE_SWITCH,
     TEST_SITE_ID,
     TEST_SITE_NAME,
@@ -88,58 +87,6 @@ async def test_status_offline(hass: HomeAssistant) -> None:
 
 
 # ---------------------------------------------------------------------------
-# need_upgrade binary sensor (new in Step 2)
-# ---------------------------------------------------------------------------
-
-
-async def test_need_upgrade_true(hass: HomeAssistant) -> None:
-    """Test need_upgrade returns True when upgrade available."""
-    ap = dict(SAMPLE_DEVICE_AP)
-    ap["needUpgrade"] = True
-    data = process_device(ap)
-    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "need_upgrade")
-    assert sensor.is_on is True
-
-
-async def test_need_upgrade_false(hass: HomeAssistant) -> None:
-    """Test need_upgrade returns False when no upgrade."""
-    ap = dict(SAMPLE_DEVICE_AP)
-    ap["needUpgrade"] = False
-    data = process_device(ap)
-    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "need_upgrade")
-    assert sensor.is_on is False
-
-
-async def test_need_upgrade_missing_defaults_false(hass: HomeAssistant) -> None:
-    """Test need_upgrade defaults to False when key missing."""
-    data = process_device(SAMPLE_DEVICE_AP)
-    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "need_upgrade")
-    assert sensor.is_on is False
-
-
-async def test_need_upgrade_switch(hass: HomeAssistant) -> None:
-    """Test need_upgrade works for switch device."""
-    sw = dict(SAMPLE_DEVICE_SWITCH)
-    sw["needUpgrade"] = True
-    data = process_device(sw)
-    sensor = _create_device_binary_sensor(
-        hass, SWITCH_MAC, {SWITCH_MAC: data}, "need_upgrade"
-    )
-    assert sensor.is_on is True
-
-
-async def test_need_upgrade_gateway(hass: HomeAssistant) -> None:
-    """Test need_upgrade works for gateway device."""
-    gw = dict(SAMPLE_DEVICE_GATEWAY)
-    gw["needUpgrade"] = False
-    data = process_device(gw)
-    sensor = _create_device_binary_sensor(
-        hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "need_upgrade"
-    )
-    assert sensor.is_on is False
-
-
-# ---------------------------------------------------------------------------
 # Identity and device_info
 # ---------------------------------------------------------------------------
 
@@ -157,7 +104,7 @@ async def test_device_info(hass: HomeAssistant) -> None:
     """Test device_info structure."""
     data = process_device(SAMPLE_DEVICE_SWITCH)
     sensor = _create_device_binary_sensor(
-        hass, SWITCH_MAC, {SWITCH_MAC: data}, "need_upgrade"
+        hass, SWITCH_MAC, {SWITCH_MAC: data}, "status"
     )
     device_info = sensor._attr_device_info  # noqa: SLF001
     assert (DOMAIN, SWITCH_MAC) in device_info["identifiers"]
@@ -172,7 +119,7 @@ async def test_device_info(hass: HomeAssistant) -> None:
 async def test_binary_sensor_missing_device(hass: HomeAssistant) -> None:
     """Test binary sensor when device removed from coordinator."""
     data = process_device(SAMPLE_DEVICE_AP)
-    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "need_upgrade")
+    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "status")
     sensor.coordinator.data = _build_coordinator_data({})
     assert sensor.is_on is False
     assert sensor.available is False

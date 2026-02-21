@@ -298,14 +298,13 @@ def _create_device_tracker(
 
 
 def _connected_device(raw: dict[str, Any]) -> dict[str, Any]:
-    """Process a device and ensure statusCategory=1 (connected)."""
+    """Process a device and ensure status=14 (connected)."""
     return process_device(raw)
 
 
 def _disconnected_device(raw: dict[str, Any]) -> dict[str, Any]:
-    """Process a device with statusCategory=0 (disconnected)."""
+    """Process a device with status=0 (disconnected)."""
     modified = dict(raw)
-    modified["statusCategory"] = 0
     modified["status"] = 0
     return process_device(modified)
 
@@ -512,7 +511,7 @@ async def test_device_tracker_reflects_state_change(hass: HomeAssistant) -> None
 
     # Simulate device going offline.
     offline = dict(data)
-    offline["status_category"] = 0
+    offline["status"] = 0
     coordinator.data["devices"] = {AP_MAC: offline}
     assert tracker.is_connected is False
 

@@ -23,8 +23,10 @@ _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 0
 
-# statusCategory values from the Omada Open API.
-_STATUS_CATEGORY_CONNECTED = 1
+# A device is considered connected when its status is non-zero.
+# The API returns status=0 for disconnected devices and various
+# positive integers (1, 14, …) for connected states.
+_STATUS_DISCONNECTED = 0
 
 
 async def async_setup_entry(
@@ -132,7 +134,8 @@ class OmadaDeviceTracker(
         device = self._device_data
         if not device:
             return False
-        return device.get("status_category") == _STATUS_CATEGORY_CONNECTED
+        status: int = device.get("status", 0)
+        return status != _STATUS_DISCONNECTED
 
     @property
     def ip_address(self) -> str | None:

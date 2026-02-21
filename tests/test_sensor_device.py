@@ -113,22 +113,6 @@ async def test_mem_util_sensor(hass: HomeAssistant) -> None:
     assert sensor.native_value == 30
 
 
-async def test_firmware_version_sensor(hass: HomeAssistant) -> None:
-    """Test firmware version sensor."""
-    data = process_device(SAMPLE_DEVICE_GATEWAY)
-    sensor = _create_device_sensor(
-        hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "firmware_version"
-    )
-    assert sensor.native_value == "3.0.0"
-
-
-async def test_model_sensor(hass: HomeAssistant) -> None:
-    """Test model sensor."""
-    data = process_device(SAMPLE_DEVICE_AP)
-    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "model")
-    assert sensor.native_value == "EAP660 HD"
-
-
 async def test_device_type_sensor(hass: HomeAssistant) -> None:
     """Test device type sensor returns human-readable label."""
     data = process_device(SAMPLE_DEVICE_SWITCH)
@@ -298,7 +282,9 @@ async def test_device_sensor_device_info_ap(hass: HomeAssistant) -> None:
 async def test_device_sensor_device_info_gateway(hass: HomeAssistant) -> None:
     """Test device_info for gateway has no via_device."""
     data = process_device(SAMPLE_DEVICE_GATEWAY)
-    sensor = _create_device_sensor(hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "client_num")
+    sensor = _create_device_sensor(
+        hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "device_type"
+    )
     device_info = sensor._attr_device_info  # noqa: SLF001
     assert "via_device" not in device_info
 

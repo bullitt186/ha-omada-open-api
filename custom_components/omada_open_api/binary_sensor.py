@@ -12,7 +12,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, ICON_FIRMWARE, ICON_POWER_SAVE, ICON_STATUS
+from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import get_device_sort_key
 
@@ -40,14 +40,6 @@ DEVICE_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         icon=ICON_STATUS,
         value_fn=lambda device: device.get("status") == 1,
-    ),
-    OmadaBinarySensorEntityDescription(
-        key="need_upgrade",
-        translation_key="need_upgrade",
-        name="Firmware update available",
-        device_class=BinarySensorDeviceClass.UPDATE,
-        icon=ICON_FIRMWARE,
-        value_fn=lambda device: device.get("need_upgrade", False),
     ),
 )
 
