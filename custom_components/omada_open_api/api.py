@@ -1292,13 +1292,21 @@ class OmadaApiClient:
             )
             return
 
+        # Clean up the overrides - remove any null values
+        # The API doesn't accept null values and will return -1001 errors
+        cleaned_overrides = []
+        for override in ssid_overrides:
+            # Filter out null values from each override
+            cleaned = {k: v for k, v in override.items() if v is not None}
+            cleaned_overrides.append(cleaned)
+
         # Send the complete list back to the API
         url = (
             f"{self._api_url}/openapi/v2/{self._omada_id}"
             f"/sites/{site_id}/aps/{ap_mac}/override"
         )
 
-        payload = {"ssidOverrides": ssid_overrides}
+        payload = {"ssidOverrides": cleaned_overrides}
 
         _LOGGER.debug(
             "Updating SSID override for AP %s in site %s: entry_id=%d, name=%s, enable=%s (total overrides: %d)",
@@ -1307,8 +1315,9 @@ class OmadaApiClient:
             ssid_entry_id,
             ssid_name,
             ssid_enable,
-            len(ssid_overrides),
+            len(cleaned_overrides),
         )
+        _LOGGER.debug("Payload being sent: %s", payload)
         await self._authenticated_request("patch", url, json_data=payload)
 
     @property
