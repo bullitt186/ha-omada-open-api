@@ -24,9 +24,9 @@ def _create_ssid_switch(
     mock_api_client.api_url = "https://test.example.com"
     mock_api_client.get_ssid_detail = AsyncMock(
         return_value={
-            "id": ssid_data.get("id"),
+            "ssidId": ssid_data.get("ssidId"),
             "wlanId": ssid_data.get("wlanId"),
-            "name": ssid_data.get("name"),
+            "ssidName": ssid_data.get("ssidName"),
             "broadcast": ssid_data.get("broadcast", True),
             "band": 7,
         }
@@ -56,9 +56,9 @@ def _create_ssid_switch(
 async def test_ssid_switch_unique_id(hass: HomeAssistant) -> None:
     """Test SSID switch has correct unique ID."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -68,9 +68,9 @@ async def test_ssid_switch_unique_id(hass: HomeAssistant) -> None:
 async def test_ssid_switch_device_info(hass: HomeAssistant) -> None:
     """Test SSID switch links to Site device."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -81,9 +81,9 @@ async def test_ssid_switch_device_info(hass: HomeAssistant) -> None:
 async def test_ssid_switch_is_on_when_broadcast_enabled(hass: HomeAssistant) -> None:
     """Test SSID switch reports on when broadcast is enabled."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -93,9 +93,9 @@ async def test_ssid_switch_is_on_when_broadcast_enabled(hass: HomeAssistant) -> 
 async def test_ssid_switch_is_off_when_broadcast_disabled(hass: HomeAssistant) -> None:
     """Test SSID switch reports off when broadcast is disabled."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": False,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -105,9 +105,9 @@ async def test_ssid_switch_is_off_when_broadcast_disabled(hass: HomeAssistant) -
 async def test_ssid_switch_icon_on(hass: HomeAssistant) -> None:
     """Test SSID switch shows wifi icon when on."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -117,9 +117,9 @@ async def test_ssid_switch_icon_on(hass: HomeAssistant) -> None:
 async def test_ssid_switch_icon_off(hass: HomeAssistant) -> None:
     """Test SSID switch shows wifi-off icon when off."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": False,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -129,9 +129,9 @@ async def test_ssid_switch_icon_off(hass: HomeAssistant) -> None:
 async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
     """Test turning on SSID switch enables broadcast."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": False,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -152,9 +152,9 @@ async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
 async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
     """Test turning off SSID switch disables broadcast."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -175,9 +175,9 @@ async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
 async def test_ssid_switch_turn_on_permission_error(hass: HomeAssistant) -> None:
     """Test turning on SSID with permission error handles gracefully."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": False,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -195,9 +195,9 @@ async def test_ssid_switch_turn_on_permission_error(hass: HomeAssistant) -> None
 async def test_ssid_switch_turn_off_api_error(hass: HomeAssistant) -> None:
     """Test turning off SSID with API error handles gracefully."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -215,9 +215,9 @@ async def test_ssid_switch_turn_off_api_error(hass: HomeAssistant) -> None:
 async def test_ssid_switch_async_update(hass: HomeAssistant) -> None:
     """Test SSID switch updates state from coordinator data."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)
@@ -226,9 +226,9 @@ async def test_ssid_switch_async_update(hass: HomeAssistant) -> None:
     switch.coordinator.data = {
         "ssids": [
             {
-                "id": "ssid_001",
+                "ssidId": "ssid_001",
                 "wlanId": "wlan_001",
-                "name": "HomeWiFi",
+                "ssidName": "HomeWiFi",
                 "broadcast": False,  # Changed to False
             }
         ],
@@ -245,9 +245,9 @@ async def test_ssid_switch_async_update(hass: HomeAssistant) -> None:
 async def test_ssid_switch_available(hass: HomeAssistant) -> None:
     """Test SSID switch availability based on coordinator."""
     ssid_data = {
-        "id": "ssid_001",
+        "ssidId": "ssid_001",
         "wlanId": "wlan_001",
-        "name": "HomeWiFi",
+        "ssidName": "HomeWiFi",
         "broadcast": True,
     }
     switch = _create_ssid_switch(hass, ssid_data)

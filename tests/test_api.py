@@ -1584,26 +1584,28 @@ async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
         token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
     )
 
+    # Match actual Omada API response structure
     mock_response = AsyncMock()
     mock_response.status = 200
     mock_response.json.return_value = {
         "errorCode": 0,
-        "result": {
-            "data": [
-                {
-                    "id": "ssid_001",
-                    "wlanId": "wlan_001",
-                    "name": "HomeWiFi",
-                    "broadcast": True,
-                },
-                {
-                    "id": "ssid_002",
-                    "wlanId": "wlan_001",
-                    "name": "GuestWiFi",
-                    "broadcast": True,
-                },
-            ]
-        },
+        "msg": "Success.",
+        "result": [
+            {
+                "wlanId": "wlan_001",
+                "wlanName": "Default",
+                "ssidList": [
+                    {
+                        "ssidId": "ssid_001",
+                        "ssidName": "HomeWiFi",
+                    },
+                    {
+                        "ssidId": "ssid_002",
+                        "ssidName": "GuestWiFi",
+                    },
+                ],
+            }
+        ],
     }
 
     with patch("aiohttp.ClientSession.get") as mock_get:
@@ -1612,9 +1614,12 @@ async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
 
     call_url = mock_get.call_args[0][0]
     assert "/wireless-network/ssids" in call_url
+    assert "type=3" in call_url  # Verify type parameter is included
     assert len(result) == 2
-    assert result[0]["name"] == "HomeWiFi"
-    assert result[1]["name"] == "GuestWiFi"
+    assert result[0]["ssidName"] == "HomeWiFi"
+    assert result[0]["wlanId"] == "wlan_001"
+    assert result[0]["wlanName"] == "Default"
+    assert result[1]["ssidName"] == "GuestWiFi"
 
 
 async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:

@@ -1000,7 +1000,7 @@ class OmadaApiClient:
             site_id: Site ID
 
         Returns:
-            List of SSID configurations
+            List of SSID configurations (flattened from all WLANs)
 
         Raises:
             OmadaApiError: If the request fails
@@ -1012,9 +1012,28 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching SSIDs for site %s (type=3: all device types)", site_id)
         result = await self._authenticated_request("get", url)
-        ssid_data = result.get("result", {}).get("data", [])
-        _LOGGER.debug("Fetched %d SSIDs for site %s", len(ssid_data), site_id)
-        return ssid_data  # type: ignore[no-any-return]
+
+        # Response structure: {"errorCode": 0, "result": [{"wlanId": "...", "ssidList": [...]}]}
+        wlans = result.get("result", [])
+
+        # Flatten all SSIDs from all WLANs into a single list
+        all_ssids: list[dict[str, Any]] = []
+        for wlan in wlans:
+            ssid_list = wlan.get("ssidList", [])
+            # Add wlanId and wlanName to each SSID for context
+            for ssid in ssid_list:
+                ssid_with_wlan = ssid.copy()
+                ssid_with_wlan["wlanId"] = wlan.get("wlanId")
+                ssid_with_wlan["wlanName"] = wlan.get("wlanName")
+                all_ssids.append(ssid_with_wlan)
+
+        _LOGGER.debug(
+            "Fetched %d SSIDs across %d WLANs for site %s",
+            len(all_ssids),
+            len(wlans),
+            site_id,
+        )
+        return all_ssids
 
     async def update_ssid_basic_config(
         self,

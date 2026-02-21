@@ -83,15 +83,15 @@ async def async_setup_entry(  # pylint: disable=too-many-branches
                 "Processing site '%s': found %d SSIDs: %s",
                 site_id,
                 len(ssids),
-                [s.get("name", "Unknown") for s in ssids] if ssids else "none",
+                [s.get("ssidName", "Unknown") for s in ssids] if ssids else "none",
             )
 
             # Validate SSID data structure before creating switches
             valid_ssids = []
             for ssid in ssids:
-                if not ssid.get("id") or not ssid.get("wlanId"):
+                if not ssid.get("ssidId") or not ssid.get("wlanId"):
                     _LOGGER.warning(
-                        "Invalid SSID data for site %s: missing required fields (id/wlanId): %s",
+                        "Invalid SSID data for site %s: missing required fields (ssidId/wlanId): %s",
                         site_id,
                         ssid,
                     )
@@ -462,9 +462,9 @@ class OmadaSsidSwitch(
         """
         super().__init__(coordinator)
         self._site_device_id = site_device_id
-        self._ssid_id = ssid_data.get("id", "")
+        self._ssid_id = ssid_data.get("ssidId", "")
         self._wlan_id = ssid_data.get("wlanId", "")
-        self._ssid_name = ssid_data.get("name", "Unknown SSID")
+        self._ssid_name = ssid_data.get("ssidName", "Unknown SSID")
 
         # Determine enabled state from schedule or broadcast
         # Note: SSID can be disabled via wlanSchedule or by disabling broadcast
@@ -504,7 +504,7 @@ class OmadaSsidSwitch(
         await super().async_update()
         ssids = self.coordinator.data.get("ssids", [])
         for ssid in ssids:
-            if ssid.get("id") == self._ssid_id:
+            if ssid.get("ssidId") == self._ssid_id:
                 self._enabled = ssid.get("broadcast", True) and not ssid.get(
                     "wlanSchedule", {}
                 ).get("scheduleEnable", False)
