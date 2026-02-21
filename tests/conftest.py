@@ -246,6 +246,7 @@ def mock_api_client() -> MagicMock:
     client.get_ap_radios = AsyncMock(return_value={})
     client.get_gateway_info = AsyncMock(return_value={})
     client.get_site_ssids = AsyncMock(return_value=[])
+    client.get_site_ssids_comprehensive = AsyncMock(return_value=[])
     client.get_ssid_detail = AsyncMock(return_value={})
     client.update_ssid_basic_config = AsyncMock()
     return client

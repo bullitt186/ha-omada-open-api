@@ -90,6 +90,7 @@ def _patch_api_client(**overrides):
     mock_instance.check_write_access = AsyncMock(return_value=True)
     mock_instance.get_gateway_info = AsyncMock(return_value={})
     mock_instance.get_site_ssids = AsyncMock(return_value=[])
+    mock_instance.get_site_ssids_comprehensive = AsyncMock(return_value=[])
     mock_instance.get_ssid_detail = AsyncMock(return_value={})
     mock_instance.update_ssid_basic_config = AsyncMock()
 

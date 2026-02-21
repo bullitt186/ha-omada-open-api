@@ -103,10 +103,10 @@ async def test_merge_gateway_temperature_skips_non_gateways(
 async def test_fetch_site_ssids_success(hass: HomeAssistant) -> None:
     """Test fetching site SSIDs successfully."""
     mock_api_client = MagicMock()
-    mock_api_client.get_site_ssids = AsyncMock(
+    mock_api_client.get_site_ssids_comprehensive = AsyncMock(
         return_value=[
-            {"id": "ssid_001", "name": "HomeWiFi", "broadcast": True},
-            {"id": "ssid_002", "name": "GuestWiFi", "broadcast": False},
+            {"ssidId": "ssid_001", "ssidName": "HomeWiFi", "broadcast": True},
+            {"ssidId": "ssid_002", "ssidName": "GuestWiFi", "broadcast": False},
         ]
     )
 
@@ -120,15 +120,17 @@ async def test_fetch_site_ssids_success(hass: HomeAssistant) -> None:
     ssids = await coordinator._fetch_site_ssids()  # noqa: SLF001
 
     assert len(ssids) == 2
-    assert ssids[0]["name"] == "HomeWiFi"
-    assert ssids[1]["name"] == "GuestWiFi"
-    mock_api_client.get_site_ssids.assert_called_once_with("site_001")
+    assert ssids[0]["ssidName"] == "HomeWiFi"
+    assert ssids[1]["ssidName"] == "GuestWiFi"
+    mock_api_client.get_site_ssids_comprehensive.assert_called_once_with("site_001")
 
 
 async def test_fetch_site_ssids_api_error(hass: HomeAssistant) -> None:
     """Test fetching site SSIDs handles API errors gracefully."""
     mock_api_client = MagicMock()
-    mock_api_client.get_site_ssids = AsyncMock(side_effect=OmadaApiError("API Error"))
+    mock_api_client.get_site_ssids_comprehensive = AsyncMock(
+        side_effect=OmadaApiError("API Error")
+    )
 
     coordinator = OmadaSiteCoordinator(
         hass=hass,

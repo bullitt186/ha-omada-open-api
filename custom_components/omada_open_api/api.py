@@ -1016,6 +1016,20 @@ class OmadaApiClient:
         # Response structure: {"errorCode": 0, "result": [{"wlanId": "...", "ssidList": [...]}]}
         wlans = result.get("result", [])
 
+        # Log detailed WLAN information for debugging
+        _LOGGER.debug("Raw SSID API response: %d WLANs returned", len(wlans))
+        for i, wlan in enumerate(wlans):
+            wlan_name = wlan.get("wlanName", "Unknown")
+            ssid_count = len(wlan.get("ssidList", []))
+            ssid_names = [s.get("ssidName", "?") for s in wlan.get("ssidList", [])]
+            _LOGGER.debug(
+                "  WLAN %d: '%s' - %d SSIDs: %s",
+                i + 1,
+                wlan_name,
+                ssid_count,
+                ssid_names,
+            )
+
         # Flatten all SSIDs from all WLANs into a single list
         all_ssids: list[dict[str, Any]] = []
         for wlan in wlans:
@@ -1031,6 +1045,111 @@ class OmadaApiClient:
             "Fetched %d SSIDs across %d WLANs for site %s",
             len(all_ssids),
             len(wlans),
+            site_id,
+        )
+        return all_ssids
+
+    async def get_site_ssids_comprehensive(self, site_id: str) -> list[dict[str, Any]]:
+        """Get all SSIDs for a site by iterating through all WLAN groups.
+
+        This method uses the more comprehensive approach:
+        1. Get all WLAN groups for the site
+        2. For each WLAN group, get all SSIDs (with pagination)
+
+        This returns ALL SSIDs regardless of MAC authentication configuration,
+        unlike get_site_ssids which may filter SSIDs.
+
+        Args:
+            site_id: Site ID
+
+        Returns:
+            List of SSID configurations (flattened from all WLANs)
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        # Step 1: Get all WLAN groups
+        wlans_url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/wireless-network/wlans"
+        )
+        _LOGGER.debug("Fetching WLAN groups for site %s", site_id)
+        wlans_result = await self._authenticated_request("get", wlans_url)
+        wlan_groups = wlans_result.get("result", [])
+        _LOGGER.debug("Found %d WLAN groups for site %s", len(wlan_groups), site_id)
+
+        # Step 2: Get SSIDs for each WLAN group
+        all_ssids: list[dict[str, Any]] = []
+        for wlan in wlan_groups:
+            wlan_id = wlan.get("wlanId")
+            wlan_name = wlan.get("name", "Unknown")
+            if not wlan_id:
+                continue
+
+            # Fetch SSIDs for this WLAN group with pagination
+            ssids_url = (
+                f"{self._api_url}/openapi/v1/{self._omada_id}"
+                f"/sites/{site_id}/wireless-network/wlans/{wlan_id}/ssids"
+            )
+
+            # Fetch all pages
+            page = 1
+            page_size = 100
+            wlan_ssids: list[dict[str, Any]] = []
+
+            while True:
+                params = {"page": page, "pageSize": page_size}
+                _LOGGER.debug(
+                    "Fetching SSIDs for WLAN '%s' (page %d, pageSize %d)",
+                    wlan_name,
+                    page,
+                    page_size,
+                )
+                ssids_result = await self._authenticated_request(
+                    "get", ssids_url, params=params
+                )
+
+                result_data = ssids_result.get("result", {})
+                ssid_page_data = result_data.get("data", [])
+                total_rows = result_data.get("totalRows", 0)
+
+                _LOGGER.debug(
+                    "  Page %d: got %d SSIDs (total: %d)",
+                    page,
+                    len(ssid_page_data),
+                    total_rows,
+                )
+
+                # Add wlanId and wlanName to each SSID, and normalize field names
+                for ssid in ssid_page_data:
+                    ssid_with_wlan = ssid.copy()
+                    ssid_with_wlan["wlanId"] = wlan_id
+                    ssid_with_wlan["wlanName"] = wlan_name
+                    # Normalize field names: this endpoint uses "name"/"ssidId"
+                    # but we want consistent "ssidName"/"ssidId" everywhere
+                    if "name" in ssid_with_wlan and "ssidName" not in ssid_with_wlan:
+                        ssid_with_wlan["ssidName"] = ssid_with_wlan["name"]
+                    wlan_ssids.append(ssid_with_wlan)
+
+                # Check if we've fetched all SSIDs
+                if len(wlan_ssids) >= total_rows or len(ssid_page_data) < page_size:
+                    break
+                page += 1
+
+            ssid_names = [s.get("ssidName", s.get("name", "?")) for s in wlan_ssids]
+            _LOGGER.debug(
+                "WLAN '%s': fetched %d SSIDs: %s",
+                wlan_name,
+                len(wlan_ssids),
+                ssid_names,
+            )
+            all_ssids.extend(wlan_ssids)
+
+        _LOGGER.debug(
+            "Fetched %d total SSIDs across %d WLAN groups for site %s",
+            len(all_ssids),
+            len(wlan_groups),
             site_id,
         )
         return all_ssids

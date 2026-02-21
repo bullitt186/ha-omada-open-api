@@ -262,7 +262,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
 
         """
         try:
-            ssids = await self.api_client.get_site_ssids(self.site_id)
+            # Use comprehensive method to get ALL SSIDs from all WLAN groups
+            ssids = await self.api_client.get_site_ssids_comprehensive(self.site_id)
         except OmadaApiError as err:
             _LOGGER.warning(
                 "Failed to fetch SSIDs for site %s: %s (error_code: %s)",

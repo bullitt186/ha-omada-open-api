@@ -1622,6 +1622,188 @@ async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
     assert result[1]["ssidName"] == "GuestWiFi"
 
 
+async def test_get_site_ssids_comprehensive(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_site_ssids_comprehensive fetches all SSIDs from all WLAN groups."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    # Mock WLAN groups response
+    wlan_groups_response = AsyncMock()
+    wlan_groups_response.status = 200
+    wlan_groups_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": [
+            {"wlanId": "wlan_001", "name": "Default"},
+            {"wlanId": "wlan_002", "name": "Guest"},
+        ],
+    }
+
+    # Mock SSID list responses for each WLAN
+    ssids_wlan1_response = AsyncMock()
+    ssids_wlan1_response.status = 200
+    ssids_wlan1_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": {
+            "totalRows": 3,
+            "currentPage": 1,
+            "currentSize": 3,
+            "data": [
+                {"ssidId": "ssid_001", "name": "HomeWiFi", "broadcast": True},
+                {"ssidId": "ssid_002", "name": "GuestWiFi", "broadcast": True},
+                {"ssidId": "ssid_003", "name": "IoT", "broadcast": True},
+            ],
+        },
+    }
+
+    ssids_wlan2_response = AsyncMock()
+    ssids_wlan2_response.status = 200
+    ssids_wlan2_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": {
+            "totalRows": 2,
+            "currentPage": 1,
+            "currentSize": 2,
+            "data": [
+                {"ssidId": "ssid_004", "name": "Cameras", "broadcast": False},
+                {"ssidId": "ssid_005", "name": "Kids", "broadcast": True},
+            ],
+        },
+    }
+
+    with (
+        patch("aiohttp.ClientSession.get") as mock_get,
+    ):
+        # First call returns WLAN groups, then SSIDs for each WLAN
+        mock_get.return_value.__aenter__.side_effect = [
+            wlan_groups_response,
+            ssids_wlan1_response,
+            ssids_wlan2_response,
+        ]
+
+        result = await api_client.get_site_ssids_comprehensive("site_001")
+
+    # Verify WLAN groups call
+    first_call_url = mock_get.call_args_list[0][0][0]
+    assert "/wireless-network/wlans" in first_call_url
+    assert "/ssids" not in first_call_url
+
+    # Verify SSID list calls for each WLAN
+    second_call_url = mock_get.call_args_list[1][0][0]
+    assert "/wireless-network/wlans/wlan_001/ssids" in second_call_url
+    assert mock_get.call_args_list[1][1]["params"]["page"] == 1
+    assert mock_get.call_args_list[1][1]["params"]["pageSize"] == 100
+
+    third_call_url = mock_get.call_args_list[2][0][0]
+    assert "/wireless-network/wlans/wlan_002/ssids" in third_call_url
+
+    # Verify result contains all SSIDs from both WLANs with normalized field names
+    assert len(result) == 5
+    assert result[0]["ssidName"] == "HomeWiFi"
+    assert result[0]["wlanId"] == "wlan_001"
+    assert result[0]["wlanName"] == "Default"
+    assert result[3]["ssidName"] == "Cameras"
+    assert result[3]["wlanId"] == "wlan_002"
+    assert result[3]["wlanName"] == "Guest"
+    assert result[4]["ssidName"] == "Kids"
+
+
+async def test_get_site_ssids_comprehensive_pagination(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_site_ssids_comprehensive handles pagination correctly."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    # Mock WLAN groups response
+    wlan_groups_response = AsyncMock()
+    wlan_groups_response.status = 200
+    wlan_groups_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": [{"wlanId": "wlan_001", "name": "Default"}],
+    }
+
+    # Mock paginated SSID responses (simulate 150 total items with pageSize=100)
+    page1_response = AsyncMock()
+    page1_response.status = 200
+    page1_data = [
+        {"ssidId": f"ssid_{i:03d}", "name": f"WiFi_{i:03d}", "broadcast": True}
+        for i in range(100)
+    ]
+    page1_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": {
+            "totalRows": 150,
+            "currentPage": 1,
+            "currentSize": 100,
+            "data": page1_data,
+        },
+    }
+
+    page2_response = AsyncMock()
+    page2_response.status = 200
+    page2_data = [
+        {"ssidId": f"ssid_{i:03d}", "name": f"WiFi_{i:03d}", "broadcast": True}
+        for i in range(100, 150)
+    ]
+    page2_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success.",
+        "result": {
+            "totalRows": 150,
+            "currentPage": 2,
+            "currentSize": 50,
+            "data": page2_data,
+        },
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.side_effect = [
+            wlan_groups_response,
+            page1_response,
+            page2_response,
+        ]
+
+        result = await api_client.get_site_ssids_comprehensive("site_001")
+
+    # Verify pagination calls
+    assert mock_get.call_count == 3  # 1 WLAN groups + 2 SSID pages
+    assert mock_get.call_args_list[1][1]["params"]["page"] == 1
+    assert mock_get.call_args_list[2][1]["params"]["page"] == 2
+
+    # Verify all items returned with field normalization
+    assert len(result) == 150
+    assert result[0]["ssidName"] == "WiFi_000"
+    assert result[99]["ssidName"] == "WiFi_099"
+    assert result[149]["ssidName"] == "WiFi_149"
+    assert all(ssid["wlanId"] == "wlan_001" for ssid in result)
+    assert all(ssid["wlanName"] == "Default" for ssid in result)
+
+
 async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_ssid_detail fetches detailed SSID configuration."""
     api_client = OmadaApiClient(
