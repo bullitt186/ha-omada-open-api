@@ -1271,39 +1271,26 @@ class OmadaApiClient:
         current_config = await self.get_ap_ssid_overrides(site_id, ap_mac)
         ssid_overrides = current_config.get("ssidOverrides", [])
 
-        # Build the PATCH payload according to SsidOverrideOpenApiV2VO schema
-        # Only include fields that are defined in the PATCH schema
+        # Build the PATCH payload with ONLY the three required fields per schema
+        # SsidOverrideOpenApiV2VO requires: ssidEntryId, overrideSsidEnable, overrideVlanEnable
         patch_overrides = []
         for override in ssid_overrides:
             ssid_entry = override.get("ssidEntryId")
 
-            # Build override entry with only valid PATCH fields
+            # Build override entry with ONLY the three required fields
             patch_entry = {
                 "ssidEntryId": ssid_entry,
                 "overrideSsidEnable": override.get("overrideSsidEnable", False),
                 "overrideVlanEnable": override.get("overrideVlanEnable", False),
             }
 
-            # If this is the SSID we're modifying, update the fields
+            # If this is the SSID we're modifying, enable override
+            # The ssidEnable control happens at the site level via the broadcast switch
             if ssid_entry == ssid_entry_id:
-                patch_entry["overrideSsidEnable"] = True
-                patch_entry["ssidEnable"] = ssid_enable
-
-            # API requires overrideSsidName when overrideSsidEnable=true
-            # Use ssidName from GET response (not overrideSsidName which may not exist)
-            if patch_entry["overrideSsidEnable"] and override.get("ssidName"):
-                patch_entry["overrideSsidName"] = override["ssidName"]
-
-            # Add optional fields if they exist and are not null
-            if override.get("ssidEnable") is not None:
-                patch_entry["ssidEnable"] = override["ssidEnable"]
-
-            # Include VLAN settings if override is enabled
-            if patch_entry["overrideVlanEnable"]:
-                if override.get("vlanId") is not None:
-                    patch_entry["vlanId"] = override["vlanId"]
-                if override.get("vlanPoolIds") is not None:
-                    patch_entry["vlanPoolIds"] = override["vlanPoolIds"]
+                # Set overrideSsidEnable based on whether we want to enable/disable
+                # When True: AP has override control (can be different from site)
+                # When False: AP follows site-level settings
+                patch_entry["overrideSsidEnable"] = ssid_enable
 
             patch_overrides.append(patch_entry)
 
