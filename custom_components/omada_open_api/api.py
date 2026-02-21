@@ -1284,14 +1284,19 @@ class OmadaApiClient:
                 "overrideVlanEnable": override.get("overrideVlanEnable", False),
             }
 
-            # Add optional fields if they exist and are not null
-            if override.get("ssidEnable") is not None:
-                patch_entry["ssidEnable"] = override["ssidEnable"]
-
             # If this is the SSID we're modifying, update the fields
             if ssid_entry == ssid_entry_id:
                 patch_entry["overrideSsidEnable"] = True
                 patch_entry["ssidEnable"] = ssid_enable
+
+            # API requires overrideSsidName when overrideSsidEnable=true
+            # Use ssidName from GET response (not overrideSsidName which may not exist)
+            if patch_entry["overrideSsidEnable"] and override.get("ssidName"):
+                patch_entry["overrideSsidName"] = override["ssidName"]
+
+            # Add optional fields if they exist and are not null
+            if override.get("ssidEnable") is not None:
+                patch_entry["ssidEnable"] = override["ssidEnable"]
 
             # Include VLAN settings if override is enabled
             if patch_entry["overrideVlanEnable"]:
