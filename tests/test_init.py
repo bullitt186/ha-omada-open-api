@@ -93,6 +93,8 @@ def _patch_api_client(**overrides):
     mock_instance.get_site_ssids_comprehensive = AsyncMock(return_value=[])
     mock_instance.get_ssid_detail = AsyncMock(return_value={})
     mock_instance.update_ssid_basic_config = AsyncMock()
+    mock_instance.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
+    mock_instance.update_ap_ssid_override = AsyncMock()
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)

@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
-async def async_setup_entry(  # pylint: disable=too-many-branches
+async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-statements
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -151,6 +151,50 @@ async def async_setup_entry(  # pylint: disable=too-many-branches
             )
     else:
         _LOGGER.info("Skipping SSID switches — API credentials have viewer-only access")
+
+    # Per-AP SSID switches (only when API credentials have editing rights).
+    if has_write_access:
+        ap_ssid_switch_count = 0
+        for site_id, coordinator in coordinators.items():
+            ap_overrides = coordinator.data.get("ap_ssid_overrides", {})
+            devices = coordinator.data.get("devices", {})
+
+            _LOGGER.debug(
+                "Processing per-AP SSID switches for site '%s': %d APs with overrides",
+                site_id,
+                len(ap_overrides),
+            )
+
+            for ap_mac, override_data in ap_overrides.items():
+                ap_device = devices.get(ap_mac, {})
+                ap_name = ap_device.get("name", ap_mac)
+
+                ssid_overrides = override_data.get("ssidOverrides", [])
+                _LOGGER.debug(
+                    "AP %s (%s): %d SSID overrides available",
+                    ap_name,
+                    ap_mac,
+                    len(ssid_overrides),
+                )
+
+                for ssid_override in ssid_overrides:
+                    # Only create switch if we have a valid ssidEntryId
+                    if ssid_override.get("ssidEntryId") is not None:
+                        entities.append(
+                            OmadaApSsidSwitch(
+                                coordinator=coordinator,
+                                ap_mac=ap_mac,
+                                ap_name=ap_name,
+                                ssid_data=ssid_override,
+                            )
+                        )
+                        ap_ssid_switch_count += 1
+
+        _LOGGER.info(
+            "Created %d per-AP SSID switches across %d site(s)",
+            ap_ssid_switch_count,
+            len(coordinators),
+        )
 
     async_add_entities(entities)
 
@@ -441,7 +485,14 @@ class OmadaSsidSwitch(
     CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
     SwitchEntity,  # type: ignore[misc]
 ):
-    """Switch entity to control SSID enable/disable site-wide."""
+    """Switch entity to control SSID broadcast (visibility) site-wide.
+
+    Note: This switch controls whether the SSID is broadcast (visible to clients).
+    It does NOT enable/disable the wireless network itself - the network remains
+    active but hidden when broadcast is disabled.
+
+    For full enable/disable control per access point, use OmadaApSsidSwitch instead.
+    """
 
     _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
@@ -452,7 +503,7 @@ class OmadaSsidSwitch(
         site_device_id: str,
         ssid_data: dict[str, Any],
     ) -> None:
-        """Initialize the SSID switch entity.
+        """Initialize the SSID broadcast switch entity.
 
         Args:
             coordinator: Site coordinator
@@ -475,7 +526,8 @@ class OmadaSsidSwitch(
         self._attr_unique_id = (
             f"omada_open_api_{coordinator.site_id}_ssid_{self._ssid_id}"
         )
-        self._attr_name = f"{self._ssid_name} SSID"
+        self._attr_name = f"{self._ssid_name} Broadcast"
+        self._attr_entity_category = None  # Make it a primary control, not config
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -596,3 +648,132 @@ class OmadaSsidSwitch(
                 )
             else:
                 _LOGGER.exception("Failed to disable SSID %s", self._ssid_name)
+
+
+class OmadaApSsidSwitch(
+    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    SwitchEntity,  # type: ignore[misc]
+):
+    """Switch entity to enable/disable SSID on a specific AP.
+
+    This switch controls whether the wireless network (SSID) is active on
+    this specific access point. When disabled, the AP will not provide this
+    SSID at all (not just hidden - completely disabled).
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SwitchDeviceClass.SWITCH
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        ap_mac: str,
+        ap_name: str,
+        ssid_data: dict[str, Any],
+    ) -> None:
+        """Initialize the per-AP SSID switch.
+
+        Args:
+            coordinator: Site coordinator
+            ap_mac: AP MAC address
+            ap_name: AP device name
+            ssid_data: SSID override data from API
+
+        """
+        super().__init__(coordinator)
+        self._ap_mac = ap_mac
+        self._ap_name = ap_name
+        self._ssid_id = ssid_data.get("ssidId", "")
+        self._ssid_entry_id = ssid_data.get("ssidEntryId")
+        self._ssid_name = ssid_data.get("ssidName", "Unknown SSID")
+        self._enabled: bool = bool(ssid_data.get("ssidEnable", True))
+
+        self._attr_unique_id = f"omada_open_api_{ap_mac}_ssid_{self._ssid_id}"
+        self._attr_name = f"{self._ssid_name} SSID"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link to AP device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._ap_mac)},
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if SSID is enabled on this AP."""
+        return self._enabled
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on state."""
+        return ICON_WIFI if self._enabled else ICON_WIFI_OFF
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    async def async_update(self) -> None:
+        """Fetch current state from coordinator."""
+        await super().async_update()
+        # Refresh from coordinator data stored in "ap_ssid_overrides"
+        ap_overrides = self.coordinator.data.get("ap_ssid_overrides", {})
+        ap_data = ap_overrides.get(self._ap_mac, {})
+        ssid_overrides = ap_data.get("ssidOverrides", [])
+
+        for override in ssid_overrides:
+            if override.get("ssidId") == self._ssid_id:
+                self._enabled = override.get("ssidEnable", True)
+                break
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable SSID on this AP."""
+        try:
+            await self.coordinator.api_client.update_ap_ssid_override(
+                self.coordinator.site_id,
+                self._ap_mac,
+                self._ssid_entry_id,
+                ssid_enable=True,
+            )
+            self._enabled = True
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.warning(
+                    "Permission denied when enabling SSID %s on AP %s. "
+                    "API credentials may have viewer-only access.",
+                    self._ssid_name,
+                    self._ap_name,
+                )
+            else:
+                _LOGGER.exception(
+                    "Failed to enable SSID %s on AP %s",
+                    self._ssid_name,
+                    self._ap_name,
+                )
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable SSID on this AP."""
+        try:
+            await self.coordinator.api_client.update_ap_ssid_override(
+                self.coordinator.site_id,
+                self._ap_mac,
+                self._ssid_entry_id,
+                ssid_enable=False,
+            )
+            self._enabled = False
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.warning(
+                    "Permission denied when disabling SSID %s on AP %s. "
+                    "API credentials may have viewer-only access.",
+                    self._ssid_name,
+                    self._ap_name,
+                )
+            else:
+                _LOGGER.exception(
+                    "Failed to disable SSID %s on AP %s",
+                    self._ssid_name,
+                    self._ap_name,
+                )

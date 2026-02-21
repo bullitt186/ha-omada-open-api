@@ -249,6 +249,8 @@ def mock_api_client() -> MagicMock:
     client.get_site_ssids_comprehensive = AsyncMock(return_value=[])
     client.get_ssid_detail = AsyncMock(return_value={})
     client.update_ssid_basic_config = AsyncMock()
+    client.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
+    client.update_ap_ssid_override = AsyncMock()
     return client
 
 

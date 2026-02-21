@@ -96,6 +96,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             # Fetch site SSIDs
             ssids = await self._fetch_site_ssids()
 
+            # Fetch AP SSID overrides (per-AP SSID enable/disable)
+            ap_ssid_overrides = await self._fetch_ap_ssid_overrides(devices)
+
             # Fetch PoE budget (per-switch totals) from dashboard
             poe_budget = await self._fetch_poe_budget()
 
@@ -144,6 +147,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 "poe_budget": poe_budget,
                 "poe_ports": poe_ports,
                 "ssids": ssids,
+                "ap_ssid_overrides": ap_ssid_overrides,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
             }
@@ -291,6 +295,55 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 self.site_name,
             )
         return ssids
+
+    async def _fetch_ap_ssid_overrides(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Fetch SSID override configuration for all APs.
+
+        Args:
+            devices: Dictionary of devices keyed by MAC
+
+        Returns:
+            Dictionary keyed by AP MAC with override data:
+            {
+                "AP-MAC-1": {
+                    "ssidOverrides": [...]
+                },
+                ...
+            }
+
+        """
+        ap_overrides = {}
+
+        for mac, device in devices.items():
+            if device.get("type") == "ap":
+                try:
+                    overrides = await self.api_client.get_ap_ssid_overrides(
+                        self.site_id, mac
+                    )
+                    ap_overrides[mac] = overrides
+                    _LOGGER.debug(
+                        "Fetched SSID overrides for AP %s (%s): %d SSIDs",
+                        device.get("name", mac),
+                        mac,
+                        len(overrides.get("ssidOverrides", [])),
+                    )
+                except OmadaApiError as err:
+                    _LOGGER.warning(
+                        "Failed to fetch SSID overrides for AP %s: %s (error_code: %s)",
+                        device.get("name", mac),
+                        err,
+                        getattr(err, "error_code", "unknown"),
+                    )
+                    # Continue without overrides for this AP - not critical
+
+        _LOGGER.debug(
+            "Fetched SSID overrides for %d APs in site %s",
+            len(ap_overrides),
+            self.site_name,
+        )
+        return ap_overrides
 
     async def _fetch_poe_budget(self) -> dict[str, dict[str, Any]]:
         """Fetch per-switch PoE budget data from the dashboard endpoint.
