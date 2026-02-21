@@ -1271,40 +1271,36 @@ class OmadaApiClient:
         current_config = await self.get_ap_ssid_overrides(site_id, ap_mac)
         ssid_overrides = current_config.get("ssidOverrides", [])
 
-        # Find and update the specific SSID
-        found = False
+        # Build the PATCH payload according to SsidOverrideOpenApiV2VO schema
+        # Only include fields that are defined in the PATCH schema
+        patch_overrides = []
         for override in ssid_overrides:
-            if override.get("ssidEntryId") == ssid_entry_id:
-                # Only modify the fields we need to change
-                # Preserve all other fields from the API response
-                override["overrideSsidEnable"] = True
-                override["ssidEnable"] = ssid_enable
-                # Don't modify ssidName - keep whatever the API returned
-                found = True
-                break
+            ssid_entry = override.get("ssidEntryId")
 
-        # If not found in existing overrides, we can't proceed
-        if not found:
-            _LOGGER.warning(
-                "SSID entry_id %d not found in current overrides for AP %s, cannot update",
-                ssid_entry_id,
-                ap_mac,
-            )
-            return
-
-        # Clean up the overrides - remove null values and sensitive fields
-        # The API doesn't accept null values and will return -1001 errors
-        # Also remove password fields which shouldn't be sent back
-        sensitive_fields = {"ssidPassword", "password"}
-        cleaned_overrides = []
-        for override in ssid_overrides:
-            # Filter out null values and sensitive fields from each override
-            cleaned = {
-                k: v
-                for k, v in override.items()
-                if v is not None and k not in sensitive_fields
+            # Build override entry with only valid PATCH fields
+            patch_entry = {
+                "ssidEntryId": ssid_entry,
+                "overrideSsidEnable": override.get("overrideSsidEnable", False),
+                "overrideVlanEnable": override.get("overrideVlanEnable", False),
             }
-            cleaned_overrides.append(cleaned)
+
+            # Add optional fields if they exist and are not null
+            if override.get("ssidEnable") is not None:
+                patch_entry["ssidEnable"] = override["ssidEnable"]
+
+            # If this is the SSID we're modifying, update the fields
+            if ssid_entry == ssid_entry_id:
+                patch_entry["overrideSsidEnable"] = True
+                patch_entry["ssidEnable"] = ssid_enable
+
+            # Include VLAN settings if override is enabled
+            if patch_entry["overrideVlanEnable"]:
+                if override.get("vlanId") is not None:
+                    patch_entry["vlanId"] = override["vlanId"]
+                if override.get("vlanPoolIds") is not None:
+                    patch_entry["vlanPoolIds"] = override["vlanPoolIds"]
+
+            patch_overrides.append(patch_entry)
 
         # Send the complete list back to the API
         url = (
@@ -1312,7 +1308,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/aps/{ap_mac}/override"
         )
 
-        payload = {"ssidOverrides": cleaned_overrides}
+        payload = {"ssidOverrides": patch_overrides}
 
         _LOGGER.debug(
             "Updating SSID override for AP %s in site %s: entry_id=%d, name=%s, enable=%s (total overrides: %d)",
@@ -1321,16 +1317,7 @@ class OmadaApiClient:
             ssid_entry_id,
             ssid_name,
             ssid_enable,
-            len(cleaned_overrides),
-        )
-        # Log payload structure without sensitive data
-        _LOGGER.debug(
-            "Payload structure: %d SSIDs, modified SSID has overrideSsidEnable=%s",
-            len(cleaned_overrides),
-            any(
-                o.get("ssidEntryId") == ssid_entry_id and o.get("overrideSsidEnable")
-                for o in cleaned_overrides
-            ),
+            len(patch_overrides),
         )
         await self._authenticated_request("patch", url, json_data=payload)
 
