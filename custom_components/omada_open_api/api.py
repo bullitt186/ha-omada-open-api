@@ -1271,26 +1271,27 @@ class OmadaApiClient:
         current_config = await self.get_ap_ssid_overrides(site_id, ap_mac)
         ssid_overrides = current_config.get("ssidOverrides", [])
 
-        # Build the PATCH payload with ONLY the three required fields per schema
+        # Build the PATCH payload with the required fields per schema
         # SsidOverrideOpenApiV2VO requires: ssidEntryId, overrideSsidEnable, overrideVlanEnable
+        # Plus ssidEnable to actually control whether the SSID is enabled on this AP
         patch_overrides = []
         for override in ssid_overrides:
             ssid_entry = override.get("ssidEntryId")
 
-            # Build override entry with ONLY the three required fields
+            # Build override entry with required fields
+            # Keep overrideSsidEnable and overrideVlanEnable at their current values
             patch_entry = {
                 "ssidEntryId": ssid_entry,
                 "overrideSsidEnable": override.get("overrideSsidEnable", False),
                 "overrideVlanEnable": override.get("overrideVlanEnable", False),
             }
 
-            # If this is the SSID we're modifying, enable override
-            # The ssidEnable control happens at the site level via the broadcast switch
+            # If this is the SSID we're modifying, set ssidEnable to control enable/disable
             if ssid_entry == ssid_entry_id:
-                # Set overrideSsidEnable based on whether we want to enable/disable
-                # When True: AP has override control (can be different from site)
-                # When False: AP follows site-level settings
-                patch_entry["overrideSsidEnable"] = ssid_enable
+                patch_entry["ssidEnable"] = ssid_enable
+            # Preserve existing ssidEnable state for other SSIDs
+            elif override.get("ssidEnable") is not None:
+                patch_entry["ssidEnable"] = override["ssidEnable"]
 
             patch_overrides.append(patch_entry)
 
