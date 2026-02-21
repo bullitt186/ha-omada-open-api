@@ -1292,12 +1292,18 @@ class OmadaApiClient:
             )
             return
 
-        # Clean up the overrides - remove any null values
+        # Clean up the overrides - remove null values and sensitive fields
         # The API doesn't accept null values and will return -1001 errors
+        # Also remove password fields which shouldn't be sent back
+        sensitive_fields = {"ssidPassword", "password"}
         cleaned_overrides = []
         for override in ssid_overrides:
-            # Filter out null values from each override
-            cleaned = {k: v for k, v in override.items() if v is not None}
+            # Filter out null values and sensitive fields from each override
+            cleaned = {
+                k: v
+                for k, v in override.items()
+                if v is not None and k not in sensitive_fields
+            }
             cleaned_overrides.append(cleaned)
 
         # Send the complete list back to the API
@@ -1317,7 +1323,15 @@ class OmadaApiClient:
             ssid_enable,
             len(cleaned_overrides),
         )
-        _LOGGER.debug("Payload being sent: %s", payload)
+        # Log payload structure without sensitive data
+        _LOGGER.debug(
+            "Payload structure: %d SSIDs, modified SSID has overrideSsidEnable=%s",
+            len(cleaned_overrides),
+            any(
+                o.get("ssidEntryId") == ssid_entry_id and o.get("overrideSsidEnable")
+                for o in cleaned_overrides
+            ),
+        )
         await self._authenticated_request("patch", url, json_data=payload)
 
     @property
