@@ -1252,6 +1252,10 @@ class OmadaApiClient:
     ) -> None:
         """Enable/disable SSID on a specific AP.
 
+        This method fetches the current override configuration, modifies the
+        specified SSID, and sends back the complete list. The API requires
+        sending all SSIDs in the override list, not just the one being changed.
+
         Args:
             site_id: Site ID
             ap_mac: AP MAC address (format: AA-BB-CC-DD-EE-FF)
@@ -1263,30 +1267,47 @@ class OmadaApiClient:
             OmadaApiError: If the request fails
 
         """
+        # First, get current override configuration
+        current_config = await self.get_ap_ssid_overrides(site_id, ap_mac)
+        ssid_overrides = current_config.get("ssidOverrides", [])
+
+        # Find and update the specific SSID
+        found = False
+        for override in ssid_overrides:
+            if override.get("ssidEntryId") == ssid_entry_id:
+                override["overrideSsidEnable"] = True
+                override["ssidEnable"] = ssid_enable
+                override["ssidName"] = ssid_name
+                found = True
+                break
+
+        # If not found in existing overrides, add it
+        if not found:
+            ssid_overrides.append(
+                {
+                    "ssidEntryId": ssid_entry_id,
+                    "ssidName": ssid_name,
+                    "overrideSsidEnable": True,
+                    "ssidEnable": ssid_enable,
+                }
+            )
+
+        # Send the complete list back to the API
         url = (
             f"{self._api_url}/openapi/v2/{self._omada_id}"
             f"/sites/{site_id}/aps/{ap_mac}/override"
         )
 
-        payload = {
-            "ssidOverrides": [
-                {
-                    "ssidEntryId": ssid_entry_id,
-                    "ssidName": ssid_name,
-                    "overrideSsidEnable": True,  # Enable override mode
-                    "overrideVlanEnable": False,  # Don't override VLAN
-                    "ssidEnable": ssid_enable,
-                }
-            ]
-        }
+        payload = {"ssidOverrides": ssid_overrides}
 
         _LOGGER.debug(
-            "Updating SSID override for AP %s in site %s: entry_id=%d, name=%s, enable=%s",
+            "Updating SSID override for AP %s in site %s: entry_id=%d, name=%s, enable=%s (total overrides: %d)",
             ap_mac,
             site_id,
             ssid_entry_id,
             ssid_name,
             ssid_enable,
+            len(ssid_overrides),
         )
         await self._authenticated_request("patch", url, json_data=payload)
 
