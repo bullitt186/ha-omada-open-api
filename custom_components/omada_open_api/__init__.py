@@ -65,7 +65,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-many-statements
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
     """Set up Omada Open API from a config entry.
 
     Args:
@@ -145,11 +145,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         await coordinator.async_config_entry_first_refresh()
         coordinators[site_id] = coordinator
 
+        device_count = len(coordinator.data.get("devices", {}))
+        ssid_count = len(coordinator.data.get("ssids", []))
         _LOGGER.info(
-            "Initialized coordinator for site '%s' with %d devices",
+            "Initialized coordinator for site '%s' with %d devices and %d SSIDs",
             site_name,
-            len(coordinator.data.get("devices", {})),
+            device_count,
+            ssid_count,
         )
+        if ssid_count > 0:
+            ssid_names = [
+                s.get("name", "Unknown") for s in coordinator.data.get("ssids", [])
+            ]
+            _LOGGER.debug(
+                "SSIDs for site '%s': %s",
+                site_name,
+                ssid_names,
+            )
+        else:
+            _LOGGER.debug(
+                "No SSIDs found for site '%s' during initialization",
+                site_name,
+            )
 
     # Create client coordinators for selected clients
     client_coordinators: list[OmadaClientCoordinator] = []
@@ -234,6 +251,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     if coordinators:
         first_site_id = next(iter(coordinators))
         has_write_access = await api_client.check_write_access(first_site_id)
+        _LOGGER.info(
+            "Write access check result: %s (checked site: %s)",
+            "GRANTED" if has_write_access else "DENIED",
+            first_site_id,
+        )
+        # Log total SSID count across all sites for SSID switch troubleshooting
+        total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
+        _LOGGER.info(
+            "Total SSIDs across %d site(s): %d",
+            len(coordinators),
+            total_ssids,
+        )
 
     # Register Site device entities for each configured site
     device_reg = dr.async_get(hass)
@@ -265,6 +294,72 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register diagnostic service
+    async def debug_ssid_switches_service(call: Any) -> None:
+        """Service to dump SSID switch diagnostic information."""
+        config_entry_id = call.data.get("config_entry_id", entry.entry_id)
+
+        # Find the config entry
+        target_entry = hass.config_entries.async_get_entry(config_entry_id)
+        if not target_entry or target_entry.domain != DOMAIN:
+            _LOGGER.error(
+                "Config entry %s not found or not an Omada integration",
+                config_entry_id,
+            )
+            return
+
+        runtime_data = target_entry.runtime_data
+        coordinators = runtime_data.get("coordinators", {})
+        has_write_access = runtime_data.get("has_write_access", False)
+        site_devices = runtime_data.get("site_devices", {})
+
+        _LOGGER.info("=== SSID Switch Diagnostic Info ===")
+        _LOGGER.info("Config Entry: %s (%s)", target_entry.title, config_entry_id)
+        _LOGGER.info("Write Access: %s", has_write_access)
+        _LOGGER.info("Coordinators: %d", len(coordinators))
+        _LOGGER.info("Site Devices: %d", len(site_devices))
+
+        total_ssids = 0
+        for site_id, coordinator in coordinators.items():
+            ssids = coordinator.data.get("ssids", [])
+            total_ssids += len(ssids)
+            _LOGGER.info(
+                "  Site '%s': %d SSIDs",
+                site_id,
+                len(ssids),
+            )
+            for ssid in ssids:
+                _LOGGER.info(
+                    "    - ID: %s, wlanId: %s, name: %s, broadcast: %s",
+                    ssid.get("id", "missing"),
+                    ssid.get("wlanId", "missing"),
+                    ssid.get("name", "missing"),
+                    ssid.get("broadcast", "missing"),
+                )
+
+        _LOGGER.info("Total SSIDs across all sites: %d", total_ssids)
+
+        # Count actual SSID switch entities
+        entity_reg = er.async_get(hass)
+        ssid_switches = [
+            ent
+            for ent in entity_reg.entities.values()
+            if ent.config_entry_id == config_entry_id
+            and ent.domain == "switch"
+            and "ssid" in ent.unique_id
+        ]
+        _LOGGER.info("SSID switch entities created: %d", len(ssid_switches))
+        for ent in ssid_switches:
+            _LOGGER.info("  - %s (%s)", ent.entity_id, ent.unique_id)
+
+        _LOGGER.info("=== End SSID Switch Diagnostic Info ===")
+
+    hass.services.async_register(
+        DOMAIN,
+        "debug_ssid_switches",
+        debug_ssid_switches_service,
+    )
 
     # Snapshot current data so the update listener can detect real config changes
     # vs. token-only updates.

@@ -23,7 +23,7 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
-async def async_setup_entry(
+async def async_setup_entry(  # pylint: disable=too-many-branches
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -65,22 +65,78 @@ async def async_setup_entry(
         )
 
     # SSID switches (site-wide, only when API credentials have editing rights).
+    _LOGGER.debug(
+        "SSID switch setup: has_write_access=%s, coordinator_count=%d",
+        has_write_access,
+        len(coordinators),
+    )
+
     if has_write_access:
+        ssid_switch_count = 0
         for site_id, coordinator in coordinators.items():
             ssids = coordinator.data.get("ssids", [])
             site_device_id = f"site_{site_id}"
+
+            _LOGGER.debug(
+                "Processing site '%s': found %d SSIDs: %s",
+                site_id,
+                len(ssids),
+                [s.get("name", "Unknown") for s in ssids] if ssids else "none",
+            )
+
+            # Validate SSID data structure before creating switches
+            valid_ssids = []
+            for ssid in ssids:
+                if not ssid.get("id") or not ssid.get("wlanId"):
+                    _LOGGER.warning(
+                        "Invalid SSID data for site %s: missing required fields (id/wlanId): %s",
+                        site_id,
+                        ssid,
+                    )
+                    continue
+                valid_ssids.append(ssid)
+
+            if len(valid_ssids) != len(ssids):
+                _LOGGER.warning(
+                    "Site %s: filtered out %d invalid SSIDs, %d valid remaining",
+                    site_id,
+                    len(ssids) - len(valid_ssids),
+                    len(valid_ssids),
+                )
+
+            # Verify site device exists
+            if site_device_id not in data.get("site_devices", {}):
+                _LOGGER.error(
+                    "Site device '%s' not found in runtime_data for SSID switches. "
+                    "Available site devices: %s",
+                    site_device_id,
+                    list(data.get("site_devices", {}).keys()),
+                )
+
             entities.extend(
                 OmadaSsidSwitch(
                     coordinator=coordinator,
                     site_device_id=site_device_id,
                     ssid_data=ssid,
                 )
-                for ssid in ssids
+                for ssid in valid_ssids
             )
-        _LOGGER.debug(
-            "Created %d site-wide SSID switches",
-            sum(len(c.data.get("ssids", [])) for c in coordinators.values()),
+            ssid_switch_count += len(valid_ssids)
+
+        total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
+        _LOGGER.info(
+            "Created %d SSID switches from %d total SSIDs across %d site(s)",
+            ssid_switch_count,
+            total_ssids,
+            len(coordinators),
         )
+
+        if total_ssids > 0 and ssid_switch_count == 0:
+            _LOGGER.warning(
+                "Write access is enabled and %d SSIDs were found, but no SSID switches "
+                "were created. This may indicate invalid SSID data or missing site devices.",
+                total_ssids,
+            )
     else:
         _LOGGER.info("Skipping SSID switches — API credentials have viewer-only access")
 

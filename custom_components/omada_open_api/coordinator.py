@@ -265,17 +265,30 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             ssids = await self.api_client.get_site_ssids(self.site_id)
         except OmadaApiError as err:
             _LOGGER.warning(
-                "Failed to fetch SSIDs for site %s: %s",
+                "Failed to fetch SSIDs for site %s: %s (error_code: %s)",
                 self.site_name,
                 err,
+                getattr(err, "error_code", "unknown"),
+            )
+            _LOGGER.debug(
+                "SSID fetch error details for site %s",
+                self.site_name,
+                exc_info=True,
             )
             return []
 
-        _LOGGER.debug(
-            "Fetched %d SSIDs for site %s",
-            len(ssids),
-            self.site_name,
-        )
+        if ssids:
+            _LOGGER.debug(
+                "Successfully fetched %d SSIDs for site %s: %s",
+                len(ssids),
+                self.site_name,
+                [s.get("name", f"ID:{s.get('id', 'unknown')}") for s in ssids],
+            )
+        else:
+            _LOGGER.info(
+                "No SSIDs returned for site %s — site may have no configured wireless networks",
+                self.site_name,
+            )
         return ssids
 
     async def _fetch_poe_budget(self) -> dict[str, dict[str, Any]]:
