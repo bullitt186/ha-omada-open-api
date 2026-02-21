@@ -194,6 +194,7 @@ async def test_ap_ssid_switch_turn_on(mock_coordinator, mock_api_client):
         TEST_SITE_ID,
         SAMPLE_AP_MAC,
         1,  # ssidEntryId
+        "Corporate WiFi",  # ssidName
         ssid_enable=True,
     )
     mock_coordinator.async_request_refresh.assert_called_once()
@@ -214,6 +215,7 @@ async def test_ap_ssid_switch_turn_off(mock_coordinator, mock_api_client):
         TEST_SITE_ID,
         SAMPLE_AP_MAC,
         1,  # ssidEntryId
+        "Corporate WiFi",  # ssidName
         ssid_enable=False,
     )
     mock_coordinator.async_request_refresh.assert_called_once()

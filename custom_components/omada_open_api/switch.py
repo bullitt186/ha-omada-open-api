@@ -733,6 +733,7 @@ class OmadaApSsidSwitch(
                 self.coordinator.site_id,
                 self._ap_mac,
                 self._ssid_entry_id,
+                self._ssid_name,
                 ssid_enable=True,
             )
             self._enabled = True
@@ -759,6 +760,7 @@ class OmadaApSsidSwitch(
                 self.coordinator.site_id,
                 self._ap_mac,
                 self._ssid_entry_id,
+                self._ssid_name,
                 ssid_enable=False,
             )
             self._enabled = False

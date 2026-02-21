@@ -1247,6 +1247,7 @@ class OmadaApiClient:
         site_id: str,
         ap_mac: str,
         ssid_entry_id: int,
+        ssid_name: str,
         ssid_enable: bool,
     ) -> None:
         """Enable/disable SSID on a specific AP.
@@ -1255,6 +1256,7 @@ class OmadaApiClient:
             site_id: Site ID
             ap_mac: AP MAC address (format: AA-BB-CC-DD-EE-FF)
             ssid_entry_id: SSID entry ID from get_ap_ssid_overrides
+            ssid_name: SSID name (required by API)
             ssid_enable: True to enable, False to disable
 
         Raises:
@@ -1270,6 +1272,7 @@ class OmadaApiClient:
             "ssidOverrides": [
                 {
                     "ssidEntryId": ssid_entry_id,
+                    "ssidName": ssid_name,
                     "overrideSsidEnable": True,  # Enable override mode
                     "overrideVlanEnable": False,  # Don't override VLAN
                     "ssidEnable": ssid_enable,
@@ -1278,10 +1281,11 @@ class OmadaApiClient:
         }
 
         _LOGGER.debug(
-            "Updating SSID override for AP %s in site %s: entry_id=%d, enable=%s",
+            "Updating SSID override for AP %s in site %s: entry_id=%d, name=%s, enable=%s",
             ap_mac,
             site_id,
             ssid_entry_id,
+            ssid_name,
             ssid_enable,
         )
         await self._authenticated_request("patch", url, json_data=payload)
