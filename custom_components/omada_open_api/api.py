@@ -1260,7 +1260,7 @@ class OmadaApiClient:
             site_id: Site ID
             ap_mac: AP MAC address (format: AA-BB-CC-DD-EE-FF)
             ssid_entry_id: SSID entry ID from get_ap_ssid_overrides
-            ssid_name: SSID name (required by API)
+            ssid_name: SSID name (for logging only, not modified in API)
             ssid_enable: True to enable, False to disable
 
         Raises:
@@ -1275,22 +1275,22 @@ class OmadaApiClient:
         found = False
         for override in ssid_overrides:
             if override.get("ssidEntryId") == ssid_entry_id:
+                # Only modify the fields we need to change
+                # Preserve all other fields from the API response
                 override["overrideSsidEnable"] = True
                 override["ssidEnable"] = ssid_enable
-                override["ssidName"] = ssid_name
+                # Don't modify ssidName - keep whatever the API returned
                 found = True
                 break
 
-        # If not found in existing overrides, add it
+        # If not found in existing overrides, we can't proceed
         if not found:
-            ssid_overrides.append(
-                {
-                    "ssidEntryId": ssid_entry_id,
-                    "ssidName": ssid_name,
-                    "overrideSsidEnable": True,
-                    "ssidEnable": ssid_enable,
-                }
+            _LOGGER.warning(
+                "SSID entry_id %d not found in current overrides for AP %s, cannot update",
+                ssid_entry_id,
+                ap_mac,
             )
+            return
 
         # Send the complete list back to the API
         url = (
