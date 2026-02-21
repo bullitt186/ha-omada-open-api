@@ -1525,3 +1525,165 @@ async def test_check_write_access_viewer_only(
         result = await api_client.check_write_access("site_001")
 
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# New API methods tests (gateway_info, SSIDs)
+# ---------------------------------------------------------------------------
+
+
+async def test_get_gateway_info(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_gateway_info fetches gateway information with temperature."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {
+            "mac": "AA-BB-CC-DD-EE-01",
+            "ip": "192.168.1.1",
+            "temp": 45,
+            "cpuUtil": 25,
+            "memUtil": 40,
+            "uptime": "123456",
+        },
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_gateway_info("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/gateways/AA-BB-CC-DD-EE-01" in call_url
+    assert result["temp"] == 45
+    assert result["mac"] == "AA-BB-CC-DD-EE-01"
+
+
+async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_site_ssids fetches SSID list for a site."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {
+            "data": [
+                {
+                    "id": "ssid_001",
+                    "wlanId": "wlan_001",
+                    "name": "HomeWiFi",
+                    "broadcast": True,
+                },
+                {
+                    "id": "ssid_002",
+                    "wlanId": "wlan_001",
+                    "name": "GuestWiFi",
+                    "broadcast": True,
+                },
+            ]
+        },
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_site_ssids("site_001")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/wireless-network/ssids" in call_url
+    assert len(result) == 2
+    assert result[0]["name"] == "HomeWiFi"
+    assert result[1]["name"] == "GuestWiFi"
+
+
+async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_ssid_detail fetches detailed SSID configuration."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {
+            "id": "ssid_001",
+            "wlanId": "wlan_001",
+            "name": "HomeWiFi",
+            "broadcast": True,
+            "band": 7,
+            "security": 4,
+        },
+    }
+
+    with patch("aiohttp.ClientSession.get") as mock_get:
+        mock_get.return_value.__aenter__.return_value = mock_response
+        result = await api_client.get_ssid_detail("site_001", "wlan_001", "ssid_001")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/wireless-network/wlans/wlan_001/ssids/ssid_001" in call_url
+    assert result["name"] == "HomeWiFi"
+    assert result["band"] == 7
+
+
+async def test_update_ssid_basic_config(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test update_ssid_basic_config updates SSID configuration."""
+    api_client = OmadaApiClient(
+        hass,
+        mock_config_entry,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": {}}
+
+    config = {"name": "HomeWiFi", "band": 7, "broadcast": False}
+
+    with patch("aiohttp.ClientSession.patch") as mock_patch:
+        mock_patch.return_value.__aenter__.return_value = mock_response
+        await api_client.update_ssid_basic_config(
+            "site_001", "wlan_001", "ssid_001", config
+        )
+
+    call_url = mock_patch.call_args[0][0]
+    assert (
+        "/wireless-network/wlans/wlan_001/ssids/ssid_001/update-basic-config"
+        in call_url
+    )
+    assert mock_patch.call_args[1]["json"] == config

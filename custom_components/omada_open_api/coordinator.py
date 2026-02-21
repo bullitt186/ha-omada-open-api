@@ -90,6 +90,12 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
             # Fetch per-band client stats for AP devices
             await self._merge_band_client_stats(devices)
 
+            # Fetch gateway temperature data
+            await self._merge_gateway_temperature(devices)
+
+            # Fetch site SSIDs
+            ssids = await self._fetch_site_ssids()
+
             # Fetch PoE budget (per-switch totals) from dashboard
             poe_budget = await self._fetch_poe_budget()
 
@@ -137,6 +143,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 "devices": devices,
                 "poe_budget": poe_budget,
                 "poe_ports": poe_ports,
+                "ssids": ssids,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
             }
@@ -211,6 +218,65 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
                 err,
             )
             # Continue without per-band stats - not critical
+
+    async def _merge_gateway_temperature(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Fetch and merge temperature data for gateway devices."""
+        gateway_macs = [
+            mac
+            for mac, dev in devices.items()
+            if dev.get("type", "").lower() == "gateway"
+        ]
+        if not gateway_macs:
+            return
+
+        for gateway_mac in gateway_macs:
+            try:
+                gateway_info = await self.api_client.get_gateway_info(
+                    self.site_id, gateway_mac
+                )
+                # Temperature field may be None if not supported by hardware
+                temp = gateway_info.get("temp")
+                if temp is not None:
+                    devices[gateway_mac]["temperature"] = temp
+                    _LOGGER.debug(
+                        "Gateway %s temperature: %s°C",
+                        gateway_mac,
+                        temp,
+                    )
+            except OmadaApiError as err:
+                _LOGGER.debug(
+                    "Failed to fetch temperature for gateway %s: %s",
+                    gateway_mac,
+                    err,
+                )
+                # Continue without temperature - not critical
+
+    async def _fetch_site_ssids(self) -> list[dict[str, Any]]:
+        """Fetch SSIDs for the site.
+
+        Returns:
+            List of SSID configurations.
+
+        """
+        try:
+            ssids = await self.api_client.get_site_ssids(self.site_id)
+        except OmadaApiError as err:
+            _LOGGER.warning(
+                "Failed to fetch SSIDs for site %s: %s",
+                self.site_name,
+                err,
+            )
+            return []
+
+        _LOGGER.debug(
+            "Fetched %d SSIDs for site %s",
+            len(ssids),
+            self.site_name,
+        )
+        return ssids
 
     async def _fetch_poe_budget(self) -> dict[str, dict[str, Any]]:
         """Fetch per-switch PoE budget data from the dashboard endpoint.

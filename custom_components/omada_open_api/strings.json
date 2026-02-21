@@ -150,6 +150,12 @@
             "public_ip": {
                 "name": "Public IP"
             },
+            "device_ip": {
+                "name": "IP Address"
+            },
+            "temperature": {
+                "name": "Temperature"
+            },
             "ipv6": {
                 "name": "IPv6 addresses"
             },

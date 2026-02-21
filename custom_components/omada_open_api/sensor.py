@@ -13,7 +13,13 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, UnitOfInformation, UnitOfPower
+from homeassistant.const import (
+    PERCENTAGE,
+    UnitOfInformation,
+    UnitOfPower,
+    UnitOfTemperature,
+)
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -23,12 +29,14 @@ from .const import (
     ICON_CPU,
     ICON_DEVICE_TYPE,
     ICON_DOWNLOAD,
+    ICON_IP,
     ICON_LINK,
     ICON_MEMORY,
     ICON_POE,
     ICON_SIGNAL,
     ICON_STATUS,
     ICON_TAG,
+    ICON_TEMPERATURE,
     ICON_UPLOAD,
     ICON_UPTIME,
 )
@@ -194,6 +202,15 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         applicable_types=("gateway",),
     ),
     OmadaSensorEntityDescription(
+        key="device_ip",
+        translation_key="device_ip",
+        name="IP Address",
+        icon=ICON_IP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: device.get("ip"),
+        available_fn=lambda device: bool(device.get("ip")),
+    ),
+    OmadaSensorEntityDescription(
         key="ipv6",
         translation_key="ipv6",
         name="IPv6 addresses",
@@ -210,6 +227,19 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon=ICON_STATUS,
         value_fn=lambda device: format_detail_status(device.get("detail_status")),
         available_fn=lambda device: device.get("detail_status") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="temperature",
+        translation_key="temperature",
+        name="Temperature",
+        icon=ICON_TEMPERATURE,
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: device.get("temperature"),
+        available_fn=lambda device: device.get("temperature") is not None,
+        applicable_types=("gateway",),
     ),
 )
 

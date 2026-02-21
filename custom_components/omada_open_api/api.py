@@ -971,6 +971,102 @@ class OmadaApiClient:
         result = await self._authenticated_request("get", url)
         return result.get("result", {})  # type: ignore[no-any-return]
 
+    async def get_gateway_info(self, site_id: str, gateway_mac: str) -> dict[str, Any]:
+        """Get gateway information including temperature.
+
+        Args:
+            site_id: Site ID containing the gateway
+            gateway_mac: MAC address of the gateway
+
+        Returns:
+            Dictionary with gateway info including temp field
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/gateways/{gateway_mac}"
+        )
+        _LOGGER.debug("Fetching gateway info for %s", gateway_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def get_site_ssids(self, site_id: str) -> list[dict[str, Any]]:
+        """Get all SSIDs for a site.
+
+        Args:
+            site_id: Site ID
+
+        Returns:
+            List of SSID configurations
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/wireless-network/ssids"
+        )
+        _LOGGER.debug("Fetching SSIDs for site %s", site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {}).get("data", [])  # type: ignore[no-any-return]
+
+    async def update_ssid_basic_config(
+        self,
+        site_id: str,
+        wlan_id: str,
+        ssid_id: str,
+        config: dict[str, Any],
+    ) -> None:
+        """Update SSID basic configuration.
+
+        Args:
+            site_id: Site ID
+            wlan_id: WLAN group ID
+            ssid_id: SSID ID
+            config: Configuration dictionary (name, band, broadcast, etc.)
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/wireless-network/wlans/{wlan_id}"
+            f"/ssids/{ssid_id}/update-basic-config"
+        )
+        _LOGGER.debug("Updating SSID %s basic config in site %s", ssid_id, site_id)
+        await self._authenticated_request("patch", url, json_data=config)
+
+    async def get_ssid_detail(
+        self, site_id: str, wlan_id: str, ssid_id: str
+    ) -> dict[str, Any]:
+        """Get detailed SSID information.
+
+        Args:
+            site_id: Site ID
+            wlan_id: WLAN group ID
+            ssid_id: SSID ID
+
+        Returns:
+            Dictionary with SSID details
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/wireless-network/wlans/{wlan_id}"
+            f"/ssids/{ssid_id}"
+        )
+        _LOGGER.debug("Fetching SSID %s detail from site %s", ssid_id, site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

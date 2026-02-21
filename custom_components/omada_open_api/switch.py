@@ -10,7 +10,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OmadaApiError
-from .const import DOMAIN
+from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 
 if TYPE_CHECKING:
@@ -63,6 +63,26 @@ async def async_setup_entry(
         entities.extend(
             OmadaLedSwitch(coordinator) for coordinator in site_coordinators
         )
+
+    # SSID switches (site-wide, only when API credentials have editing rights).
+    if has_write_access:
+        for site_id, coordinator in coordinators.items():
+            ssids = coordinator.data.get("ssids", [])
+            site_device_id = f"site_{site_id}"
+            entities.extend(
+                OmadaSsidSwitch(
+                    coordinator=coordinator,
+                    site_device_id=site_device_id,
+                    ssid_data=ssid,
+                )
+                for ssid in ssids
+            )
+        _LOGGER.debug(
+            "Created %d site-wide SSID switches",
+            sum(len(c.data.get("ssids", [])) for c in coordinators.values()),
+        )
+    else:
+        _LOGGER.info("Skipping SSID switches — API credentials have viewer-only access")
 
     async_add_entities(entities)
 
@@ -347,3 +367,137 @@ class OmadaLedSwitch(
             )
             return
         self.async_write_ha_state()
+
+
+class OmadaSsidSwitch(
+    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    SwitchEntity,  # type: ignore[misc]
+):
+    """Switch entity to control SSID enable/disable site-wide."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = SwitchDeviceClass.SWITCH
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        site_device_id: str,
+        ssid_data: dict[str, Any],
+    ) -> None:
+        """Initialize the SSID switch entity.
+
+        Args:
+            coordinator: Site coordinator
+            site_device_id: Site device identifier (e.g., "site_12345")
+            ssid_data: SSID configuration from API
+
+        """
+        super().__init__(coordinator)
+        self._site_device_id = site_device_id
+        self._ssid_id = ssid_data.get("id", "")
+        self._wlan_id = ssid_data.get("wlanId", "")
+        self._ssid_name = ssid_data.get("name", "Unknown SSID")
+
+        # Determine enabled state from schedule or broadcast
+        # Note: SSID can be disabled via wlanSchedule or by disabling broadcast
+        self._enabled = ssid_data.get("broadcast", True) and not ssid_data.get(
+            "wlanSchedule", {}
+        ).get("scheduleEnable", False)
+
+        self._attr_unique_id = (
+            f"omada_open_api_{coordinator.site_id}_ssid_{self._ssid_id}"
+        )
+        self._attr_name = f"{self._ssid_name} SSID"
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info to link this entity to the Site device."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._site_device_id)},
+        )
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on current state."""
+        return ICON_WIFI if self._enabled else ICON_WIFI_OFF
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if SSID is enabled."""
+        return self._enabled
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    async def async_update(self) -> None:
+        """Fetch current SSID state from coordinator data."""
+        await super().async_update()
+        ssids = self.coordinator.data.get("ssids", [])
+        for ssid in ssids:
+            if ssid.get("id") == self._ssid_id:
+                self._enabled = ssid.get("broadcast", True) and not ssid.get(
+                    "wlanSchedule", {}
+                ).get("scheduleEnable", False)
+                break
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the SSID."""
+        try:
+            # Get current SSID configuration
+            ssid_detail = await self.coordinator.api_client.get_ssid_detail(
+                self.coordinator.site_id, self._wlan_id, self._ssid_id
+            )
+
+            # Update with broadcast enabled
+            config = {
+                "name": ssid_detail.get("name", self._ssid_name),
+                "band": ssid_detail.get("band", 7),  # Default: all bands
+                "broadcast": True,
+            }
+
+            await self.coordinator.api_client.update_ssid_basic_config(
+                self.coordinator.site_id, self._wlan_id, self._ssid_id, config
+            )
+            self._enabled = True
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.warning(
+                    "Permission denied when enabling SSID %s. "
+                    "API credentials may have viewer-only access.",
+                    self._ssid_name,
+                )
+            else:
+                _LOGGER.exception("Failed to enable SSID %s", self._ssid_name)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the SSID."""
+        try:
+            # Get current SSID configuration
+            ssid_detail = await self.coordinator.api_client.get_ssid_detail(
+                self.coordinator.site_id, self._wlan_id, self._ssid_id
+            )
+
+            # Update with broadcast disabled
+            config = {
+                "name": ssid_detail.get("name", self._ssid_name),
+                "band": ssid_detail.get("band", 7),  # Default: all bands
+                "broadcast": False,
+            }
+
+            await self.coordinator.api_client.update_ssid_basic_config(
+                self.coordinator.site_id, self._wlan_id, self._ssid_id, config
+            )
+            self._enabled = False
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            if err.error_code in (-1005, -1007):
+                _LOGGER.warning(
+                    "Permission denied when disabling SSID %s. "
+                    "API credentials may have viewer-only access.",
+                    self._ssid_name,
+                )
+            else:
+                _LOGGER.exception("Failed to disable SSID %s", self._ssid_name)

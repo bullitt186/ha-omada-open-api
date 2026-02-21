@@ -235,12 +235,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         first_site_id = next(iter(coordinators))
         has_write_access = await api_client.check_write_access(first_site_id)
 
+    # Register Site device entities for each configured site
+    device_reg = dr.async_get(hass)
+    site_devices: dict[str, dr.DeviceEntry] = {}
+    for site_id, coordinator in coordinators.items():
+        site_device = device_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, f"site_{site_id}")},
+            name=f"{coordinator.site_name} - Site",
+            manufacturer="TP-Link",
+            model="Omada Site",
+            configuration_url=entry.data[CONF_API_URL],
+        )
+        site_devices[site_id] = site_device
+        _LOGGER.debug(
+            "Registered Site device for site '%s' (%s)",
+            coordinator.site_name,
+            site_id,
+        )
+
     entry.runtime_data = {
         "api_client": api_client,
         "coordinators": coordinators,
         "client_coordinators": client_coordinators,
         "app_traffic_coordinators": app_traffic_coordinators,
         "has_write_access": has_write_access,
+        "site_devices": site_devices,
     }
 
     # Set up platforms
