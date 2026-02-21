@@ -1008,11 +1008,13 @@ class OmadaApiClient:
         """
         url = (
             f"{self._api_url}/openapi/v1/{self._omada_id}"
-            f"/sites/{site_id}/wireless-network/ssids"
+            f"/sites/{site_id}/wireless-network/ssids?type=3"
         )
-        _LOGGER.debug("Fetching SSIDs for site %s", site_id)
+        _LOGGER.debug("Fetching SSIDs for site %s (type=3: all device types)", site_id)
         result = await self._authenticated_request("get", url)
-        return result.get("result", {}).get("data", [])  # type: ignore[no-any-return]
+        ssid_data = result.get("result", {}).get("data", [])
+        _LOGGER.debug("Fetched %d SSIDs for site %s", len(ssid_data), site_id)
+        return ssid_data  # type: ignore[no-any-return]
 
     async def update_ssid_basic_config(
         self,

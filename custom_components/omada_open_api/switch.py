@@ -75,7 +75,9 @@ async def async_setup_entry(  # pylint: disable=too-many-branches
         ssid_switch_count = 0
         for site_id, coordinator in coordinators.items():
             ssids = coordinator.data.get("ssids", [])
-            site_device_id = f"site_{site_id}"
+            # Site devices stored with bare site_id as key in runtime_data
+            # but device identifier uses "site_{site_id}" prefix
+            runtime_data_key = site_id
 
             _LOGGER.debug(
                 "Processing site '%s': found %d SSIDs: %s",
@@ -104,19 +106,29 @@ async def async_setup_entry(  # pylint: disable=too-many-branches
                     len(valid_ssids),
                 )
 
-            # Verify site device exists
-            if site_device_id not in data.get("site_devices", {}):
+            # Verify site device exists (stored with bare site_id key)
+            if runtime_data_key not in data.get("site_devices", {}):
                 _LOGGER.error(
-                    "Site device '%s' not found in runtime_data for SSID switches. "
+                    "Site device for site '%s' not found in runtime_data for SSID switches. "
                     "Available site devices: %s",
-                    site_device_id,
+                    runtime_data_key,
                     list(data.get("site_devices", {}).keys()),
                 )
+                continue
+
+            _LOGGER.debug(
+                "Site device found for site %s, creating switches for %d valid SSIDs",
+                site_id,
+                len(valid_ssids),
+            )
+
+            # Pass device identifier (with site_ prefix) to entity for device_info
+            site_device_identifier = f"site_{site_id}"
 
             entities.extend(
                 OmadaSsidSwitch(
                     coordinator=coordinator,
-                    site_device_id=site_device_id,
+                    site_device_id=site_device_identifier,
                     ssid_data=ssid,
                 )
                 for ssid in valid_ssids
