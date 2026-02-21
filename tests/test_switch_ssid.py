@@ -31,11 +31,15 @@ def _create_ssid_switch(
             "broadcast": ssid_data.get("broadcast", True),
             "band": 7,
             "vlanEnable": False,
+            "vlanSetting": {"mode": 0},  # Default mode
+            "vlanId": 100,  # This should be removed when vlanSetting.mode=0
             "security": {"mode": "wpa2-personal"},
             "enable11r": False,
             "guestNetEnable": False,
             "pmfMode": "disabled",
             "mloEnable": False,
+            "createTime": "2024-01-01T00:00:00Z",  # Should be removed
+            "updateTime": "2024-01-01T00:00:00Z",  # Should be removed
         }
     )
     mock_api_client.update_ssid_basic_config = AsyncMock()
@@ -145,7 +149,7 @@ async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
 
     await switch.async_turn_on()
 
-    # Verify update_ssid_basic_config was called with complete config
+    # Verify update_ssid_basic_config was called with sanitized config
     switch.coordinator.api_client.update_ssid_basic_config.assert_called_once()
     call_args = switch.coordinator.api_client.update_ssid_basic_config.call_args
     assert call_args[0][0] == "site_001"  # site_id
@@ -160,6 +164,13 @@ async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
     assert config["guestNetEnable"] is False
     assert config["pmfMode"] == "disabled"
     assert config["mloEnable"] is False
+    # Verify read-only fields are removed
+    assert "ssidId" not in config
+    assert "wlanId" not in config
+    assert "createTime" not in config
+    assert "updateTime" not in config
+    # Verify vlanId is removed when vlanSetting.mode=0
+    assert "vlanId" not in config
 
     assert switch.is_on is True
 
@@ -176,7 +187,7 @@ async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
 
     await switch.async_turn_off()
 
-    # Verify update_ssid_basic_config was called with complete config
+    # Verify update_ssid_basic_config was called with sanitized config
     switch.coordinator.api_client.update_ssid_basic_config.assert_called_once()
     call_args = switch.coordinator.api_client.update_ssid_basic_config.call_args
     assert call_args[0][0] == "site_001"  # site_id
@@ -191,6 +202,11 @@ async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
     assert config["guestNetEnable"] is False
     assert config["pmfMode"] == "disabled"
     assert config["mloEnable"] is False
+    # Verify read-only fields are removed
+    assert "ssidId" not in config
+    assert "wlanId" not in config
+    # Verify vlanId is removed when vlanSetting.mode=0
+    assert "vlanId" not in config
 
     assert switch.is_on is False
 

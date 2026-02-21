@@ -510,6 +510,39 @@ class OmadaSsidSwitch(
                 ).get("scheduleEnable", False)
                 break
 
+    def _sanitize_ssid_config(self, ssid_detail: dict[str, Any]) -> dict[str, Any]:
+        """Sanitize SSID config for API update.
+
+        The API has conditional requirements:
+        - If vlanSetting.mode is 0 (Default), vlanId and customConfig must not be present
+        - If vlanId is used, vlanSetting must be null
+
+        Args:
+            ssid_detail: Complete SSID configuration from get_ssid_detail
+
+        Returns:
+            Sanitized config dict safe for update_ssid_basic_config
+
+        """
+        config = dict(ssid_detail)
+
+        # Handle VLAN configuration conflicts
+        vlan_setting = config.get("vlanSetting", {})
+        vlan_mode = vlan_setting.get("mode", 0)
+
+        if vlan_mode == 0:  # Default mode
+            # Remove vlanId and customConfig when using default VLAN mode
+            config.pop("vlanId", None)
+            if "vlanSetting" in config and "customConfig" in config["vlanSetting"]:
+                config["vlanSetting"].pop("customConfig", None)
+
+        # Remove read-only or metadata fields that shouldn't be in updates
+        read_only_fields = ["ssidId", "wlanId", "createTime", "updateTime"]
+        for field in read_only_fields:
+            config.pop(field, None)
+
+        return config
+
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable the SSID."""
         try:
@@ -518,8 +551,8 @@ class OmadaSsidSwitch(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id
             )
 
-            # Preserve all configuration, only modify broadcast
-            config = dict(ssid_detail)
+            # Sanitize and update broadcast field
+            config = self._sanitize_ssid_config(ssid_detail)
             config["broadcast"] = True
 
             await self.coordinator.api_client.update_ssid_basic_config(
@@ -545,8 +578,8 @@ class OmadaSsidSwitch(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id
             )
 
-            # Preserve all configuration, only modify broadcast
-            config = dict(ssid_detail)
+            # Sanitize and update broadcast field
+            config = self._sanitize_ssid_config(ssid_detail)
             config["broadcast"] = False
 
             await self.coordinator.api_client.update_ssid_basic_config(
