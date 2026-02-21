@@ -518,12 +518,9 @@ class OmadaSsidSwitch(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id
             )
 
-            # Update with broadcast enabled
-            config = {
-                "name": ssid_detail.get("name", self._ssid_name),
-                "band": ssid_detail.get("band", 7),  # Default: all bands
-                "broadcast": True,
-            }
+            # Preserve all configuration, only modify broadcast
+            config = dict(ssid_detail)
+            config["broadcast"] = True
 
             await self.coordinator.api_client.update_ssid_basic_config(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id, config
@@ -548,12 +545,9 @@ class OmadaSsidSwitch(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id
             )
 
-            # Update with broadcast disabled
-            config = {
-                "name": ssid_detail.get("name", self._ssid_name),
-                "band": ssid_detail.get("band", 7),  # Default: all bands
-                "broadcast": False,
-            }
+            # Preserve all configuration, only modify broadcast
+            config = dict(ssid_detail)
+            config["broadcast"] = False
 
             await self.coordinator.api_client.update_ssid_basic_config(
                 self.coordinator.site_id, self._wlan_id, self._ssid_id, config

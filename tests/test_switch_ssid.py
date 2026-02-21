@@ -26,9 +26,16 @@ def _create_ssid_switch(
         return_value={
             "ssidId": ssid_data.get("ssidId"),
             "wlanId": ssid_data.get("wlanId"),
+            "name": ssid_data.get("ssidName"),
             "ssidName": ssid_data.get("ssidName"),
             "broadcast": ssid_data.get("broadcast", True),
             "band": 7,
+            "vlanEnable": False,
+            "security": {"mode": "wpa2-personal"},
+            "enable11r": False,
+            "guestNetEnable": False,
+            "pmfMode": "disabled",
+            "mloEnable": False,
         }
     )
     mock_api_client.update_ssid_basic_config = AsyncMock()
@@ -138,13 +145,21 @@ async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
 
     await switch.async_turn_on()
 
-    # Verify update_ssid_basic_config was called with broadcast=True
+    # Verify update_ssid_basic_config was called with complete config
     switch.coordinator.api_client.update_ssid_basic_config.assert_called_once()
     call_args = switch.coordinator.api_client.update_ssid_basic_config.call_args
     assert call_args[0][0] == "site_001"  # site_id
     assert call_args[0][1] == "wlan_001"  # wlan_id
     assert call_args[0][2] == "ssid_001"  # ssid_id
-    assert call_args[0][3]["broadcast"] is True
+    config = call_args[0][3]
+    assert config["broadcast"] is True
+    # Verify all required fields are preserved
+    assert config["vlanEnable"] is False
+    assert config["security"]["mode"] == "wpa2-personal"
+    assert config["enable11r"] is False
+    assert config["guestNetEnable"] is False
+    assert config["pmfMode"] == "disabled"
+    assert config["mloEnable"] is False
 
     assert switch.is_on is True
 
@@ -161,13 +176,21 @@ async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
 
     await switch.async_turn_off()
 
-    # Verify update_ssid_basic_config was called with broadcast=False
+    # Verify update_ssid_basic_config was called with complete config
     switch.coordinator.api_client.update_ssid_basic_config.assert_called_once()
     call_args = switch.coordinator.api_client.update_ssid_basic_config.call_args
     assert call_args[0][0] == "site_001"  # site_id
     assert call_args[0][1] == "wlan_001"  # wlan_id
     assert call_args[0][2] == "ssid_001"  # ssid_id
-    assert call_args[0][3]["broadcast"] is False
+    config = call_args[0][3]
+    assert config["broadcast"] is False
+    # Verify all required fields are preserved
+    assert config["vlanEnable"] is False
+    assert config["security"]["mode"] == "wpa2-personal"
+    assert config["enable11r"] is False
+    assert config["guestNetEnable"] is False
+    assert config["pmfMode"] == "disabled"
+    assert config["mloEnable"] is False
 
     assert switch.is_on is False
 
