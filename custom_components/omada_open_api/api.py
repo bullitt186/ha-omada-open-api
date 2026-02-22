@@ -1302,6 +1302,88 @@ class OmadaApiClient:
         )
         await self._authenticated_request("patch", url, json_data=payload)
 
+    async def get_gateway_wan_status(
+        self, site_id: str, gateway_mac: str
+    ) -> list[dict[str, Any]]:
+        """Get WAN port status for a gateway including live traffic rates.
+
+        Args:
+            site_id: Site ID containing the gateway
+            gateway_mac: MAC address of the gateway
+
+        Returns:
+            List of WAN port status dictionaries with traffic rates,
+            latency, packet loss, and connection status.
+            Only ports in WAN mode (mode == 0) are returned.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/gateways/{gateway_mac}/wan-status"
+        )
+        _LOGGER.debug("Fetching WAN status for gateway %s", gateway_mac)
+        result = await self._authenticated_request("get", url)
+        wan_ports: list[dict[str, Any]] = result.get("result", [])
+        # Filter to only WAN-mode ports (mode == 0)
+        return [p for p in wan_ports if p.get("mode") == 0]
+
+    async def get_device_stats(
+        self,
+        site_id: str,
+        device_mac: str,
+        device_type: str,
+        interval: str,
+        start: int,
+        end: int,
+        attrs: list[str],
+    ) -> list[dict[str, Any]]:
+        """Get device statistics for a given time range.
+
+        Args:
+            site_id: Site ID containing the device
+            device_mac: MAC address of the device
+            device_type: Device type ("ap", "gateway", "switch")
+            interval: Time interval ("5min", "hourly", "daily")
+            start: Start timestamp (Unix epoch seconds)
+            end: End timestamp (Unix epoch seconds)
+            attrs: List of attributes to query (e.g. ["tx", "rx"])
+
+        Returns:
+            List of stat entries, each a dict with requested attrs and a timestamp.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v2/{self._omada_id}"
+            f"/sites/{site_id}/stat/{device_mac}/{interval}"
+        )
+        params = {"type": device_type}
+        json_data = {
+            "start": start,
+            "end": end,
+            "attrs": attrs,
+        }
+        _LOGGER.debug(
+            "Fetching %s stats for %s %s (attrs: %s)",
+            interval,
+            device_type,
+            device_mac,
+            attrs,
+        )
+        result = await self._authenticated_request(
+            "post", url, params=params, json_data=json_data
+        )
+        raw = result.get("result", [])
+        if isinstance(raw, list):
+            return raw
+        # Single object returned — wrap in a list for consistency.
+        return [raw]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

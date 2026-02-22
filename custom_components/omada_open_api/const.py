@@ -65,6 +65,19 @@ DEVICE_TYPE_AP = "ap"
 DEVICE_TYPE_GATEWAY = "gateway"
 DEVICE_TYPE_SWITCH = "switch"
 
+# Device stats
+CONF_STATS_SCAN_INTERVAL = "stats_scan_interval"
+DEFAULT_STATS_SCAN_INTERVAL = 300
+
+# WAN link speed enum → Mbps
+WAN_SPEED_MAP: dict[int, int] = {
+    1: 10,
+    2: 100,
+    3: 1000,
+    4: 2500,
+    5: 10000,
+}
+
 # Device icons
 ICON_ACCESS_POINT = "mdi:access-point"
 ICON_GATEWAY = "mdi:router-network"

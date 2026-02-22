@@ -15,9 +15,11 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    UnitOfDataRate,
     UnitOfInformation,
     UnitOfPower,
     UnitOfTemperature,
+    UnitOfTime,
 )
 from homeassistant.core import callback
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
@@ -42,10 +44,12 @@ from .const import (
     ICON_TEMPERATURE,
     ICON_UPLOAD,
     ICON_UPTIME,
+    WAN_SPEED_MAP,
 )
 from .coordinator import (
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
+    OmadaDeviceStatsCoordinator,
     OmadaSiteCoordinator,
 )
 from .devices import format_detail_status, format_link_speed, get_device_sort_key
@@ -502,6 +506,148 @@ POE_BUDGET_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
 )
 
 
+# WAN port sensor descriptions (per-port, using translation_placeholders)
+WAN_PORT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="wan_download_rate",
+        translation_key="wan_download_rate",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda port: port.get("rxRate"),
+        available_fn=lambda port: port.get("rxRate") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_upload_rate",
+        translation_key="wan_upload_rate",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.KILOBYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda port: port.get("txRate"),
+        available_fn=lambda port: port.get("txRate") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_download_total",
+        translation_key="wan_download_total",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda port: port.get("rx"),
+        available_fn=lambda port: port.get("rx") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_upload_total",
+        translation_key="wan_upload_total",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda port: port.get("tx"),
+        available_fn=lambda port: port.get("tx") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_latency",
+        translation_key="wan_latency",
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        value_fn=lambda port: port.get("latency"),
+        available_fn=lambda port: (
+            port.get("latency") is not None and port.get("status") == 1
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_packet_loss",
+        translation_key="wan_packet_loss",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        value_fn=lambda port: port.get("loss"),
+        available_fn=lambda port: (
+            port.get("loss") is not None and port.get("status") == 1
+        ),
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_ip_address",
+        translation_key="wan_ip_address",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda port: port.get("ip"),
+        available_fn=lambda port: bool(port.get("ip")),
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_link_speed",
+        translation_key="wan_link_speed",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        native_unit_of_measurement="Mbps",
+        value_fn=lambda port: WAN_SPEED_MAP.get(port.get("speed", 0)),
+        available_fn=lambda port: port.get("speed") is not None,
+    ),
+)
+
+# Device daily traffic sensor descriptions
+DEVICE_TRAFFIC_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="daily_download",
+        translation_key="daily_download",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("daily_rx"),
+        available_fn=lambda data: data.get("daily_rx") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="daily_upload",
+        translation_key="daily_upload",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        suggested_display_precision=2,
+        value_fn=lambda data: data.get("daily_tx"),
+        available_fn=lambda data: data.get("daily_tx") is not None,
+    ),
+)
+
+
+def _build_wan_sensors(
+    coordinator: OmadaSiteCoordinator,
+    wan_status: dict[str, list[dict[str, Any]]],
+    known_wan_port_keys: set[str],
+) -> list[SensorEntity]:
+    """Create WAN port sensor entities for all new ports.
+
+    Args:
+        coordinator: Site coordinator providing WAN data
+        wan_status: WAN status dict keyed by gateway MAC
+        known_wan_port_keys: Set of already-known WAN port keys (mutated)
+
+    Returns:
+        List of new WAN sensor entities
+
+    """
+    entities: list[SensorEntity] = []
+    for gw_mac, ports in wan_status.items():
+        for port_idx, port_data in enumerate(ports):
+            port_name = port_data.get("name", f"WAN{port_idx + 1}")
+            wan_key = f"{gw_mac}_wan_{port_idx}"
+            if wan_key not in known_wan_port_keys:
+                known_wan_port_keys.add(wan_key)
+                entities.extend(
+                    OmadaWanSensor(
+                        coordinator=coordinator,
+                        description=desc,
+                        gateway_mac=gw_mac,
+                        port_index=port_idx,
+                        port_name=port_name,
+                    )
+                    for desc in WAN_PORT_SENSORS
+                )
+    return entities
+
+
 async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
@@ -514,11 +660,15 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = (
         rd.app_traffic_coordinators
     )
+    device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
+        rd.device_stats_coordinators
+    )
 
     # --- Dynamic infrastructure device sensors ---
     known_device_macs: set[str] = set()
     known_poe_ports: set[str] = set()
     known_poe_budget_switches: set[str] = set()
+    known_wan_port_keys: set[str] = set()
 
     for coordinator in coordinators.values():
 
@@ -591,6 +741,12 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                     OmadaPoeSensor(coordinator=coord, port_key=pk) for pk in new_poe
                 )
 
+            # WAN port sensors for gateway devices.
+            wan_status = coord.data.get("wan_status", {})
+            new_entities.extend(
+                _build_wan_sensors(coord, wan_status, known_wan_port_keys)
+            )
+
             if new_entities:
                 async_add_entities(new_entities)
 
@@ -662,6 +818,39 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
         _async_check_new_app_traffic()
         entry.async_on_unload(
             app_coord.async_add_listener(_async_check_new_app_traffic)
+        )
+
+    # --- Dynamic device daily traffic sensors ---
+    known_traffic_device_macs: set[str] = set()
+
+    for stats_coord in device_stats_coordinators:
+
+        @callback
+        def _async_check_new_traffic_devices(
+            coord: OmadaDeviceStatsCoordinator = stats_coord,
+        ) -> None:
+            """Add daily traffic sensors for newly discovered devices."""
+            new_macs = set(coord.data.keys()) - known_traffic_device_macs
+            if not new_macs:
+                return
+
+            known_traffic_device_macs.update(new_macs)
+
+            new_entities: list[SensorEntity] = [
+                OmadaDeviceTrafficSensor(
+                    coordinator=coord,
+                    description=desc,
+                    device_mac=mac,
+                )
+                for mac in new_macs
+                for desc in DEVICE_TRAFFIC_SENSORS
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_traffic_devices()
+        entry.async_on_unload(
+            stats_coord.async_add_listener(_async_check_new_traffic_devices)
         )
 
 
@@ -1079,3 +1268,113 @@ class OmadaClientAppTrafficSensor(
         # Check if we have data for this client and app
         client_data = self.coordinator.data.get(self._client_mac, {})
         return self._app_id in client_data
+
+
+class OmadaWanSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
+    """Sensor for a WAN port metric on a gateway device."""
+
+    entity_description: OmadaSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSensorEntityDescription,
+        gateway_mac: str,
+        port_index: int,
+        port_name: str,
+    ) -> None:
+        """Initialize the WAN port sensor.
+
+        Args:
+            coordinator: Site coordinator providing WAN status data
+            description: Sensor entity description
+            gateway_mac: MAC address of the gateway
+            port_index: Index into the WAN ports list
+            port_name: Human-readable port name (e.g. "WAN1")
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._port_index = port_index
+        self._attr_unique_id = f"{gateway_mac}_wan{port_index}_{description.key}"
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {"port_name": port_name}
+
+        # Link to the parent gateway device.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_port_data(self) -> dict[str, Any] | None:
+        """Return the WAN port data dict, or None if unavailable."""
+        ports = self.coordinator.data.get("wan_status", {}).get(self._gateway_mac, [])
+        if self._port_index < len(ports):
+            return ports[self._port_index]  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        port_data = self._get_port_data()
+        if port_data is None:
+            return None
+        return self.entity_description.value_fn(port_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        port_data = self._get_port_data()
+        if port_data is None:
+            return False
+        return self.entity_description.available_fn(port_data)
+
+
+class OmadaDeviceTrafficSensor(OmadaEntity[OmadaDeviceStatsCoordinator], SensorEntity):
+    """Sensor for daily device traffic totals."""
+
+    entity_description: OmadaSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaDeviceStatsCoordinator,
+        description: OmadaSensorEntityDescription,
+        device_mac: str,
+    ) -> None:
+        """Initialize the device traffic sensor.
+
+        Args:
+            coordinator: Device stats coordinator providing daily data
+            description: Sensor entity description
+            device_mac: MAC address of the device
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._device_mac = device_mac
+        self._attr_unique_id = f"{device_mac}_{description.key}"
+
+        # Link to the parent infrastructure device.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_mac)},
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        device_data = self.coordinator.data.get(self._device_mac)
+        if device_data is None:
+            return None
+        return self.entity_description.value_fn(device_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        device_data = self.coordinator.data.get(self._device_mac)
+        if device_data is None:
+            return False
+        return self.entity_description.available_fn(device_data)

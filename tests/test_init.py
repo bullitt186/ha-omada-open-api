@@ -110,6 +110,8 @@ def _patch_api_client(**overrides):
     mock_instance.update_ssid_basic_config = AsyncMock()
     mock_instance.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_instance.update_ap_ssid_override = AsyncMock()
+    mock_instance.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_instance.get_device_stats = AsyncMock(return_value=[])
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
@@ -139,6 +141,47 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     assert runtime.api_client is not None
     assert TEST_SITE_ID in runtime.coordinators
     assert runtime.has_write_access is True
+
+
+async def test_setup_entry_creates_wan_and_traffic_sensors(
+    hass: HomeAssistant,
+) -> None:
+    """Test setup creates WAN sensors and device traffic sensors."""
+    entry = _build_entry(hass)
+    wan_port = {
+        "portName": "WAN1",
+        "mode": 0,
+        "status": 1,
+        "internetState": 1,
+        "ip": "1.2.3.4",
+        "rxRate": 100,
+        "txRate": 50,
+        "rx": 1000,
+        "tx": 500,
+        "latency": 10,
+        "loss": 0,
+        "speed": 3,
+    }
+    patcher, _mock_client = _patch_api_client(
+        get_gateway_wan_status=AsyncMock(return_value=[wan_port]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    # Verify WAN sensors were created.
+    entity_reg = er.async_get(hass)
+    wan_entities = [
+        e
+        for e in entity_reg.entities.values()
+        if e.platform == DOMAIN and "wan" in e.unique_id
+    ]
+    assert len(wan_entities) > 0
+
+    # Verify device stats coordinators were created.
+    assert len(entry.runtime_data.device_stats_coordinators) > 0
 
 
 async def test_setup_entry_with_clients(hass: HomeAssistant) -> None:

@@ -12,7 +12,12 @@ from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiClient, OmadaApiError
 from .clients import process_client
-from .const import DEFAULT_DEVICE_SCAN_INTERVAL, DOMAIN, SCAN_INTERVAL
+from .const import (
+    DEFAULT_DEVICE_SCAN_INTERVAL,
+    DEFAULT_STATS_SCAN_INTERVAL,
+    DOMAIN,
+    SCAN_INTERVAL,
+)
 from .devices import process_device
 
 if TYPE_CHECKING:
@@ -142,12 +147,13 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 # Continue without PoE info - not critical
 
-            return {  # noqa: TRY300
+            return {
                 "devices": devices,
                 "poe_budget": poe_budget,
                 "poe_ports": poe_ports,
                 "ssids": ssids,
                 "ap_ssid_overrides": ap_ssid_overrides,
+                "wan_status": await self._fetch_wan_status(devices),
                 "site_id": self.site_id,
                 "site_name": self.site_name,
             }
@@ -380,6 +386,48 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Continue without PoE budget - not critical
         return poe_budget
 
+    async def _fetch_wan_status(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Fetch WAN port status for all gateway devices.
+
+        Args:
+            devices: Dictionary of processed device data keyed by MAC.
+
+        Returns:
+            Dictionary keyed by gateway MAC with list of WAN port dicts.
+
+        """
+        wan_status: dict[str, list[dict[str, Any]]] = {}
+        gateway_macs = [
+            mac
+            for mac, dev in devices.items()
+            if dev.get("type", "").lower() == "gateway"
+        ]
+        if not gateway_macs:
+            return wan_status
+
+        for gateway_mac in gateway_macs:
+            try:
+                ports = await self.api_client.get_gateway_wan_status(
+                    self.site_id, gateway_mac
+                )
+                wan_status[gateway_mac] = ports
+                _LOGGER.debug(
+                    "Fetched %d WAN port(s) for gateway %s",
+                    len(ports),
+                    gateway_mac,
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch WAN status for gateway %s: %s",
+                    gateway_mac,
+                    err,
+                )
+                # Continue without WAN status - not critical
+
+        return wan_status
+
 
 class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Omada network clients."""
@@ -587,3 +635,95 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
         return client_app_data
+
+
+class OmadaDeviceStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
+    """Coordinator for historical device traffic statistics (daily totals)."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_coordinator: OmadaSiteCoordinator,
+        scan_interval: int = DEFAULT_STATS_SCAN_INTERVAL,
+    ) -> None:
+        """Initialize the device stats coordinator.
+
+        Args:
+            hass: Home Assistant instance
+            api_client: Omada API client
+            site_coordinator: Site coordinator providing the device list
+            scan_interval: Update interval in seconds
+
+        """
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_device_stats_{site_coordinator.site_id}",
+            update_interval=timedelta(seconds=scan_interval),
+        )
+        self.api_client = api_client
+        self.site_coordinator = site_coordinator
+
+    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        """Fetch daily traffic statistics for all devices.
+
+        Returns:
+            Dictionary mapping device MAC -> {"daily_tx": int, "daily_rx": int}
+
+        """
+        devices = (
+            self.site_coordinator.data.get("devices", {})
+            if self.site_coordinator.data
+            else {}
+        )
+        if not devices:
+            return {}
+
+        # Time range: midnight today (local) to now.
+        now = dt_util.now()
+        midnight = dt_util.start_of_local_day(now)
+        start_ts = int(midnight.timestamp())
+        end_ts = int(now.timestamp())
+
+        site_id = self.site_coordinator.site_id
+        stats: dict[str, dict[str, Any]] = {}
+
+        for mac, device in devices.items():
+            device_type = device.get("type", "").lower()
+            if device_type not in ("gateway", "switch"):
+                continue
+
+            try:
+                entries = await self.api_client.get_device_stats(
+                    site_id=site_id,
+                    device_mac=mac,
+                    device_type=device_type,
+                    interval="daily",
+                    start=start_ts,
+                    end=end_ts,
+                    attrs=["tx", "rx"],
+                )
+                # Sum across all returned daily entries.
+                total_tx = sum(e.get("tx", 0) for e in entries)
+                total_rx = sum(e.get("rx", 0) for e in entries)
+                stats[mac] = {
+                    "daily_tx": total_tx,
+                    "daily_rx": total_rx,
+                }
+            except OmadaApiError as err:
+                _LOGGER.debug(
+                    "Failed to fetch daily stats for %s %s: %s",
+                    device_type,
+                    mac,
+                    err,
+                )
+                # Continue with other devices — partial failure is acceptable.
+
+        _LOGGER.debug(
+            "Fetched daily traffic stats for %d/%d devices in site %s",
+            len(stats),
+            len(devices),
+            self.site_coordinator.site_name,
+        )
+        return stats

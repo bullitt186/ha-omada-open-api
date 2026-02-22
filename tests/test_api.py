@@ -2167,3 +2167,127 @@ async def test_update_ssid_basic_config(hass: HomeAssistant, mock_config_entry) 
         in call_url
     )
     assert mock_patch.call_args[1]["json"] == config
+
+
+# ---------------------------------------------------------------------------
+# get_gateway_wan_status
+# ---------------------------------------------------------------------------
+
+
+async def test_get_gateway_wan_status(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_gateway_wan_status returns filtered WAN-mode ports."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    all_ports = [
+        {"portName": "WAN1", "mode": 0, "status": 1, "rxRate": 100},
+        {"portName": "LAN1", "mode": 1, "status": 1, "rxRate": 50},
+        {"portName": "WAN2", "mode": 0, "status": 0, "rxRate": 0},
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": all_ports}
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_gateway_wan_status("site_001", "GW-MAC")
+
+    # Only mode==0 ports should be returned.
+    assert len(result) == 2
+    assert result[0]["portName"] == "WAN1"
+    assert result[1]["portName"] == "WAN2"
+
+    call_url = mock_get.call_args[0][0]
+    assert "/gateways/GW-MAC/wan-status" in call_url
+
+
+async def test_get_gateway_wan_status_empty(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_gateway_wan_status returns empty list when no WAN ports."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": []}
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_gateway_wan_status("site_001", "GW-MAC")
+
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_device_stats
+# ---------------------------------------------------------------------------
+
+
+async def test_get_device_stats(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_device_stats sends correct POST with query params."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    stats_result = [{"time": 1700000000, "tx": 500_000_000, "rx": 1_200_000_000}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0, "result": stats_result}
+
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_device_stats(
+        site_id="site_001",
+        device_mac="AA-BB-CC-DD-EE-01",
+        device_type="ap",
+        interval="daily",
+        start=1700000000,
+        end=1700086400,
+        attrs=["tx", "rx"],
+    )
+
+    assert result == stats_result
+    assert isinstance(result, list)
+    assert result[0]["tx"] == 500_000_000
+
+    call_url = mock_post.call_args[0][0]
+    assert "/stat/AA-BB-CC-DD-EE-01/daily" in call_url
+    assert mock_post.call_args[1]["params"] == {"type": "ap"}
+    assert mock_post.call_args[1]["json"] == {
+        "start": 1700000000,
+        "end": 1700086400,
+        "attrs": ["tx", "rx"],
+    }

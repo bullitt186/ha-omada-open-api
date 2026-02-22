@@ -35,16 +35,19 @@ from .const import (
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
+    CONF_STATS_SCAN_INTERVAL,
     CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
+    DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
 )
 from .coordinator import (
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
+    OmadaDeviceStatsCoordinator,
     OmadaSiteCoordinator,
 )
 from .devices import normalize_site_id
@@ -416,6 +419,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         # No apps selected — clear any previous issue.
         ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
 
+    # Create device stats coordinators for daily traffic statistics
+    device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = []
+    stats_interval = entry.options.get(
+        CONF_STATS_SCAN_INTERVAL, DEFAULT_STATS_SCAN_INTERVAL
+    )
+
+    for site_coordinator in coordinators.values():
+        stats_coordinator = OmadaDeviceStatsCoordinator(
+            hass=hass,
+            api_client=api_client,
+            site_coordinator=site_coordinator,
+            scan_interval=stats_interval,
+        )
+        await stats_coordinator.async_config_entry_first_refresh()
+        device_stats_coordinators.append(stats_coordinator)
+
+        _LOGGER.info(
+            "Initialized device stats coordinator for site '%s' with %d devices",
+            site_coordinator.site_name,
+            len(stats_coordinator.data),
+        )
+
     # Store API client and coordinators in runtime_data
     #
     # Check whether the API credentials have write access by performing a
@@ -477,6 +502,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         coordinators=coordinators,
         client_coordinators=client_coordinators,
         app_traffic_coordinators=app_traffic_coordinators,
+        device_stats_coordinators=device_stats_coordinators,
         has_write_access=has_write_access,
         site_devices=site_devices,
         prev_data=dict(entry.data),

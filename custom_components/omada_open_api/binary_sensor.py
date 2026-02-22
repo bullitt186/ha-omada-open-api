@@ -63,6 +63,22 @@ CLIENT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
     ),
 )
 
+# WAN port binary sensors (per-port, using translation_placeholders)
+WAN_PORT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
+    OmadaBinarySensorEntityDescription(
+        key="wan_connected",
+        translation_key="wan_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        value_fn=lambda port: port.get("status") == 1,
+    ),
+    OmadaBinarySensorEntityDescription(
+        key="wan_internet",
+        translation_key="wan_internet",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        value_fn=lambda port: port.get("internetState") == 1,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -76,6 +92,7 @@ async def async_setup_entry(
 
     # --- Dynamic infrastructure device binary sensors ---
     known_device_macs: set[str] = set()
+    known_wan_port_keys: set[str] = set()
 
     for coordinator in coordinators.values():
 
@@ -110,6 +127,28 @@ async def async_setup_entry(
             ]
             if new_entities:
                 async_add_entities(new_entities)
+
+            # WAN port binary sensors for gateway devices.
+            wan_status = coord.data.get("wan_status", {})
+            wan_entities: list[BinarySensorEntity] = []
+            for gw_mac, ports in wan_status.items():
+                for port_idx, port_data in enumerate(ports):
+                    port_name = port_data.get("name", f"WAN{port_idx + 1}")
+                    wan_key = f"{gw_mac}_wan_{port_idx}"
+                    if wan_key not in known_wan_port_keys:
+                        known_wan_port_keys.add(wan_key)
+                        wan_entities.extend(
+                            OmadaWanBinarySensor(
+                                coordinator=coord,
+                                description=desc,
+                                gateway_mac=gw_mac,
+                                port_index=port_idx,
+                                port_name=port_name,
+                            )
+                            for desc in WAN_PORT_BINARY_SENSORS
+                        )
+            if wan_entities:
+                async_add_entities(wan_entities)
 
         # Populate with currently known devices, then listen for updates.
         _async_check_new_devices()
@@ -268,3 +307,65 @@ class OmadaClientBinarySensor(
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+class OmadaWanBinarySensor(
+    OmadaEntity[OmadaSiteCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor for a WAN port status on a gateway device."""
+
+    entity_description: OmadaBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaBinarySensorEntityDescription,
+        gateway_mac: str,
+        port_index: int,
+        port_name: str,
+    ) -> None:
+        """Initialize the WAN port binary sensor.
+
+        Args:
+            coordinator: Site coordinator providing WAN status data
+            description: Binary sensor entity description
+            gateway_mac: MAC address of the gateway
+            port_index: Index into the WAN ports list
+            port_name: Human-readable port name (e.g. "WAN1")
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._port_index = port_index
+        self._attr_unique_id = f"{gateway_mac}_wan{port_index}_{description.key}"
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {"port_name": port_name}
+
+        # Link to the parent gateway device.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_port_data(self) -> dict[str, Any] | None:
+        """Return the WAN port data dict, or None if unavailable."""
+        ports = self.coordinator.data.get("wan_status", {}).get(self._gateway_mac, [])
+        if self._port_index < len(ports):
+            return ports[self._port_index]  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return the state of the binary sensor."""
+        port_data = self._get_port_data()
+        if port_data is None:
+            return False
+        return self.entity_description.value_fn(port_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_port_data() is not None

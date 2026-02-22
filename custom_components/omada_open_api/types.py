@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .coordinator import (
         OmadaAppTrafficCoordinator,
         OmadaClientCoordinator,
+        OmadaDeviceStatsCoordinator,
         OmadaSiteCoordinator,
     )
 
@@ -26,6 +27,7 @@ class OmadaRuntimeData:
     coordinators: dict[str, OmadaSiteCoordinator]
     client_coordinators: list[OmadaClientCoordinator]
     app_traffic_coordinators: list[OmadaAppTrafficCoordinator]
+    device_stats_coordinators: list[OmadaDeviceStatsCoordinator]
     has_write_access: bool
     site_devices: dict[str, dr.DeviceEntry]
     prev_data: dict[str, Any] = field(default_factory=dict)

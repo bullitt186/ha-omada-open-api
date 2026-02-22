@@ -264,6 +264,36 @@
             },
             "app_download": {
                 "name": "{app_name} download"
+            },
+            "wan_download_rate": {
+                "name": "{port_name} download rate"
+            },
+            "wan_upload_rate": {
+                "name": "{port_name} upload rate"
+            },
+            "wan_download_total": {
+                "name": "{port_name} download total"
+            },
+            "wan_upload_total": {
+                "name": "{port_name} upload total"
+            },
+            "wan_latency": {
+                "name": "{port_name} latency"
+            },
+            "wan_packet_loss": {
+                "name": "{port_name} packet loss"
+            },
+            "wan_ip_address": {
+                "name": "{port_name} IP address"
+            },
+            "wan_link_speed": {
+                "name": "{port_name} link speed"
+            },
+            "daily_download": {
+                "name": "Daily download"
+            },
+            "daily_upload": {
+                "name": "Daily upload"
             }
         },
         "binary_sensor": {
@@ -272,6 +302,12 @@
             },
             "power_save": {
                 "name": "Power save"
+            },
+            "wan_connected": {
+                "name": "{port_name} connected"
+            },
+            "wan_internet": {
+                "name": "{port_name} internet"
             }
         },
         "switch": {

@@ -108,6 +108,36 @@
             },
             "app_download": {
                 "default": "mdi:download-network"
+            },
+            "wan_download_rate": {
+                "default": "mdi:download-network"
+            },
+            "wan_upload_rate": {
+                "default": "mdi:upload-network"
+            },
+            "wan_download_total": {
+                "default": "mdi:download"
+            },
+            "wan_upload_total": {
+                "default": "mdi:upload"
+            },
+            "wan_latency": {
+                "default": "mdi:timer-outline"
+            },
+            "wan_packet_loss": {
+                "default": "mdi:package-variant-remove"
+            },
+            "wan_ip_address": {
+                "default": "mdi:ip-network"
+            },
+            "wan_link_speed": {
+                "default": "mdi:speedometer"
+            },
+            "daily_download": {
+                "default": "mdi:arrow-down-bold-circle"
+            },
+            "daily_upload": {
+                "default": "mdi:arrow-up-bold-circle"
             }
         },
         "binary_sensor": {
@@ -116,6 +146,12 @@
             },
             "power_save": {
                 "default": "mdi:leaf"
+            },
+            "wan_connected": {
+                "default": "mdi:ethernet"
+            },
+            "wan_internet": {
+                "default": "mdi:web"
             }
         },
         "switch": {

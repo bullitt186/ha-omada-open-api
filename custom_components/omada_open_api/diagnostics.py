@@ -90,6 +90,18 @@ async def async_get_config_entry_diagnostics(
                 }
             )
 
+    device_stats_summary: list[dict[str, Any]] = []
+    if rd is not None:
+        for coordinator in rd.device_stats_coordinators:  # type: ignore[assignment]
+            data = coordinator.data or {}
+            device_stats_summary.append(
+                {
+                    "site_name": getattr(coordinator, "site_name", "unknown"),
+                    "last_update_success": coordinator.last_update_success,
+                    "tracked_devices": len(data),
+                }
+            )
+
     return {
         "entry_data": async_redact_data(dict(entry.data), TO_REDACT),
         "entry_options": dict(entry.options),
@@ -97,6 +109,7 @@ async def async_get_config_entry_diagnostics(
         "site_coordinators": coordinators_summary,
         "client_coordinators": client_coordinators_summary,
         "app_traffic_coordinators": app_coordinators_summary,
+        "device_stats_coordinators": device_stats_summary,
         "site_devices": {
             site_id: {
                 "name": getattr(dev_entry, "name", "unknown"),

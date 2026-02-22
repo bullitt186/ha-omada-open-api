@@ -251,6 +251,8 @@ def mock_api_client() -> MagicMock:
     client.update_ssid_basic_config = AsyncMock()
     client.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     client.update_ap_ssid_override = AsyncMock()
+    client.get_gateway_wan_status = AsyncMock(return_value=[])
+    client.get_device_stats = AsyncMock(return_value=[])
     return client
 
 
@@ -344,3 +346,45 @@ SAMPLE_POE_USAGE_SECOND = {
     "totalPercentUsed": 0.0,
     "totalPower": 62,
 }
+
+# ---------------------------------------------------------------------------
+# WAN status sample data
+# ---------------------------------------------------------------------------
+
+SAMPLE_WAN_PORT_1 = {
+    "portName": "WAN1",
+    "mode": 0,
+    "status": 1,
+    "internetState": 1,
+    "ip": "203.0.113.10",
+    "rxRate": 1250.5,
+    "txRate": 340.2,
+    "rx": 15_000_000_000,
+    "tx": 3_000_000_000,
+    "latency": 12,
+    "loss": 0.1,
+    "speed": 3,
+}
+
+SAMPLE_WAN_PORT_2 = {
+    "portName": "WAN2",
+    "mode": 0,
+    "status": 0,
+    "internetState": 0,
+    "ip": "",
+    "rxRate": 0,
+    "txRate": 0,
+    "rx": 0,
+    "tx": 0,
+    "latency": 0,
+    "loss": 0,
+    "speed": 2,
+}
+
+# ---------------------------------------------------------------------------
+# Device stats sample data
+# ---------------------------------------------------------------------------
+
+SAMPLE_DEVICE_STATS_DAILY = [
+    {"time": 1700000000, "tx": 500_000_000, "rx": 1_200_000_000},
+]

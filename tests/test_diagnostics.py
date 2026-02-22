@@ -90,6 +90,8 @@ def _patch_api_client(**overrides):
     mock_instance.update_ssid_basic_config = AsyncMock()
     mock_instance.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_instance.update_ap_ssid_override = AsyncMock()
+    mock_instance.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_instance.get_device_stats = AsyncMock(return_value=[])
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
@@ -187,3 +189,50 @@ async def test_diagnostics_no_runtime_data(hass: HomeAssistant) -> None:
     assert result["site_coordinators"] == {}
     assert result["client_coordinators"] == []
     assert result["app_traffic_coordinators"] == []
+    assert result["device_stats_coordinators"] == []
+
+
+async def test_diagnostics_with_client_and_app_coordinators(
+    hass: HomeAssistant,
+) -> None:
+    """Test diagnostics includes client, app, and device stats coordinators."""
+    data = {
+        CONF_API_URL: TEST_API_URL,
+        CONF_OMADA_ID: TEST_OMADA_ID,
+        CONF_CLIENT_ID: TEST_CLIENT_ID,
+        CONF_CLIENT_SECRET: TEST_CLIENT_SECRET,
+        CONF_ACCESS_TOKEN: "valid_token",
+        CONF_REFRESH_TOKEN: "valid_refresh",
+        CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+        CONF_SELECTED_SITES: [TEST_SITE_ID],
+        CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"],
+        CONF_SELECTED_APPLICATIONS: [{"applicationId": 1, "name": "YouTube"}],
+    }
+    entry = MockConfigEntry(domain=DOMAIN, data=data, entry_id="diag_full")
+    entry.add_to_hass(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    # Client coordinators should be populated.
+    assert len(result["client_coordinators"]) > 0
+    client_summary = result["client_coordinators"][0]
+    assert "site_name" in client_summary
+    assert "client_count" in client_summary
+    assert "last_update_success" in client_summary
+
+    # App traffic coordinators should be populated.
+    assert len(result["app_traffic_coordinators"]) > 0
+    app_summary = result["app_traffic_coordinators"][0]
+    assert "site_name" in app_summary
+    assert "tracked_clients" in app_summary
+
+    # Device stats coordinators should be populated.
+    assert len(result["device_stats_coordinators"]) > 0
+    stats_summary = result["device_stats_coordinators"][0]
+    assert "site_name" in stats_summary
+    assert "tracked_devices" in stats_summary
