@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.device_tracker import ScannerEntity, SourceType
+from homeassistant.components.device_tracker import (  # type: ignore[attr-defined]
+    ScannerEntity,
+    SourceType,
+)
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
 from .const import DOMAIN
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
@@ -15,9 +18,10 @@ from .devices import format_detail_status
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .types import OmadaConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,16 +35,14 @@ _STATUS_DISCONNECTED = 0
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada device tracker from a config entry."""
-    data = entry.runtime_data
+    rd = entry.runtime_data
 
     # --- Device trackers (APs, switches, gateways) ---
-    site_coordinators: list[OmadaSiteCoordinator] = list(
-        data.get("coordinators", {}).values()
-    )
+    site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
     for site_coordinator in site_coordinators:
         devices = (
             site_coordinator.data.get("devices", {}) if site_coordinator.data else {}
@@ -52,15 +54,13 @@ async def async_setup_entry(
             async_add_entities(entities)
 
     # --- Client trackers (network clients) ---
-    client_coordinators: list[OmadaClientCoordinator] = data.get(
-        "client_coordinators", []
-    )
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
     tracked: set[str] = set()
 
     for coordinator in client_coordinators:
 
-        @callback  # type: ignore[misc]
+        @callback
         def _async_update_items(
             coord: OmadaClientCoordinator = coordinator,
         ) -> None:
@@ -83,7 +83,7 @@ async def async_setup_entry(
 
 class OmadaDeviceTracker(
     OmadaEntity[OmadaSiteCoordinator],
-    ScannerEntity,  # type: ignore[misc]
+    ScannerEntity,
 ):
     """Representation of an Omada network device (AP/switch/gateway) for presence detection."""
 
@@ -102,6 +102,7 @@ class OmadaDeviceTracker(
         self._attr_name = device_name
         self._unique_id = f"{DOMAIN}_device_{device_mac}"
         self._attr_mac_address = device_mac.replace("-", ":").lower()
+        self._update_device_info()
 
     @property
     def _device_data(self) -> dict[str, Any]:
@@ -153,19 +154,23 @@ class OmadaDeviceTracker(
         name: str | None = device.get("name")
         return name
 
-    @property
-    def device_info(self) -> DeviceInfo | None:
-        """Return device information to link this tracker to the device."""
+    def _update_device_info(self) -> None:
+        """Update device_info from current coordinator data."""
         device = self._device_data
-        if not device:
-            return None
-        return DeviceInfo(
-            identifiers={(DOMAIN, self._device_mac)},
-            name=device.get("name", self._device_mac),
-            manufacturer="TP-Link",
-            model=device.get("model"),
-            sw_version=device.get("firmware_version"),
-        )
+        if device:
+            self._attr_device_info: DeviceInfo | None = DeviceInfo(  # type: ignore[assignment]
+                identifiers={(DOMAIN, self._device_mac)},
+                name=device.get("name", self._device_mac),
+                manufacturer="TP-Link",
+                model=device.get("model"),
+                sw_version=device.get("firmware_version"),
+            )
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        self._update_device_info()
+        self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -187,15 +192,10 @@ class OmadaDeviceTracker(
             attrs["detail_status"] = detail
         return attrs
 
-    @callback  # type: ignore[misc]
-    def _handle_coordinator_update(self) -> None:
-        """Handle updated data from the coordinator."""
-        self.async_write_ha_state()
-
 
 class OmadaClientTracker(
     OmadaEntity[OmadaClientCoordinator],
-    ScannerEntity,  # type: ignore[misc]
+    ScannerEntity,
 ):
     """Representation of an Omada network client for presence detection."""
 
@@ -269,7 +269,7 @@ class OmadaClientTracker(
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
         return attrs
 
-    @callback  # type: ignore[misc]
+    @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
         self.async_write_ha_state()

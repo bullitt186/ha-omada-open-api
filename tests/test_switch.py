@@ -639,11 +639,10 @@ async def test_setup_entry_viewer_only_skips_poe_and_led(
     )
 
     entry = MagicMock()
-    entry.runtime_data = {
-        "coordinators": {TEST_SITE_ID: coordinator},
-        "client_coordinators": [],
-        "has_write_access": False,
-    }
+    entry.runtime_data = MagicMock()
+    entry.runtime_data.coordinators = {TEST_SITE_ID: coordinator}
+    entry.runtime_data.client_coordinators = []
+    entry.runtime_data.has_write_access = False
 
     added_entities: list = []
 

@@ -6,7 +6,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
+    DeviceInfo,
+    EntityCategory,
+)
 
 from .api import OmadaApiError
 from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
@@ -14,9 +17,10 @@ from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .types import OmadaConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,16 +29,16 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-statements
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada switch entities from a config entry."""
-    data = entry.runtime_data
+    rd = entry.runtime_data
     entities: list[SwitchEntity] = []
-    has_write_access: bool = data.get("has_write_access", True)
+    has_write_access: bool = rd.has_write_access
 
     # PoE switches (only when API credentials have editing rights).
-    coordinators: dict[str, OmadaSiteCoordinator] = data.get("coordinators", {})
+    coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
     if has_write_access:
         entities.extend(
             OmadaPoeSwitch(coordinator=coordinator, port_key=port_key)
@@ -45,9 +49,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
         _LOGGER.info("Skipping PoE switches — API credentials have viewer-only access")
 
     # Client block/unblock switches.
-    client_coordinators: list[OmadaClientCoordinator] = data.get(
-        "client_coordinators", []
-    )
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
     for coordinator in client_coordinators:
         if coordinator.data:
             entities.extend(
@@ -57,9 +59,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 
     # LED switch (one per site, only when API credentials have editing rights).
     if has_write_access:
-        site_coordinators: list[OmadaSiteCoordinator] = list(
-            data.get("coordinators", {}).values()
-        )
+        site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
         entities.extend(
             OmadaLedSwitch(coordinator) for coordinator in site_coordinators
         )
@@ -73,7 +73,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 
     if has_write_access:
         ssid_switch_count = 0
-        for site_id, coordinator in coordinators.items():
+        for site_id, coordinator in coordinators.items():  # type: ignore[assignment]
             ssids = coordinator.data.get("ssids", [])
             # Site devices stored with bare site_id as key in runtime_data
             # but device identifier uses "site_{site_id}" prefix
@@ -107,12 +107,12 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
                 )
 
             # Verify site device exists (stored with bare site_id key)
-            if runtime_data_key not in data.get("site_devices", {}):
+            if runtime_data_key not in rd.site_devices:
                 _LOGGER.error(
                     "Site device for site '%s' not found in runtime_data for SSID switches. "
                     "Available site devices: %s",
                     runtime_data_key,
-                    list(data.get("site_devices", {}).keys()),
+                    list(rd.site_devices.keys()),
                 )
                 continue
 
@@ -127,7 +127,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 
             entities.extend(
                 OmadaSsidSwitch(
-                    coordinator=coordinator,
+                    coordinator=coordinator,  # type: ignore[arg-type]
                     site_device_id=site_device_identifier,
                     ssid_data=ssid,
                 )
@@ -155,7 +155,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
     # Per-AP SSID switches (only when API credentials have editing rights).
     if has_write_access:
         ap_ssid_switch_count = 0
-        for site_id, coordinator in coordinators.items():
+        for site_id, coordinator in coordinators.items():  # type: ignore[assignment]
             ap_overrides = coordinator.data.get("ap_ssid_overrides", {})
             devices = coordinator.data.get("devices", {})
 
@@ -182,7 +182,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
                     if ssid_override.get("ssidEntryId") is not None:
                         entities.append(
                             OmadaApSsidSwitch(
-                                coordinator=coordinator,
+                                coordinator=coordinator,  # type: ignore[arg-type]
                                 ap_mac=ap_mac,
                                 ap_name=ap_name,
                                 ssid_data=ssid_override,
@@ -201,7 +201,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 
 class OmadaPoeSwitch(
     OmadaEntity[OmadaSiteCoordinator],
-    SwitchEntity,  # type: ignore[misc]
+    SwitchEntity,
 ):
     """Switch entity to control PoE on a switch port."""
 
@@ -330,7 +330,7 @@ class OmadaPoeSwitch(
 
 class OmadaClientBlockSwitch(
     OmadaEntity[OmadaClientCoordinator],
-    SwitchEntity,  # type: ignore[misc]
+    SwitchEntity,
 ):
     """Switch entity to block/unblock a client.
 
@@ -411,7 +411,7 @@ class OmadaClientBlockSwitch(
 
 class OmadaLedSwitch(
     OmadaEntity[OmadaSiteCoordinator],
-    SwitchEntity,  # type: ignore[misc]
+    SwitchEntity,
 ):
     """Switch entity to control site-wide LED setting."""
 
@@ -486,7 +486,7 @@ class OmadaLedSwitch(
 
 class OmadaSsidSwitch(
     OmadaEntity[OmadaSiteCoordinator],
-    SwitchEntity,  # type: ignore[misc]
+    SwitchEntity,
 ):
     """Switch entity to control SSID broadcast (visibility) site-wide.
 
@@ -655,7 +655,7 @@ class OmadaSsidSwitch(
 
 class OmadaApSsidSwitch(
     OmadaEntity[OmadaSiteCoordinator],
-    SwitchEntity,  # type: ignore[misc]
+    SwitchEntity,
 ):
     """Switch entity to enable/disable SSID on a specific AP.
 
@@ -686,7 +686,7 @@ class OmadaApSsidSwitch(
         self._ap_mac = ap_mac
         self._ap_name = ap_name
         self._ssid_id = ssid_data.get("ssidId", "")
-        self._ssid_entry_id = ssid_data.get("ssidEntryId")
+        self._ssid_entry_id: int = int(ssid_data.get("ssidEntryId", 0))
         self._ssid_name = ssid_data.get("ssidName", "Unknown SSID")
         self._enabled: bool = bool(ssid_data.get("ssidEnable", True))
 

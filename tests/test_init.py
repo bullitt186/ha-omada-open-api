@@ -136,9 +136,9 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
 
     assert entry.state is ConfigEntryState.LOADED
     runtime = entry.runtime_data
-    assert "api_client" in runtime
-    assert TEST_SITE_ID in runtime["coordinators"]
-    assert runtime["has_write_access"] is True
+    assert runtime.api_client is not None
+    assert TEST_SITE_ID in runtime.coordinators
+    assert runtime.has_write_access is True
 
 
 async def test_setup_entry_with_clients(hass: HomeAssistant) -> None:
@@ -154,7 +154,7 @@ async def test_setup_entry_with_clients(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
-    assert len(entry.runtime_data["client_coordinators"]) == 1
+    assert len(entry.runtime_data.client_coordinators) == 1
 
 
 async def test_setup_entry_with_app_tracking(hass: HomeAssistant) -> None:
@@ -173,7 +173,7 @@ async def test_setup_entry_with_app_tracking(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
-    assert len(entry.runtime_data["app_traffic_coordinators"]) == 1
+    assert len(entry.runtime_data.app_traffic_coordinators) == 1
 
 
 async def test_setup_entry_app_tracking_requires_clients(
@@ -194,7 +194,7 @@ async def test_setup_entry_app_tracking_requires_clients(
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
-    assert len(entry.runtime_data["app_traffic_coordinators"]) == 0
+    assert len(entry.runtime_data.app_traffic_coordinators) == 0
 
 
 async def test_setup_entry_auth_failure(hass: HomeAssistant) -> None:
@@ -225,8 +225,8 @@ async def test_setup_entry_skips_missing_site(hass: HomeAssistant) -> None:
 
     assert entry.state is ConfigEntryState.LOADED
     # Only the valid site should have a coordinator.
-    assert TEST_SITE_ID in entry.runtime_data["coordinators"]
-    assert "nonexistent_site" not in entry.runtime_data["coordinators"]
+    assert TEST_SITE_ID in entry.runtime_data.coordinators
+    assert "nonexistent_site" not in entry.runtime_data.coordinators
 
 
 # ---------------------------------------------------------------------------
@@ -307,7 +307,7 @@ async def test_setup_viewer_only_sets_no_write_access(hass: HomeAssistant) -> No
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
-    assert entry.runtime_data["has_write_access"] is False
+    assert entry.runtime_data.has_write_access is False
 
 
 # ---------------------------------------------------------------------------
@@ -719,7 +719,7 @@ async def test_debug_ssid_service_with_ssids(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     # Add some fake SSID data to coordinator
-    coordinator = entry.runtime_data["coordinators"][TEST_SITE_ID]
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
     coordinator.data["ssids"] = [
         {"id": "ssid_1", "wlanId": "wlan_1", "name": "TestWiFi", "broadcast": True},
     ]

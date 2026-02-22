@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import (
 _CoordinatorT = TypeVar("_CoordinatorT", bound=DataUpdateCoordinator)
 
 
-class OmadaEntity(CoordinatorEntity[_CoordinatorT]):  # type: ignore[misc]
+class OmadaEntity(CoordinatorEntity[_CoordinatorT]):
     """Base entity for all Omada Open API entities.
 
     Provides shared defaults that apply to every entity in the integration.

@@ -17,6 +17,7 @@ from homeassistant.helpers import (
     entity_registry as er,
     issue_registry as ir,
 )
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OmadaApiAuthError, OmadaApiClient
 from .clients import normalize_client_mac
@@ -46,10 +47,10 @@ from .coordinator import (
     OmadaSiteCoordinator,
 )
 from .devices import normalize_site_id
+from .types import OmadaConfigEntry, OmadaRuntimeData
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-    from homeassistant.core import HomeAssistant
+    from homeassistant.core import HomeAssistant, ServiceCall
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """
 
     # Register diagnostic service globally (action-setup rule)
-    async def debug_ssid_switches_service(call: Any) -> None:
+    async def debug_ssid_switches_service(call: ServiceCall) -> None:
         """Service to dump SSID switch diagnostic information."""
         config_entry_id = call.data.get("config_entry_id")
         if not config_entry_id:
@@ -91,15 +92,15 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
                 translation_placeholders={"config_entry_id": config_entry_id},
             )
         runtime_data = getattr(target_entry, "runtime_data", None)
-        if not runtime_data:
+        if not runtime_data or not isinstance(runtime_data, OmadaRuntimeData):
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="no_runtime_data",
                 translation_placeholders={"config_entry_id": config_entry_id},
             )
-        coordinators = runtime_data.get("coordinators", {})
-        has_write_access = runtime_data.get("has_write_access", False)
-        site_devices = runtime_data.get("site_devices", {})
+        coordinators = runtime_data.coordinators
+        has_write_access = runtime_data.has_write_access
+        site_devices = runtime_data.site_devices
         _LOGGER.info("=== SSID Switch Diagnostic Info ===")
         _LOGGER.info("Config Entry: %s (%s)", target_entry.title, config_entry_id)
         _LOGGER.info("Write Access: %s", has_write_access)
@@ -154,7 +155,7 @@ _OPTIONS_KEYS = {
 }
 
 
-def _migrate_data_to_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
     """Move user-preference keys from entry.data to entry.options.
 
     Older versions stored scan intervals and selections in entry.data.
@@ -188,7 +189,7 @@ def _migrate_data_to_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
     )
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
+async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
     """Set up Omada Open API from a config entry.
 
     Args:
@@ -210,11 +211,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     # Parse token expiration time
     token_expires_at = dt.datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRES_AT])
 
-    # Create API client
+    # Create token update callback for the API client.
+    async def _token_update_callback(
+        access_token: str, refresh_token: str, expires_at_iso: str
+    ) -> None:
+        """Persist updated tokens to the config entry."""
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_ACCESS_TOKEN: access_token,
+                CONF_REFRESH_TOKEN: refresh_token,
+                CONF_TOKEN_EXPIRES_AT: expires_at_iso,
+            },
+        )
+
+    # Create API client with injected session and callback.
+    session = async_get_clientsession(hass, verify_ssl=False)
     try:
         api_client = OmadaApiClient(
-            hass,
-            config_entry=entry,
+            session=session,
+            token_update_callback=_token_update_callback,
             api_url=entry.data[CONF_API_URL],
             omada_id=entry.data[CONF_OMADA_ID],
             client_id=entry.data[CONF_CLIENT_ID],
@@ -452,16 +469,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             site_id,
         )
 
-    entry.runtime_data = {
-        "api_client": api_client,
-        "coordinators": coordinators,
-        "client_coordinators": client_coordinators,
-        "app_traffic_coordinators": app_traffic_coordinators,
-        "has_write_access": has_write_access,
-        "site_devices": site_devices,
-        "prev_data": dict(entry.data),
-        "prev_options": dict(entry.options),
-    }
+    entry.runtime_data = OmadaRuntimeData(
+        api_client=api_client,
+        coordinators=coordinators,
+        client_coordinators=client_coordinators,
+        app_traffic_coordinators=app_traffic_coordinators,
+        has_write_access=has_write_access,
+        site_devices=site_devices,
+        prev_data=dict(entry.data),
+        prev_options=dict(entry.options),
+    )
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -472,7 +489,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:
     """Unload a config entry.
 
     Args:
@@ -494,7 +511,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unload_ok
 
 
-async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def async_reload_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
     """Reload config entry when it's updated.
 
     Only reload when configuration actually changes (sites, clients,
@@ -519,10 +536,10 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     # If only token keys in data differ and options are unchanged, skip reload.
     previous_data: dict[str, Any] = {}
     previous_options: dict[str, Any] = {}
-    runtime_data = getattr(entry, "runtime_data", None)
-    if runtime_data:
-        previous_data = runtime_data.get("prev_data", {})
-        previous_options = runtime_data.get("prev_options", {})
+    rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
+    if rd:
+        previous_data = rd.prev_data
+        previous_options = rd.prev_options
     current_data = dict(entry.data)
     current_options = dict(entry.options)
 
@@ -536,8 +553,8 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         }
         if changed_keys and changed_keys <= token_keys:
             _LOGGER.debug("Skipping reload — only auth tokens changed")
-            if runtime_data:
-                runtime_data["prev_data"] = current_data
+            if rd:
+                rd.prev_data = current_data
             return
 
     # Clean up devices and entities that are no longer selected before reloading.
@@ -545,14 +562,14 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await _cleanup_devices(hass, entry)
     await _cleanup_entities(hass, entry)
 
-    if runtime_data:
-        runtime_data["prev_data"] = current_data
-        runtime_data["prev_options"] = current_options
+    if rd:
+        rd.prev_data = current_data
+        rd.prev_options = current_options
 
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _cleanup_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
     """Remove devices for clients/sites that were deselected.
 
     Only removes devices whose identifier matches a previously-selected
@@ -565,12 +582,12 @@ async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry: Config entry
 
     """
-    runtime_data = getattr(entry, "runtime_data", None)
-    if not runtime_data:
+    rd = getattr(entry, "runtime_data", None)
+    if not rd or not isinstance(rd, OmadaRuntimeData):
         return
 
-    prev_options: dict[str, Any] = runtime_data.get("prev_options", {})
-    prev_data: dict[str, Any] = runtime_data.get("prev_data", {})
+    prev_options: dict[str, Any] = rd.prev_options
+    prev_data: dict[str, Any] = rd.prev_data
 
     # Compute deselected clients (previously selected but no longer)
     prev_clients = {
@@ -619,7 +636,7 @@ async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
         _LOGGER.info("Removed %d deselected device(s)", removed_count)
 
 
-async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _cleanup_entities(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
     """Remove entities for applications that were deselected.
 
     Only removes app-traffic sensor entities whose application was
@@ -630,11 +647,11 @@ async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
         entry: Config entry
 
     """
-    runtime_data = getattr(entry, "runtime_data", None)
-    if not runtime_data:
+    rd = getattr(entry, "runtime_data", None)
+    if not rd or not isinstance(rd, OmadaRuntimeData):
         return
 
-    prev_options: dict[str, Any] = runtime_data.get("prev_options", {})
+    prev_options: dict[str, Any] = rd.prev_options
 
     prev_apps = {str(a) for a in prev_options.get(CONF_SELECTED_APPLICATIONS, [])}
     curr_apps = {str(a) for a in entry.options.get(CONF_SELECTED_APPLICATIONS, [])}
@@ -673,7 +690,7 @@ async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 
 async def async_remove_config_entry_device(
-    hass: HomeAssistant, entry: ConfigEntry, device_entry: Any
+    hass: HomeAssistant, entry: OmadaConfigEntry, device_entry: dr.DeviceEntry
 ) -> bool:
     """Remove a device from the integration.
 
@@ -705,9 +722,9 @@ async def async_remove_config_entry_device(
     # Blocking removal of live devices prevents accidental deletion of
     # devices that would immediately reappear on the next poll.
     active_device_macs: set[str] = set()
-    runtime_data = getattr(entry, "runtime_data", None)
-    if runtime_data:
-        for coordinator in runtime_data.get("coordinators", {}).values():
+    rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
+    if rd:
+        for coordinator in rd.coordinators.values():
             if coordinator.data:
                 for mac in coordinator.data.get("devices", {}):
                     active_device_macs.add(mac.upper())

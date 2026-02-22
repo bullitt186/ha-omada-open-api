@@ -10,7 +10,7 @@ from homeassistant.components.update import (
     UpdateEntity,
     UpdateEntityFeature,
 )
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
 from .const import DOMAIN
@@ -18,9 +18,10 @@ from .coordinator import OmadaSiteCoordinator
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .types import OmadaConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,12 +30,11 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada update entities from a config entry."""
-    data = entry.runtime_data
-    coordinators: dict[str, OmadaSiteCoordinator] = data.get("coordinators", {})
+    coordinators: dict[str, OmadaSiteCoordinator] = entry.runtime_data.coordinators
 
     entities: list[OmadaDeviceUpdateEntity] = []
     for coordinator in coordinators.values():
@@ -48,7 +48,7 @@ async def async_setup_entry(
 
 class OmadaDeviceUpdateEntity(
     OmadaEntity[OmadaSiteCoordinator],
-    UpdateEntity,  # type: ignore[misc]
+    UpdateEntity,
 ):
     """Update entity for Omada device firmware."""
 

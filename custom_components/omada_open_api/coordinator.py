@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]
+class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to manage fetching Omada data for a site."""
 
     def __init__(
@@ -381,7 +381,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: igno
         return poe_budget
 
 
-class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ignore[misc]
+class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator for Omada network clients."""
 
     def __init__(
@@ -454,7 +454,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):  # type: ig
         return clients_by_mac
 
 
-class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):  # type: ignore[misc]
+class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
     """Coordinator for Omada application traffic data with daily reset."""
 
     def __init__(

@@ -36,11 +36,10 @@ async def test_debug_ssid_switches_service(hass: HomeAssistant) -> None:
         ],
     }
 
-    mock_entry.runtime_data = {
-        "coordinators": {"site_001": mock_coordinator},
-        "has_write_access": True,
-        "site_devices": {"site_site_001": MagicMock()},
-    }
+    mock_entry.runtime_data = MagicMock()
+    mock_entry.runtime_data.coordinators = {"site_001": mock_coordinator}
+    mock_entry.runtime_data.has_write_access = True
+    mock_entry.runtime_data.site_devices = {"site_site_001": MagicMock()}
 
     # Mock config_entries.async_get_entry
     hass.config_entries.async_get_entry = MagicMock(return_value=mock_entry)
@@ -72,11 +71,10 @@ async def test_debug_ssid_switches_service_default_entry(hass: HomeAssistant) ->
     mock_entry.entry_id = "default_entry"
     mock_entry.title = "Default Omada"
     mock_entry.domain = DOMAIN
-    mock_entry.runtime_data = {
-        "coordinators": {},
-        "has_write_access": False,
-        "site_devices": {},
-    }
+    mock_entry.runtime_data = MagicMock()
+    mock_entry.runtime_data.coordinators = {}
+    mock_entry.runtime_data.has_write_access = False
+    mock_entry.runtime_data.site_devices = {}
 
     hass.config_entries.async_get_entry = MagicMock(return_value=mock_entry)
 

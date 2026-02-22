@@ -56,6 +56,6 @@
 - [x] `stale-devices` - Stale devices are removed
 
 ## Platinum
-- [ ] `async-dependency` - Dependency is async
-- [ ] `inject-websession` - The integration dependency supports passing in a websession
-- [ ] `strict-typing` - Strict typing
+- [x] `async-dependency` - Dependency is async
+- [x] `inject-websession` - The integration dependency supports passing in a websession
+- [x] `strict-typing` - Strict typing

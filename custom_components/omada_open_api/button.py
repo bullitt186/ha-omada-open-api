@@ -6,7 +6,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
+    DeviceInfo,
+    EntityCategory,
+)
 
 from .api import OmadaApiError
 from .const import DOMAIN
@@ -14,9 +17,10 @@ from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+    from .types import OmadaConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,17 +29,15 @@ PARALLEL_UPDATES = 1
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada button entities from a config entry."""
-    data = entry.runtime_data
+    rd = entry.runtime_data
     entities: list[ButtonEntity] = []
 
     # Device reboot buttons (one per device).
-    site_coordinators: list[OmadaSiteCoordinator] = list(
-        data.get("coordinators", {}).values()
-    )
+    site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
     for coordinator in site_coordinators:
         devices = coordinator.data.get("devices", {}) if coordinator.data else {}
         for device_mac in devices:
@@ -46,21 +48,19 @@ async def async_setup_entry(
         entities.append(OmadaWlanOptimizationButton(coordinator))
 
     # Client reconnect buttons (one per wireless client).
-    client_coordinators: list[OmadaClientCoordinator] = data.get(
-        "client_coordinators", []
-    )
-    for coordinator in client_coordinators:
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
+    for coordinator in client_coordinators:  # type: ignore[assignment]
         if coordinator.data:
             for client_mac, client_data in coordinator.data.items():
                 if client_data.get("wireless"):
-                    entities.append(OmadaClientReconnectButton(coordinator, client_mac))
+                    entities.append(OmadaClientReconnectButton(coordinator, client_mac))  # type: ignore[arg-type]
 
     async_add_entities(entities)
 
 
 class OmadaDeviceRebootButton(
     OmadaEntity[OmadaSiteCoordinator],
-    ButtonEntity,  # type: ignore[misc]
+    ButtonEntity,
 ):
     """Button entity to reboot an Omada device (AP, switch, gateway)."""
 
@@ -117,7 +117,7 @@ class OmadaDeviceRebootButton(
 
 class OmadaClientReconnectButton(
     OmadaEntity[OmadaClientCoordinator],
-    ButtonEntity,  # type: ignore[misc]
+    ButtonEntity,
 ):
     """Button entity to reconnect a wireless client."""
 
@@ -171,7 +171,7 @@ class OmadaClientReconnectButton(
 
 class OmadaWlanOptimizationButton(
     OmadaEntity[OmadaSiteCoordinator],
-    ButtonEntity,  # type: ignore[misc]
+    ButtonEntity,
 ):
     """Button entity to trigger WLAN optimization for a site."""
 
@@ -215,7 +215,7 @@ class OmadaWlanOptimizationButton(
 
 class OmadaDeviceLocateButton(
     OmadaEntity[OmadaSiteCoordinator],
-    ButtonEntity,  # type: ignore[misc]
+    ButtonEntity,
 ):
     """Button entity to trigger the locate function on a device."""
 

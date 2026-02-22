@@ -8,19 +8,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import (
-    CONF_ACCESS_TOKEN,
-    CONF_REFRESH_TOKEN,
-    CONF_TOKEN_EXPIRES_AT,
-    DEFAULT_TIMEOUT,
-    TOKEN_EXPIRY_BUFFER,
-)
+from .const import DEFAULT_TIMEOUT, TOKEN_EXPIRY_BUFFER
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
-    from homeassistant.core import HomeAssistant
+    from collections.abc import Awaitable, Callable
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,8 +22,8 @@ class OmadaApiClient:
 
     def __init__(
         self,
-        hass: HomeAssistant,
-        config_entry: ConfigEntry,
+        session: aiohttp.ClientSession,
+        token_update_callback: Callable[[str, str, str], Awaitable[None]],
         api_url: str,
         omada_id: str,
         client_id: str,
@@ -43,8 +35,9 @@ class OmadaApiClient:
         """Initialize the API client.
 
         Args:
-            hass: Home Assistant instance
-            config_entry: Config entry for storing updated tokens
+            session: aiohttp client session (injected from HA)
+            token_update_callback: Async callback to persist updated tokens.
+                Called with (access_token, refresh_token, expires_at_iso).
             api_url: Base API URL (cloud or local controller)
             omada_id: Omada controller ID
             client_id: OAuth2 client ID
@@ -54,8 +47,8 @@ class OmadaApiClient:
             token_expires_at: When the access token expires
 
         """
-        self._hass = hass
-        self._config_entry = config_entry
+        self._session = session
+        self._token_update_callback = token_update_callback
         self._api_url = api_url.rstrip("/")
         self._omada_id = omada_id
         self._client_id = client_id
@@ -63,7 +56,6 @@ class OmadaApiClient:
         self._access_token = access_token
         self._refresh_token = refresh_token
         self._token_expires_at = token_expires_at
-        self._session = async_get_clientsession(hass, verify_ssl=False)
         self._token_refresh_lock = asyncio.Lock()
 
     @property
@@ -87,15 +79,11 @@ class OmadaApiClient:
                 await self._refresh_access_token()
 
     async def _update_config_entry(self) -> None:
-        """Update config entry with new token data."""
-        self._hass.config_entries.async_update_entry(
-            self._config_entry,
-            data={
-                **self._config_entry.data,
-                CONF_ACCESS_TOKEN: self._access_token,
-                CONF_REFRESH_TOKEN: self._refresh_token,
-                CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),
-            },
+        """Persist updated tokens via the injected callback."""
+        await self._token_update_callback(
+            self._access_token,
+            self._refresh_token,
+            self._token_expires_at.isoformat(),
         )
         _LOGGER.debug("Config entry updated with new tokens")
 

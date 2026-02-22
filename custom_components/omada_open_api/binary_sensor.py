@@ -10,7 +10,10 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
+    DeviceInfo,
+    EntityCategory,
+)
 
 from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
@@ -22,13 +25,14 @@ PARALLEL_UPDATES = 0
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
+    from .types import OmadaConfigEntry
+
 
 @dataclass(frozen=True, kw_only=True)
-class OmadaBinarySensorEntityDescription(BinarySensorEntityDescription):  # type: ignore[misc]
+class OmadaBinarySensorEntityDescription(BinarySensorEntityDescription):
     """Describes Omada binary sensor entity."""
 
     value_fn: Callable[[dict[str, Any]], bool]
@@ -61,15 +65,13 @@ CLIENT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada binary sensors from a config entry."""
-    data = entry.runtime_data
-    coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
-    client_coordinators: list[OmadaClientCoordinator] = data.get(
-        "client_coordinators", []
-    )
+    rd = entry.runtime_data
+    coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
     # Sort devices by dependency order to avoid via_device warnings
     # 1. Gateways first (no via_device)
@@ -151,25 +153,25 @@ class OmadaDeviceBinarySensor(
         uplink_mac = device_data.get("uplink_device_mac")
 
         # Build device info
-        device_info = {
-            "identifiers": {(DOMAIN, device_mac)},
-            "connections": connections,
-            "name": device_name,
-            "manufacturer": "TP-Link",
-            "model": device_data.get("model"),
-            "serial_number": device_data.get("sn"),
-            "sw_version": device_data.get("firmware_version"),
-            "configuration_url": coordinator.api_client.api_url,
-        }
+        di = DeviceInfo(
+            identifiers={(DOMAIN, device_mac)},
+            connections=connections,
+            name=device_name,
+            manufacturer="TP-Link",
+            model=device_data.get("model"),
+            serial_number=device_data.get("sn"),
+            sw_version=device_data.get("firmware_version"),
+            configuration_url=coordinator.api_client.api_url,
+        )
 
         # Only set via_device for non-gateway devices
         if "gateway" not in device_type and "router" not in device_type:
             # For switches and other devices, use uplink device if available
             if uplink_mac:
-                device_info["via_device"] = (DOMAIN, uplink_mac)
+                di["via_device"] = (DOMAIN, uplink_mac)
             # No fallback - if no uplink, device is standalone
 
-        self._attr_device_info = device_info
+        self._attr_device_info = di
 
     @property
     def is_on(self) -> bool:

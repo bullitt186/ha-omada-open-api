@@ -19,7 +19,10 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTemperature,
 )
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
+    DeviceInfo,
+    EntityCategory,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -62,10 +65,11 @@ DEVICE_TYPE_LABELS: dict[str, str] = {
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
     from homeassistant.helpers.typing import StateType
+
+    from .types import OmadaConfigEntry
 
 
 def _auto_scale_bytes(
@@ -95,7 +99,7 @@ def _auto_scale_bytes(
 
 
 @dataclass(frozen=True, kw_only=True)
-class OmadaSensorEntityDescription(SensorEntityDescription):  # type: ignore[misc]
+class OmadaSensorEntityDescription(SensorEntityDescription):
     """Describes Omada sensor entity."""
 
     value_fn: Callable[[dict[str, Any]], StateType]
@@ -119,7 +123,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Uptime",
         icon=ICON_UPTIME,
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda device: (
+        value_fn=lambda device: (  # type: ignore[arg-type, return-value]
             dt_util.utcnow().replace(microsecond=0)
             - dt.timedelta(seconds=device["uptime"])
         )
@@ -437,7 +441,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Uptime",
         icon=ICON_UPTIME,
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda client: (
+        value_fn=lambda client: (  # type: ignore[arg-type, return-value]
             dt_util.utcnow().replace(microsecond=0)
             - dt.timedelta(seconds=client["uptime"])
         )
@@ -492,17 +496,15 @@ POE_BUDGET_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Omada sensors from a config entry."""
-    data = entry.runtime_data
-    coordinators: dict[str, OmadaSiteCoordinator] = data["coordinators"]
-    client_coordinators: list[OmadaClientCoordinator] = data.get(
-        "client_coordinators", []
-    )
-    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = data.get(
-        "app_traffic_coordinators", []
+    rd = entry.runtime_data
+    coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
+    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = (
+        rd.app_traffic_coordinators
     )
 
     # Sort devices by dependency order to avoid via_device warnings
@@ -612,7 +614,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
     """Representation of an Omada device sensor."""
 
     entity_description: OmadaSensorEntityDescription
@@ -645,25 +647,25 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # typ
         uplink_mac = device_data.get("uplink_device_mac")
 
         # Build device info
-        device_info = {
-            "identifiers": {(DOMAIN, device_mac)},
-            "connections": connections,
-            "name": device_name,
-            "manufacturer": "TP-Link",
-            "model": device_data.get("model"),
-            "serial_number": device_data.get("sn"),
-            "sw_version": device_data.get("firmware_version"),
-            "configuration_url": coordinator.api_client.api_url,
-        }
+        di = DeviceInfo(
+            identifiers={(DOMAIN, device_mac)},
+            connections=connections,
+            name=device_name,
+            manufacturer="TP-Link",
+            model=device_data.get("model"),
+            serial_number=device_data.get("sn"),
+            sw_version=device_data.get("firmware_version"),
+            configuration_url=coordinator.api_client.api_url,
+        )
 
         # Only set via_device for non-gateway devices
         if "gateway" not in device_type and "router" not in device_type:
             # For switches and other devices, use uplink device if available
             if uplink_mac:
-                device_info["via_device"] = (DOMAIN, uplink_mac)
+                di["via_device"] = (DOMAIN, uplink_mac)
             # No fallback - if no uplink, device is standalone
 
-        self._attr_device_info = device_info
+        self._attr_device_info = di
 
     @property
     def native_value(self) -> StateType:
@@ -686,7 +688,7 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # typ
         return self.entity_description.available_fn(device_data)
 
 
-class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
     """Representation of an Omada client sensor."""
 
     entity_description: OmadaSensorEntityDescription
@@ -775,7 +777,7 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):  # t
         return self.entity_description.available_fn(client_data)
 
 
-class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
     """Sensor for per-switch PoE power budget metrics."""
 
     entity_description: OmadaSensorEntityDescription
@@ -800,9 +802,9 @@ class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # 
         self._attr_unique_id = f"{switch_mac}_{description.key}"
 
         # Link to the parent switch device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, switch_mac)},
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, switch_mac)},
+        )
 
     @property
     def native_value(self) -> StateType:
@@ -841,7 +843,7 @@ POE_DISPLAY_TYPES: dict[int, str] = {
 }
 
 
-class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
     """Sensor for PoE power consumption on a switch port."""
 
     _attr_device_class = SensorDeviceClass.POWER
@@ -875,9 +877,9 @@ class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: 
         self._attr_translation_placeholders = {"port_name": port_name}
 
         # Link to the parent switch device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, switch_mac)},
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, switch_mac)},
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -925,7 +927,7 @@ class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: 
 
 class OmadaClientAppTrafficSensor(
     OmadaEntity[OmadaAppTrafficCoordinator],
-    SensorEntity,  # type: ignore[misc]
+    SensorEntity,
 ):
     """Representation of an Omada client application traffic sensor."""
 
@@ -963,9 +965,9 @@ class OmadaClientAppTrafficSensor(
         # Note: coordinator.data structure is dict[client_mac][app_id] = {...}
         # We need to get client info from the client coordinator
         # For now, use the client MAC to link to the client device
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, client_mac)},
-        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, client_mac)},
+        )
 
         # Initial unit (will be dynamically updated based on value)
         self._attr_native_unit_of_measurement = UnitOfInformation.BYTES

@@ -7,7 +7,11 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 import pytest
 
-from custom_components.omada_open_api.api import OmadaApiClient, OmadaApiError
+from custom_components.omada_open_api.api import (
+    OmadaApiAuthError,
+    OmadaApiClient,
+    OmadaApiError,
+)
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
@@ -46,9 +50,11 @@ async def test_token_refresh_before_expiry(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=4)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -58,46 +64,43 @@ async def test_token_refresh_before_expiry(
         token_expires_at=expires_at,
     )
 
-    with (
-        patch("aiohttp.ClientSession.post") as mock_post,
-        patch.object(hass.config_entries, "async_update_entry") as mock_update,
-    ):
-        # Mock successful token refresh response
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json.return_value = {
-            "errorCode": 0,
-            "msg": "Success",
-            "result": {
-                "accessToken": "new_access_token",
-                "tokenType": "bearer",
-                "expiresIn": 7200,
-                "refreshToken": "new_refresh_token",
-            },
-        }
-        mock_post.return_value.__aenter__.return_value = mock_response
+    mock_post = mock_session.post
+    # Mock successful token refresh response
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success",
+        "result": {
+            "accessToken": "new_access_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "new_refresh_token",
+        },
+    }
+    mock_post.return_value.__aenter__.return_value = mock_response
 
-        # Call method that should trigger token refresh
-        await api_client._ensure_valid_token()  # noqa: SLF001
+    # Call method that should trigger token refresh
+    await api_client._ensure_valid_token()  # noqa: SLF001
 
-        # Verify refresh endpoint was called
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        assert "/openapi/authorize/token" in call_args[0][0]
-        assert call_args[1]["params"]["grant_type"] == "refresh_token"
+    # Verify refresh endpoint was called
+    mock_post.assert_called_once()
+    call_args = mock_post.call_args
+    assert "/openapi/authorize/token" in call_args[0][0]
+    assert call_args[1]["params"]["grant_type"] == "refresh_token"
 
-        # Verify refresh_token grant puts ALL params in query string (no body)
-        refresh_params = call_args[1]["params"]
-        assert refresh_params["client_id"] == "test_client_id"
-        assert refresh_params["client_secret"] == "test_client_secret"
-        assert refresh_params["refresh_token"] == "old_refresh_token"
-        assert "json" not in call_args[1]  # No body for refresh_token grant
+    # Verify refresh_token grant puts ALL params in query string (no body)
+    refresh_params = call_args[1]["params"]
+    assert refresh_params["client_id"] == "test_client_id"
+    assert refresh_params["client_secret"] == "test_client_secret"
+    assert refresh_params["refresh_token"] == "old_refresh_token"
+    assert "json" not in call_args[1]  # No body for refresh_token grant
 
-        # Verify config entry was updated
-        mock_update.assert_called_once()
-        updated_data = mock_update.call_args[1]["data"]
-        assert updated_data[CONF_ACCESS_TOKEN] == "new_access_token"
-        assert updated_data[CONF_REFRESH_TOKEN] == "new_refresh_token"
+    # Verify config entry was updated
+    mock_callback.assert_called_once()
+    cb_args = mock_callback.call_args[0]
+    assert cb_args[0] == "new_access_token"
+    assert cb_args[1] == "new_refresh_token"
 
 
 async def test_refresh_token_expiry_triggers_renewal(
@@ -108,9 +111,11 @@ async def test_refresh_token_expiry_triggers_renewal(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=2)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -120,61 +125,58 @@ async def test_refresh_token_expiry_triggers_renewal(
         token_expires_at=expires_at,
     )
 
-    with (
-        patch("aiohttp.ClientSession.post") as mock_post,
-        patch.object(hass.config_entries, "async_update_entry") as mock_update,
-    ):
-        # First call: refresh returns error -44114 (refresh token expired)
-        # Second call: get fresh tokens succeeds
-        refresh_response = AsyncMock()
-        refresh_response.status = 200
-        refresh_response.json.return_value = {
-            "errorCode": -44114,
-            "msg": "Refresh token expired",
-        }
+    mock_post = mock_session.post
+    # First call: refresh returns error -44114 (refresh token expired)
+    # Second call: get fresh tokens succeeds
+    refresh_response = AsyncMock()
+    refresh_response.status = 200
+    refresh_response.json.return_value = {
+        "errorCode": -44114,
+        "msg": "Refresh token expired",
+    }
 
-        fresh_token_response = AsyncMock()
-        fresh_token_response.status = 200
-        fresh_token_response.json.return_value = {
-            "errorCode": 0,
-            "msg": "Success",
-            "result": {
-                "accessToken": "fresh_access_token",
-                "tokenType": "bearer",
-                "expiresIn": 7200,
-                "refreshToken": "fresh_refresh_token",
-            },
-        }
+    fresh_token_response = AsyncMock()
+    fresh_token_response.status = 200
+    fresh_token_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success",
+        "result": {
+            "accessToken": "fresh_access_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "fresh_refresh_token",
+        },
+    }
 
-        mock_post.return_value.__aenter__.side_effect = [
-            refresh_response,
-            fresh_token_response,
-        ]
+    mock_post.return_value.__aenter__.side_effect = [
+        refresh_response,
+        fresh_token_response,
+    ]
 
-        # Call method that should trigger refresh, then renewal
-        await api_client._ensure_valid_token()  # noqa: SLF001
+    # Call method that should trigger refresh, then renewal
+    await api_client._ensure_valid_token()  # noqa: SLF001
 
-        # Verify both calls were made
-        assert mock_post.call_count == 2
+    # Verify both calls were made
+    assert mock_post.call_count == 2
 
-        # First call should be refresh_token grant
-        first_call = mock_post.call_args_list[0]
-        assert first_call[1]["params"]["grant_type"] == "refresh_token"
+    # First call should be refresh_token grant
+    first_call = mock_post.call_args_list[0]
+    assert first_call[1]["params"]["grant_type"] == "refresh_token"
 
-        # Second call should be client_credentials grant
-        second_call = mock_post.call_args_list[1]
-        assert second_call[1]["params"]["grant_type"] == "client_credentials"
-        # client_credentials puts omadacId, client_id, client_secret in body
-        cred_body = second_call[1]["json"]
-        assert cred_body["omadacId"] == "test_omada_id"
-        assert cred_body["client_id"] == "test_client_id"
-        assert cred_body["client_secret"] == "test_client_secret"
+    # Second call should be client_credentials grant
+    second_call = mock_post.call_args_list[1]
+    assert second_call[1]["params"]["grant_type"] == "client_credentials"
+    # client_credentials puts omadacId, client_id, client_secret in body
+    cred_body = second_call[1]["json"]
+    assert cred_body["omadacId"] == "test_omada_id"
+    assert cred_body["client_id"] == "test_client_id"
+    assert cred_body["client_secret"] == "test_client_secret"
 
-        # Verify config entry was updated with fresh tokens
-        mock_update.assert_called()
-        updated_data = mock_update.call_args[1]["data"]
-        assert updated_data[CONF_ACCESS_TOKEN] == "fresh_access_token"
-        assert updated_data[CONF_REFRESH_TOKEN] == "fresh_refresh_token"
+    # Verify config entry was updated with fresh tokens
+    mock_callback.assert_called()
+    cb_args = mock_callback.call_args[0]
+    assert cb_args[0] == "fresh_access_token"
+    assert cb_args[1] == "fresh_refresh_token"
 
 
 async def test_token_persistence_to_config_entry(
@@ -185,9 +187,11 @@ async def test_token_persistence_to_config_entry(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=3)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -197,44 +201,37 @@ async def test_token_persistence_to_config_entry(
         token_expires_at=expires_at,
     )
 
-    with (
-        patch("aiohttp.ClientSession.post") as mock_post,
-        patch.object(hass.config_entries, "async_update_entry") as mock_update,
-    ):
-        # Mock successful token refresh
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.json.return_value = {
-            "errorCode": 0,
-            "msg": "Success",
-            "result": {
-                "accessToken": "persisted_access_token",
-                "tokenType": "bearer",
-                "expiresIn": 7200,
-                "refreshToken": "persisted_refresh_token",
-            },
-        }
-        mock_post.return_value.__aenter__.return_value = mock_response
+    mock_post = mock_session.post
+    # Mock successful token refresh
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success",
+        "result": {
+            "accessToken": "persisted_access_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "persisted_refresh_token",
+        },
+    }
+    mock_post.return_value.__aenter__.return_value = mock_response
 
-        # Trigger token refresh
-        await api_client._ensure_valid_token()  # noqa: SLF001
+    # Trigger token refresh
+    await api_client._ensure_valid_token()  # noqa: SLF001
 
-        # Verify config entry was updated
-        mock_update.assert_called_once()
-        updated_data = mock_update.call_args[1]["data"]
-        assert updated_data[CONF_ACCESS_TOKEN] == "persisted_access_token"
-        assert updated_data[CONF_REFRESH_TOKEN] == "persisted_refresh_token"
-        assert CONF_TOKEN_EXPIRES_AT in updated_data
+    # Verify config entry was updated
+    mock_callback.assert_called_once()
+    cb_args = mock_callback.call_args[0]
+    assert cb_args[0] == "persisted_access_token"
+    assert cb_args[1] == "persisted_refresh_token"
+    # cb_args[2] is the ISO expiry string
 
-        # Verify the expiry time is set correctly (should be ~2 hours from now)
-        expiry_time = dt.datetime.fromisoformat(updated_data[CONF_TOKEN_EXPIRES_AT])
-        time_until_expiry = expiry_time - dt.datetime.now(dt.UTC)
-        # Should be between 1.9 and 2.0 hours (7200 seconds = 2 hours)
-        assert (
-            dt.timedelta(hours=1, minutes=54)
-            < time_until_expiry
-            < dt.timedelta(hours=2)
-        )
+    # Verify the expiry time is set correctly (should be ~2 hours from now)
+    expiry_time = dt.datetime.fromisoformat(cb_args[2])
+    time_until_expiry = expiry_time - dt.datetime.now(dt.UTC)
+    # Should be between 1.9 and 2.0 hours (7200 seconds = 2 hours)
+    assert dt.timedelta(hours=1, minutes=54) < time_until_expiry < dt.timedelta(hours=2)
 
 
 async def test_authenticated_request_retries_on_token_expired(
@@ -244,9 +241,11 @@ async def test_authenticated_request_retries_on_token_expired(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -256,12 +255,11 @@ async def test_authenticated_request_retries_on_token_expired(
         token_expires_at=expires_at,
     )
 
+    mock_get = mock_session.get
     with (
-        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
         patch.object(
             api_client, "_refresh_access_token", new_callable=AsyncMock
         ) as mock_refresh,
-        patch.object(hass.config_entries, "async_update_entry"),
     ):
         # First call returns -44112 (token expired), second call succeeds
         expired_response = AsyncMock()
@@ -311,9 +309,11 @@ async def test_authenticated_request_retries_on_token_invalid(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -323,12 +323,11 @@ async def test_authenticated_request_retries_on_token_invalid(
         token_expires_at=expires_at,
     )
 
+    mock_get = mock_session.get
     with (
-        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
         patch.object(
             api_client, "_refresh_access_token", new_callable=AsyncMock
         ) as mock_refresh,
-        patch.object(hass.config_entries, "async_update_entry"),
     ):
         # First call returns -44113, second succeeds
         invalid_response = AsyncMock()
@@ -367,9 +366,11 @@ async def test_authenticated_request_retries_on_http_401(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -379,12 +380,11 @@ async def test_authenticated_request_retries_on_http_401(
         token_expires_at=expires_at,
     )
 
+    mock_get = mock_session.get
     with (
-        patch.object(api_client._session, "get") as mock_get,  # noqa: SLF001
         patch.object(
             api_client, "_refresh_access_token", new_callable=AsyncMock
         ) as mock_refresh,
-        patch.object(hass.config_entries, "async_update_entry"),
     ):
         # First call returns HTTP 401, second succeeds
         unauthorized_response = AsyncMock()
@@ -419,9 +419,11 @@ async def test_refresh_connection_error_falls_back_to_client_credentials(
     expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=2)
     mock_config_entry.data[CONF_TOKEN_EXPIRES_AT] = expires_at.isoformat()
 
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -431,39 +433,259 @@ async def test_refresh_connection_error_falls_back_to_client_credentials(
         token_expires_at=expires_at,
     )
 
-    with (
-        patch("aiohttp.ClientSession.post") as mock_post,
-        patch.object(hass.config_entries, "async_update_entry"),
-    ):
-        # First call: refresh raises connection error
-        # Second call: client_credentials succeeds
-        fresh_token_response = AsyncMock()
-        fresh_token_response.status = 200
-        fresh_token_response.json.return_value = {
-            "errorCode": 0,
-            "msg": "Success",
-            "result": {
-                "accessToken": "fresh_access_token",
-                "tokenType": "bearer",
-                "expiresIn": 7200,
-                "refreshToken": "fresh_refresh_token",
-            },
-        }
+    mock_post = mock_session.post
+    # First call: refresh raises connection error
+    # Second call: client_credentials succeeds
+    fresh_token_response = AsyncMock()
+    fresh_token_response.status = 200
+    fresh_token_response.json.return_value = {
+        "errorCode": 0,
+        "msg": "Success",
+        "result": {
+            "accessToken": "fresh_access_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "fresh_refresh_token",
+        },
+    }
 
-        # Side effects: first raises error, second succeeds
-        mock_post.return_value.__aenter__.side_effect = [
-            aiohttp.ClientError("Connection refused"),
-            fresh_token_response,
-        ]
+    # Side effects: first raises error, second succeeds
+    mock_post.return_value.__aenter__.side_effect = [
+        aiohttp.ClientError("Connection refused"),
+        fresh_token_response,
+    ]
 
-        await api_client._ensure_valid_token()  # noqa: SLF001
+    await api_client._ensure_valid_token()  # noqa: SLF001
 
-        # Verify both calls were made (refresh + client_credentials)
-        assert mock_post.call_count == 2
+    # Verify both calls were made (refresh + client_credentials)
+    assert mock_post.call_count == 2
 
-        # Second call should be client_credentials
-        second_call = mock_post.call_args_list[1]
-        assert second_call[1]["params"]["grant_type"] == "client_credentials"
+    # Second call should be client_credentials
+    second_call = mock_post.call_args_list[1]
+    assert second_call[1]["params"]["grant_type"] == "client_credentials"
+
+
+async def test_get_fresh_tokens_http_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _get_fresh_tokens raises on non-200 HTTP status."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    mock_response = AsyncMock()
+    mock_response.status = 500
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+
+    with pytest.raises(OmadaApiAuthError, match="status 500"):
+        await api_client._get_fresh_tokens()  # noqa: SLF001
+
+
+async def test_get_fresh_tokens_api_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _get_fresh_tokens raises on API error code."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": -30001,
+        "msg": "Invalid credentials",
+    }
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+
+    with pytest.raises(OmadaApiAuthError, match="Invalid credentials"):
+        await api_client._get_fresh_tokens()  # noqa: SLF001
+
+
+async def test_get_fresh_tokens_connection_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _get_fresh_tokens raises on connection error."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    mock_session.post.return_value.__aenter__.side_effect = aiohttp.ClientError(
+        "timeout"
+    )
+
+    with pytest.raises(OmadaApiAuthError, match="Connection error"):
+        await api_client._get_fresh_tokens()  # noqa: SLF001
+
+
+async def test_refresh_non_200_falls_back(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _refresh_access_token falls back to client_credentials on non-200."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    # First call: refresh returns 503, second call: client_credentials succeeds
+    error_response = AsyncMock()
+    error_response.status = 503
+    success_response = AsyncMock()
+    success_response.status = 200
+    success_response.json.return_value = {
+        "errorCode": 0,
+        "result": {
+            "accessToken": "new_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "new_refresh",
+        },
+    }
+    mock_session.post.return_value.__aenter__.side_effect = [
+        error_response,
+        success_response,
+    ]
+
+    await api_client._refresh_access_token()  # noqa: SLF001
+    assert mock_session.post.call_count == 2
+
+
+async def test_refresh_unknown_api_error_raises(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _refresh_access_token raises on unknown API error code."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": -99999,
+        "msg": "Unknown server error",
+    }
+    mock_session.post.return_value.__aenter__.return_value = mock_response
+
+    with pytest.raises(OmadaApiAuthError, match="Unknown server error"):
+        await api_client._refresh_access_token()  # noqa: SLF001
+
+
+async def test_authenticated_request_401_after_retry(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _authenticated_request raises after 401 on retry attempt."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+
+    # Both attempts return 401
+    response_401 = AsyncMock()
+    response_401.status = 401
+    response_401.text.return_value = "Unauthorized"
+
+    # Refresh succeeds but second request also returns 401
+    refresh_response = AsyncMock()
+    refresh_response.status = 200
+    refresh_response.json.return_value = {
+        "errorCode": 0,
+        "result": {
+            "accessToken": "new_token",
+            "tokenType": "bearer",
+            "expiresIn": 7200,
+            "refreshToken": "new_refresh",
+        },
+    }
+
+    mock_session.get.return_value.__aenter__.return_value = response_401
+    mock_session.post.return_value.__aenter__.return_value = refresh_response
+
+    with pytest.raises(OmadaApiError, match="HTTP 401 after token refresh"):
+        await api_client._authenticated_request("get", "https://example.com/api")  # noqa: SLF001
+
+
+async def test_authenticated_request_connection_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test _authenticated_request raises on connection error."""
+    expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(hours=2)
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=expires_at,
+    )
+    mock_session.get.return_value.__aenter__.side_effect = aiohttp.ClientError(
+        "Connection refused"
+    )
+
+    with pytest.raises(OmadaApiError, match="Connection error"):
+        await api_client._authenticated_request("get", "https://example.com/api")  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -473,9 +695,11 @@ async def test_refresh_connection_error_falls_back_to_client_credentials(
 
 async def test_get_sites(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_sites returns site list from API response."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -493,9 +717,9 @@ async def test_get_sites(hass: HomeAssistant, mock_config_entry) -> None:
         "result": {"data": sites, "totalRows": 1},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_sites()
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_sites()
 
     assert result == sites
     call_url = mock_get.call_args[0][0]
@@ -504,9 +728,11 @@ async def test_get_sites(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_devices(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_devices sends correct URL with site_id."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -524,9 +750,9 @@ async def test_get_devices(hass: HomeAssistant, mock_config_entry) -> None:
         "result": {"data": devices, "totalRows": 1},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_devices("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_devices("site_001")
 
     assert result == devices
     call_url = mock_get.call_args[0][0]
@@ -535,9 +761,11 @@ async def test_get_devices(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_clients(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_clients uses POST with correct body."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -555,9 +783,9 @@ async def test_get_clients(hass: HomeAssistant, mock_config_entry) -> None:
         "result": clients_data,
     }
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_clients("site_001", page=1, page_size=500)
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_clients("site_001", page=1, page_size=500)
 
     assert result == clients_data
     call_url = mock_post.call_args[0][0]
@@ -572,9 +800,11 @@ async def test_get_clients(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_device_uplink_info(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_device_uplink_info sends MAC list in POST body."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -589,11 +819,9 @@ async def test_get_device_uplink_info(hass: HomeAssistant, mock_config_entry) ->
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0, "result": uplink_data}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_device_uplink_info(
-            "site_001", ["AA-BB-CC-DD-EE-01"]
-        )
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_device_uplink_info("site_001", ["AA-BB-CC-DD-EE-01"])
 
     assert result == uplink_data
     body = mock_post.call_args[1]["json"]
@@ -604,9 +832,11 @@ async def test_get_device_uplink_info_empty_list(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_device_uplink_info with empty MAC list returns early."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -622,9 +852,11 @@ async def test_get_device_uplink_info_empty_list(
 
 async def test_get_client_app_traffic(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_client_app_traffic passes time range parameters."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -639,11 +871,11 @@ async def test_get_client_app_traffic(hass: HomeAssistant, mock_config_entry) ->
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0, "result": app_data}
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_client_app_traffic(
-            "site_001", "AA:BB:CC:DD:EE:FF", 1000000, 2000000
-        )
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_client_app_traffic(
+        "site_001", "AA:BB:CC:DD:EE:FF", 1000000, 2000000
+    )
 
     assert result == app_data
     call_url = mock_get.call_args[0][0]
@@ -657,9 +889,11 @@ async def test_authenticated_request_non_200_raises(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test that non-200 HTTP status raises OmadaApiError."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -673,19 +907,21 @@ async def test_authenticated_request_non_200_raises(
     mock_response.status = 500
     mock_response.text.return_value = "Internal Server Error"
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        with pytest.raises(OmadaApiError, match="HTTP 500"):
-            await api_client.get_sites()
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    with pytest.raises(OmadaApiError, match="HTTP 500"):
+        await api_client.get_sites()
 
 
 async def test_authenticated_request_api_error_code(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test that non-zero API errorCode raises OmadaApiError."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -702,19 +938,21 @@ async def test_authenticated_request_api_error_code(
         "msg": "Permission denied",
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        with pytest.raises(OmadaApiError, match="Permission denied"):
-            await api_client.get_sites()
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    with pytest.raises(OmadaApiError, match="Permission denied"):
+        await api_client.get_sites()
 
 
 async def test_authenticated_request_api_error_code_attribute(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test OmadaApiError includes error_code attribute from API response."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -731,11 +969,11 @@ async def test_authenticated_request_api_error_code_attribute(
         "msg": "No permission",
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        with pytest.raises(OmadaApiError) as exc_info:
-            await api_client.get_sites()
-        assert exc_info.value.error_code == -1007
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    with pytest.raises(OmadaApiError) as exc_info:
+        await api_client.get_sites()
+    assert exc_info.value.error_code == -1007
 
 
 async def test_omada_api_error_default_error_code() -> None:
@@ -753,9 +991,11 @@ async def test_get_switch_ports_poe_single_page(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_switch_ports_poe fetches a single page of PoE data."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -776,9 +1016,9 @@ async def test_get_switch_ports_poe_single_page(
         "result": {"data": poe_ports, "totalRows": 2},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_switch_ports_poe("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_switch_ports_poe("site_001")
 
     assert len(result) == 2
     assert result[0]["power"] == 12.5
@@ -793,9 +1033,11 @@ async def test_get_switch_ports_poe_multi_page(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_switch_ports_poe paginates across multiple pages."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -823,12 +1065,12 @@ async def test_get_switch_ports_poe_multi_page(
         "result": {"data": page2_ports, "totalRows": 1500},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.side_effect = [
-            page1_response,
-            page2_response,
-        ]
-        result = await api_client.get_switch_ports_poe("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.side_effect = [
+        page1_response,
+        page2_response,
+    ]
+    result = await api_client.get_switch_ports_poe("site_001")
 
     assert len(result) == 1500
     assert mock_get.call_count == 2
@@ -844,9 +1086,11 @@ async def test_get_switch_ports_poe_empty(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_switch_ports_poe with no PoE ports returns empty list."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -863,18 +1107,20 @@ async def test_get_switch_ports_poe_empty(
         "result": {"data": [], "totalRows": 0},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_switch_ports_poe("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_switch_ports_poe("site_001")
 
     assert result == []
 
 
 async def test_get_poe_usage(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_poe_usage returns per-switch PoE budget data."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -903,9 +1149,9 @@ async def test_get_poe_usage(hass: HomeAssistant, mock_config_entry) -> None:
         "result": poe_usage_data,
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_poe_usage("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_poe_usage("site_001")
 
     assert len(result) == 1
     assert result[0]["mac"] == "AA-BB-CC-DD-EE-02"
@@ -922,9 +1168,11 @@ async def test_get_poe_usage(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_poe_usage_empty(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_poe_usage with no PoE switches returns empty list."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -941,9 +1189,9 @@ async def test_get_poe_usage_empty(hass: HomeAssistant, mock_config_entry) -> No
         "result": [],
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_poe_usage("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_poe_usage("site_001")
 
     assert result == []
 
@@ -955,9 +1203,11 @@ async def test_get_poe_usage_empty(hass: HomeAssistant, mock_config_entry) -> No
 
 async def test_get_device_client_stats(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_device_client_stats sends correct POST payload."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -984,11 +1234,9 @@ async def test_get_device_client_stats(hass: HomeAssistant, mock_config_entry) -
         "result": stats,
     }
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_device_client_stats(
-            "site_001", ["AA-BB-CC-DD-EE-01"]
-        )
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_device_client_stats("site_001", ["AA-BB-CC-DD-EE-01"])
 
     assert result == stats
 
@@ -1006,9 +1254,11 @@ async def test_get_device_client_stats_empty_macs(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_device_client_stats returns empty list for no MACs."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1026,9 +1276,11 @@ async def test_set_port_profile_override(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test set_port_profile_override sends correct PUT request."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1042,11 +1294,11 @@ async def test_set_port_profile_override(
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.put") as mock_put:
-        mock_put.return_value.__aenter__.return_value = mock_response
-        await api_client.set_port_profile_override(
-            "site_001", "AA-BB-CC-DD-EE-02", 1, enable=True
-        )
+    mock_put = mock_session.put
+    mock_put.return_value.__aenter__.return_value = mock_response
+    await api_client.set_port_profile_override(
+        "site_001", "AA-BB-CC-DD-EE-02", 1, enable=True
+    )
 
     call_url = mock_put.call_args[0][0]
     assert "/switches/AA-BB-CC-DD-EE-02/ports/1/profile-override" in call_url
@@ -1057,9 +1309,11 @@ async def test_set_port_profile_override_disable(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test set_port_profile_override with enable=False."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1073,20 +1327,22 @@ async def test_set_port_profile_override_disable(
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.put") as mock_put:
-        mock_put.return_value.__aenter__.return_value = mock_response
-        await api_client.set_port_profile_override(
-            "site_001", "AA-BB-CC-DD-EE-02", 3, enable=False
-        )
+    mock_put = mock_session.put
+    mock_put.return_value.__aenter__.return_value = mock_response
+    await api_client.set_port_profile_override(
+        "site_001", "AA-BB-CC-DD-EE-02", 3, enable=False
+    )
 
     assert mock_put.call_args[1]["json"] == {"profileOverrideEnable": False}
 
 
 async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> None:
     """Test set_port_poe_mode with poe_enabled=True sends poeMode 1."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1100,11 +1356,11 @@ async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> N
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.put") as mock_put:
-        mock_put.return_value.__aenter__.return_value = mock_response
-        await api_client.set_port_poe_mode(
-            "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=True
-        )
+    mock_put = mock_session.put
+    mock_put.return_value.__aenter__.return_value = mock_response
+    await api_client.set_port_poe_mode(
+        "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=True
+    )
 
     call_url = mock_put.call_args[0][0]
     assert "/switches/AA-BB-CC-DD-EE-02/ports/1/poe-mode" in call_url
@@ -1113,9 +1369,11 @@ async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> N
 
 async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> None:
     """Test set_port_poe_mode with poe_enabled=False sends poeMode 0."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1129,20 +1387,22 @@ async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> 
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.put") as mock_put:
-        mock_put.return_value.__aenter__.return_value = mock_response
-        await api_client.set_port_poe_mode(
-            "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
-        )
+    mock_put = mock_session.put
+    mock_put.return_value.__aenter__.return_value = mock_response
+    await api_client.set_port_poe_mode(
+        "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
+    )
 
     assert mock_put.call_args[1]["json"] == {"poeMode": 0}
 
 
 async def test_reboot_device(hass: HomeAssistant, mock_config_entry) -> None:
     """Test reboot_device sends POST to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1156,9 +1416,9 @@ async def test_reboot_device(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.reboot_device("site_001", "AA-BB-CC-DD-EE-01")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.reboot_device("site_001", "AA-BB-CC-DD-EE-01")
 
     call_url = mock_post.call_args[0][0]
     assert "/devices/AA-BB-CC-DD-EE-01/reboot" in call_url
@@ -1167,9 +1427,11 @@ async def test_reboot_device(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_reconnect_client(hass: HomeAssistant, mock_config_entry) -> None:
     """Test reconnect_client sends POST to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1183,9 +1445,9 @@ async def test_reconnect_client(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.reconnect_client("site_001", "11-22-33-44-55-AA")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.reconnect_client("site_001", "11-22-33-44-55-AA")
 
     call_url = mock_post.call_args[0][0]
     assert "/clients/11-22-33-44-55-AA/reconnect" in call_url
@@ -1193,9 +1455,11 @@ async def test_reconnect_client(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_start_wlan_optimization(hass: HomeAssistant, mock_config_entry) -> None:
     """Test start_wlan_optimization sends POST with strategy payload."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1209,9 +1473,9 @@ async def test_start_wlan_optimization(hass: HomeAssistant, mock_config_entry) -
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0, "result": {}}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.start_wlan_optimization("site_001")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.start_wlan_optimization("site_001")
 
     call_url = mock_post.call_args[0][0]
     assert "/cmd/rfPlanning/rrmOptimization" in call_url
@@ -1220,9 +1484,11 @@ async def test_start_wlan_optimization(hass: HomeAssistant, mock_config_entry) -
 
 async def test_block_client(hass: HomeAssistant, mock_config_entry) -> None:
     """Test block_client sends POST to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1236,9 +1502,9 @@ async def test_block_client(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.block_client("site_001", "11-22-33-44-55-AA")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.block_client("site_001", "11-22-33-44-55-AA")
 
     call_url = mock_post.call_args[0][0]
     assert "/clients/11-22-33-44-55-AA/block" in call_url
@@ -1246,9 +1512,11 @@ async def test_block_client(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_unblock_client(hass: HomeAssistant, mock_config_entry) -> None:
     """Test unblock_client sends POST to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1262,9 +1530,9 @@ async def test_unblock_client(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.unblock_client("site_001", "11-22-33-44-55-AA")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.unblock_client("site_001", "11-22-33-44-55-AA")
 
     call_url = mock_post.call_args[0][0]
     assert "/clients/11-22-33-44-55-AA/unblock" in call_url
@@ -1272,9 +1540,11 @@ async def test_unblock_client(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_firmware_info(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_firmware_info sends GET to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1291,9 +1561,9 @@ async def test_get_firmware_info(hass: HomeAssistant, mock_config_entry) -> None
         "result": {"curFwVer": "1.0", "lastFwVer": "1.1", "fwReleaseLog": "Fix"},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_firmware_info("site_001", "AA-BB-CC-DD-EE-01")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_firmware_info("site_001", "AA-BB-CC-DD-EE-01")
 
     call_url = mock_get.call_args[0][0]
     assert "/devices/AA-BB-CC-DD-EE-01/latest-firmware-info" in call_url
@@ -1302,9 +1572,11 @@ async def test_get_firmware_info(hass: HomeAssistant, mock_config_entry) -> None
 
 async def test_start_online_upgrade(hass: HomeAssistant, mock_config_entry) -> None:
     """Test start_online_upgrade sends POST to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1318,9 +1590,9 @@ async def test_start_online_upgrade(hass: HomeAssistant, mock_config_entry) -> N
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.start_online_upgrade("site_001", "AA-BB-CC-DD-EE-01")
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.start_online_upgrade("site_001", "AA-BB-CC-DD-EE-01")
 
     call_url = mock_post.call_args[0][0]
     assert "/devices/AA-BB-CC-DD-EE-01/start-online-upgrade" in call_url
@@ -1328,9 +1600,11 @@ async def test_start_online_upgrade(hass: HomeAssistant, mock_config_entry) -> N
 
 async def test_get_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_led_setting sends GET to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1347,9 +1621,9 @@ async def test_get_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
         "result": {"enable": True},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_led_setting("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_led_setting("site_001")
 
     call_url = mock_get.call_args[0][0]
     assert "/sites/site_001/led" in call_url
@@ -1358,9 +1632,11 @@ async def test_get_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_set_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
     """Test set_led_setting sends PUT with enable payload."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1374,9 +1650,9 @@ async def test_set_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.put") as mock_put:
-        mock_put.return_value.__aenter__.return_value = mock_response
-        await api_client.set_led_setting("site_001", enable=False)
+    mock_put = mock_session.put
+    mock_put.return_value.__aenter__.return_value = mock_response
+    await api_client.set_led_setting("site_001", enable=False)
 
     call_url = mock_put.call_args[0][0]
     assert "/sites/site_001/led" in call_url
@@ -1385,9 +1661,11 @@ async def test_set_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_locate_device(hass: HomeAssistant, mock_config_entry) -> None:
     """Test locate_device sends POST with locateEnable payload."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1401,9 +1679,9 @@ async def test_locate_device(hass: HomeAssistant, mock_config_entry) -> None:
     mock_response.status = 200
     mock_response.json.return_value = {"errorCode": 0}
 
-    with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_post.return_value.__aenter__.return_value = mock_response
-        await api_client.locate_device("site_001", "AA-BB-CC-DD-EE-01", enable=True)
+    mock_post = mock_session.post
+    mock_post.return_value.__aenter__.return_value = mock_response
+    await api_client.locate_device("site_001", "AA-BB-CC-DD-EE-01", enable=True)
 
     call_url = mock_post.call_args[0][0]
     assert "/devices/AA-BB-CC-DD-EE-01/locate" in call_url
@@ -1412,9 +1690,11 @@ async def test_locate_device(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_ap_radios(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_ap_radios sends GET to correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1431,9 +1711,9 @@ async def test_get_ap_radios(hass: HomeAssistant, mock_config_entry) -> None:
         "result": {"radioTraffic2g": {"tx": 100, "rx": 200}},
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_ap_radios("site_001", "AA-BB-CC-DD-EE-01")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_ap_radios("site_001", "AA-BB-CC-DD-EE-01")
 
     call_url = mock_get.call_args[0][0]
     assert "/aps/AA-BB-CC-DD-EE-01/radios" in call_url
@@ -1449,9 +1729,11 @@ async def test_check_write_access_success(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test check_write_access returns True when write probe succeeds."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1472,10 +1754,9 @@ async def test_check_write_access_success(
     put_response.status = 200
     put_response.json.return_value = {"errorCode": 0, "result": {}}
 
-    with (
-        patch("aiohttp.ClientSession.get") as mock_get,
-        patch("aiohttp.ClientSession.put") as mock_put,
-    ):
+    mock_get = mock_session.get
+    mock_put = mock_session.put
+    if True:
         mock_get.return_value.__aenter__.return_value = get_response
         mock_put.return_value.__aenter__.return_value = put_response
         result = await api_client.check_write_access("site_001")
@@ -1490,9 +1771,11 @@ async def test_check_write_access_viewer_only(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test check_write_access returns False on permissions error."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1516,10 +1799,9 @@ async def test_check_write_access_viewer_only(
         "msg": "No permission",
     }
 
-    with (
-        patch("aiohttp.ClientSession.get") as mock_get,
-        patch("aiohttp.ClientSession.put") as mock_put,
-    ):
+    mock_get = mock_session.get
+    mock_put = mock_session.put
+    if True:
         mock_get.return_value.__aenter__.return_value = get_response
         mock_put.return_value.__aenter__.return_value = put_response
         result = await api_client.check_write_access("site_001")
@@ -1534,9 +1816,11 @@ async def test_check_write_access_viewer_only(
 
 async def test_get_gateway_info(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_gateway_info fetches gateway information with temperature."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1560,9 +1844,9 @@ async def test_get_gateway_info(hass: HomeAssistant, mock_config_entry) -> None:
         },
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_gateway_info("site_001", "AA-BB-CC-DD-EE-01")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_gateway_info("site_001", "AA-BB-CC-DD-EE-01")
 
     call_url = mock_get.call_args[0][0]
     assert "/gateways/AA-BB-CC-DD-EE-01" in call_url
@@ -1572,9 +1856,11 @@ async def test_get_gateway_info(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_site_ssids fetches SSID list for a site."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1608,9 +1894,9 @@ async def test_get_site_ssids(hass: HomeAssistant, mock_config_entry) -> None:
         ],
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_site_ssids("site_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_site_ssids("site_001")
 
     call_url = mock_get.call_args[0][0]
     assert "/wireless-network/ssids" in call_url
@@ -1626,9 +1912,11 @@ async def test_get_site_ssids_comprehensive(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_site_ssids_comprehensive fetches all SSIDs from all WLAN groups."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1684,9 +1972,8 @@ async def test_get_site_ssids_comprehensive(
         },
     }
 
-    with (
-        patch("aiohttp.ClientSession.get") as mock_get,
-    ):
+    mock_get = mock_session.get
+    if True:
         # First call returns WLAN groups, then SSIDs for each WLAN
         mock_get.return_value.__aenter__.side_effect = [
             wlan_groups_response,
@@ -1725,9 +2012,11 @@ async def test_get_site_ssids_comprehensive_pagination(
     hass: HomeAssistant, mock_config_entry
 ) -> None:
     """Test get_site_ssids_comprehensive handles pagination correctly."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1781,14 +2070,14 @@ async def test_get_site_ssids_comprehensive_pagination(
         },
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.side_effect = [
-            wlan_groups_response,
-            page1_response,
-            page2_response,
-        ]
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.side_effect = [
+        wlan_groups_response,
+        page1_response,
+        page2_response,
+    ]
 
-        result = await api_client.get_site_ssids_comprehensive("site_001")
+    result = await api_client.get_site_ssids_comprehensive("site_001")
 
     # Verify pagination calls
     assert mock_get.call_count == 3  # 1 WLAN groups + 2 SSID pages
@@ -1806,9 +2095,11 @@ async def test_get_site_ssids_comprehensive_pagination(
 
 async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:
     """Test get_ssid_detail fetches detailed SSID configuration."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1832,9 +2123,9 @@ async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:
         },
     }
 
-    with patch("aiohttp.ClientSession.get") as mock_get:
-        mock_get.return_value.__aenter__.return_value = mock_response
-        result = await api_client.get_ssid_detail("site_001", "wlan_001", "ssid_001")
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_ssid_detail("site_001", "wlan_001", "ssid_001")
 
     call_url = mock_get.call_args[0][0]
     assert "/wireless-network/wlans/wlan_001/ssids/ssid_001" in call_url
@@ -1844,9 +2135,11 @@ async def test_get_ssid_detail(hass: HomeAssistant, mock_config_entry) -> None:
 
 async def test_update_ssid_basic_config(hass: HomeAssistant, mock_config_entry) -> None:
     """Test update_ssid_basic_config updates SSID configuration."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
     api_client = OmadaApiClient(
-        hass,
-        mock_config_entry,
+        session=mock_session,
+        token_update_callback=mock_callback,
         api_url=mock_config_entry.data[CONF_API_URL],
         omada_id=mock_config_entry.data[CONF_OMADA_ID],
         client_id=mock_config_entry.data[CONF_CLIENT_ID],
@@ -1862,11 +2155,11 @@ async def test_update_ssid_basic_config(hass: HomeAssistant, mock_config_entry) 
 
     config = {"name": "HomeWiFi", "band": 7, "broadcast": False}
 
-    with patch("aiohttp.ClientSession.patch") as mock_patch:
-        mock_patch.return_value.__aenter__.return_value = mock_response
-        await api_client.update_ssid_basic_config(
-            "site_001", "wlan_001", "ssid_001", config
-        )
+    mock_patch = mock_session.patch
+    mock_patch.return_value.__aenter__.return_value = mock_response
+    await api_client.update_ssid_basic_config(
+        "site_001", "wlan_001", "ssid_001", config
+    )
 
     call_url = mock_patch.call_args[0][0]
     assert (

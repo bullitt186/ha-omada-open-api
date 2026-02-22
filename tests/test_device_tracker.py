@@ -482,7 +482,7 @@ async def test_device_tracker_device_info(hass: HomeAssistant) -> None:
     """Test device info links tracker to correct device."""
     data = _connected_device(SAMPLE_DEVICE_AP)
     tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
-    info = tracker.device_info
+    info = tracker._attr_device_info  # noqa: SLF001
     assert info is not None
     assert info["identifiers"] == {("omada_open_api", AP_MAC)}
     assert info["name"] == "Office AP"
@@ -494,7 +494,9 @@ async def test_device_tracker_device_info(hass: HomeAssistant) -> None:
 async def test_device_tracker_device_info_missing(hass: HomeAssistant) -> None:
     """Test device info returns None when device not in data."""
     tracker = _create_device_tracker(hass, AP_MAC, {})
-    assert tracker.device_info is None
+    assert (
+        not hasattr(tracker, "_attr_device_info") or tracker._attr_device_info is None  # noqa: SLF001
+    )
 
 
 # ---------------------------------------------------------------------------
