@@ -11,7 +11,7 @@ requires-python = ">=3.11"
 license = {text = "MIT"}
 
 [tool.ruff]
-required-version = ">=0.14.0"
+required-version = ">=0.15.2"
 target-version = "py311"
 line-length = 88
 
@@ -130,6 +130,7 @@ disable = [
     "inconsistent-return-statements",
     "locally-disabled",
     "not-context-manager",
+    "suppressed-message",
     "too-few-public-methods",
     "too-many-ancestors",
     "too-many-arguments",
@@ -141,6 +142,7 @@ disable = [
     "too-many-boolean-expressions",
     "unexpected-keyword-arg",
     "unused-argument",
+    "useless-suppression",
     "wrong-import-order",
 ]
 

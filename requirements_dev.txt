@@ -9,8 +9,8 @@ pytest-cov>=4.1.0
 pytest-timeout>=2.1.0
 
 # Code quality tools (Home Assistant standards)
-ruff>=0.14.0
-pylint>=3.3.0
+ruff==0.15.2
+pylint==4.0.5
 mypy>=1.15.0
 pre-commit>=4.5.0
 

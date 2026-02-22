@@ -124,12 +124,14 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Uptime",
         icon=ICON_UPTIME,
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda device: (  # type: ignore[arg-type, return-value]
-            dt_util.utcnow().replace(microsecond=0)
-            - dt.timedelta(seconds=device["uptime"])
-        )
-        if device.get("uptime") is not None
-        else None,
+        value_fn=lambda device: (  # type: ignore[arg-type]
+            (  # type: ignore[return-value]
+                dt_util.utcnow().replace(microsecond=0)
+                - dt.timedelta(seconds=device["uptime"])
+            )
+            if device.get("uptime") is not None
+            else None
+        ),
         available_fn=lambda device: device.get("uptime") is not None,
     ),
     OmadaSensorEntityDescription(
@@ -231,9 +233,9 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         icon="mdi:ip-network",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda device: ", ".join(device.get("ipv6", []))
-        if device.get("ipv6")
-        else None,
+        value_fn=lambda device: (
+            ", ".join(device.get("ipv6", [])) if device.get("ipv6") else None
+        ),
         available_fn=lambda device: bool(device.get("ipv6")),
     ),
     OmadaSensorEntityDescription(
@@ -330,8 +332,9 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         native_unit_of_measurement=PERCENTAGE,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda client: client.get("signal_level"),
-        available_fn=lambda client: client.get("wireless", False)
-        and client.get("signal_level") is not None,
+        available_fn=lambda client: (
+            client.get("wireless", False) and client.get("signal_level") is not None
+        ),
     ),
     OmadaSensorEntityDescription(
         key="connected_to",
@@ -339,9 +342,11 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Connected To",
         icon="mdi:access-point",
         entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda client: client.get("ap_name")
-        or client.get("switch_name")
-        or client.get("gateway_name"),
+        value_fn=lambda client: (
+            client.get("ap_name")
+            or client.get("switch_name")
+            or client.get("gateway_name")
+        ),
     ),
     OmadaSensorEntityDescription(
         key="ssid",
@@ -442,12 +447,14 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Uptime",
         icon=ICON_UPTIME,
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda client: (  # type: ignore[arg-type, return-value]
-            dt_util.utcnow().replace(microsecond=0)
-            - dt.timedelta(seconds=client["uptime"])
-        )
-        if client.get("uptime") is not None
-        else None,
+        value_fn=lambda client: (  # type: ignore[arg-type]
+            (  # type: ignore[return-value]
+                dt_util.utcnow().replace(microsecond=0)
+                - dt.timedelta(seconds=client["uptime"])
+            )
+            if client.get("uptime") is not None
+            else None
+        ),
         available_fn=lambda client: client.get("uptime") is not None,
     ),
 )
