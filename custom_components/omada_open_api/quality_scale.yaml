@@ -3,10 +3,9 @@ rules:
   action-setup: done
   appropriate-polling: done
   brands:
-    status: exempt
+    status: done
     comment: >
-      Custom HACS integration; brand assets are in the repository
-      but cannot be registered in the official home-assistant/brands repository.
+      Custom HACS integration; brand assets have been commited to https://brands.home-assistant.io/omada_open_api/
   common-modules: done
   config-flow: done
   config-flow-test-coverage: done
