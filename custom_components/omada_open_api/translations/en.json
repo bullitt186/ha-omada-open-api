@@ -23,12 +23,12 @@
             },
             "local": {
                 "title": "Local Controller URL",
-                "description": "Enter the URL of your self-hosted Omada controller (e.g., https://192.168.1.100:8043 or https://omada.local:8043).",
+                "description": "Enter the URL of your self-hosted Omada controller (e.g., {example_url}).",
                 "data": {
                     "api_url": "Controller URL"
                 },
                 "data_description": {
-                    "api_url": "Full URL including protocol (http:// or https://)"
+                    "api_url": "Full URL including protocol and port"
                 }
             },
             "credentials": {

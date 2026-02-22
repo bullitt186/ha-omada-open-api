@@ -33,7 +33,7 @@ jobs:
         run: ruff format --check custom_components/ tests/
 
       - name: Pylint
-        run: pylint custom_components/omada_open_api/
+        run: pylint --rcfile=pyproject.toml custom_components/omada_open_api/
 
       - name: Mypy strict
         run: mypy --config-file pyproject.toml custom_components/omada_open_api/

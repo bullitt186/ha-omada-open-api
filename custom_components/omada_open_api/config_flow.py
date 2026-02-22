@@ -171,6 +171,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="local",
             data_schema=data_schema,
             errors=errors,
+            description_placeholders={
+                "example_url": "https://192.168.1.100:8043",
+            },
         )
 
     async def async_step_credentials(
