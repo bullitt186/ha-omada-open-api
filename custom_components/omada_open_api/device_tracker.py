@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.device_tracker import ScannerEntity, SourceType
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import format_detail_status
+from .entity import OmadaEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -82,12 +82,10 @@ async def async_setup_entry(
 
 
 class OmadaDeviceTracker(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     ScannerEntity,  # type: ignore[misc]
 ):
     """Representation of an Omada network device (AP/switch/gateway) for presence detection."""
-
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -196,7 +194,7 @@ class OmadaDeviceTracker(
 
 
 class OmadaClientTracker(
-    CoordinatorEntity[OmadaClientCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaClientCoordinator],
     ScannerEntity,  # type: ignore[misc]
 ):
     """Representation of an Omada network client for presence detection."""

@@ -187,6 +187,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             self._client_id = user_input[CONF_CLIENT_ID]
             self._client_secret = user_input[CONF_CLIENT_SECRET]
 
+            # Prevent duplicate config entries for the same controller
+            await self.async_set_unique_id(self._omada_id)
+            self._abort_if_unique_id_configured()
+
             # Validate credentials by obtaining access token
             try:
                 _LOGGER.debug("Attempting to get access token from %s", self._api_url)
@@ -289,6 +293,20 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             },
         )
 
+    def _generate_entry_title(self) -> str:
+        """Generate config entry title from selected sites."""
+        if self._selected_site_ids:
+            first_site = next(
+                site
+                for site in self._available_sites
+                if site["siteId"] in self._selected_site_ids
+            )
+            title = f"Omada - {first_site['name']}"
+            if len(self._selected_site_ids) > 1:
+                title += f" (+{len(self._selected_site_ids) - 1})"
+            return title
+        return "Omada Controller"
+
     async def async_step_clients(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -315,18 +333,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
 
         if not self._available_clients:
             # No clients available, skip client selection
-            # Get title from first selected site
-            if self._selected_site_ids:
-                first_site = next(
-                    site
-                    for site in self._available_sites
-                    if site["siteId"] in self._selected_site_ids
-                )
-                title = f"Omada - {first_site['name']}"
-                if len(self._selected_site_ids) > 1:
-                    title += f" (+{len(self._selected_site_ids) - 1})"
-            else:
-                title = "Omada Controller"
+            title = self._generate_entry_title()
 
             return self.async_create_entry(
                 title=title,
@@ -340,7 +347,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
                     CONF_REFRESH_TOKEN: self._refresh_token,
                     CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
                     CONF_SELECTED_SITES: self._selected_site_ids,
+                },
+                options={
                     CONF_SELECTED_CLIENTS: [],
+                    CONF_SELECTED_APPLICATIONS: [],
                 },
             )
 
@@ -623,18 +633,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
         if user_input is not None:
             selected_app_ids = user_input.get(CONF_SELECTED_APPLICATIONS, [])
 
-            # Get title from first selected site
-            if self._selected_site_ids:
-                first_site = next(
-                    site
-                    for site in self._available_sites
-                    if site["siteId"] in self._selected_site_ids
-                )
-                title = f"Omada - {first_site['name']}"
-                if len(self._selected_site_ids) > 1:
-                    title += f" (+{len(self._selected_site_ids) - 1})"
-            else:
-                title = "Omada Controller"
+            title = self._generate_entry_title()
 
             # Create config entry
             return self.async_create_entry(
@@ -649,6 +648,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
                     CONF_REFRESH_TOKEN: self._refresh_token,
                     CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
                     CONF_SELECTED_SITES: self._selected_site_ids,
+                },
+                options={
                     CONF_SELECTED_CLIENTS: self._selected_client_macs,
                     CONF_SELECTED_APPLICATIONS: selected_app_ids,
                 },
@@ -667,17 +668,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
 
         if not self._available_applications:
             # No applications available or DPI not supported, skip and create entry
-            if self._selected_site_ids:
-                first_site = next(
-                    site
-                    for site in self._available_sites
-                    if site["siteId"] in self._selected_site_ids
-                )
-                title = f"Omada - {first_site['name']}"
-                if len(self._selected_site_ids) > 1:
-                    title += f" (+{len(self._selected_site_ids) - 1})"
-            else:
-                title = "Omada Controller"
+            title = self._generate_entry_title()
 
             return self.async_create_entry(
                 title=title,
@@ -691,6 +682,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
                     CONF_REFRESH_TOKEN: self._refresh_token,
                     CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
                     CONF_SELECTED_SITES: self._selected_site_ids,
+                },
+                options={
                     CONF_SELECTED_CLIENTS: self._selected_client_macs,
                     CONF_SELECTED_APPLICATIONS: [],
                 },
@@ -856,30 +849,25 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
     ) -> ConfigFlowResult:
         """Handle update interval configuration."""
         if user_input is not None:
-            # Update config entry with new intervals
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
+            # Return merged options — HA sets entry.options from data param
+            return self.async_create_entry(
+                title="",
                 data={
-                    **self.config_entry.data,
+                    **self.config_entry.options,
                     CONF_DEVICE_SCAN_INTERVAL: user_input[CONF_DEVICE_SCAN_INTERVAL],
                     CONF_CLIENT_SCAN_INTERVAL: user_input[CONF_CLIENT_SCAN_INTERVAL],
                     CONF_APP_SCAN_INTERVAL: user_input[CONF_APP_SCAN_INTERVAL],
                 },
             )
 
-            # Reload the integration to apply changes
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-
-            return self.async_create_entry(title="", data={})
-
-        # Get current values
-        current_device = self.config_entry.data.get(
+        # Get current values from options
+        current_device = self.config_entry.options.get(
             CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
         )
-        current_client = self.config_entry.data.get(
+        current_client = self.config_entry.options.get(
             CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
         )
-        current_app = self.config_entry.data.get(
+        current_app = self.config_entry.options.get(
             CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL
         )
 
@@ -918,19 +906,14 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
         if user_input is not None:
             selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
 
-            # Update config entry with new client selection
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
+            # Return merged options — HA sets entry.options from data param
+            return self.async_create_entry(
+                title="",
                 data={
-                    **self.config_entry.data,
+                    **self.config_entry.options,
                     CONF_SELECTED_CLIENTS: selected_client_macs,
                 },
             )
-
-            # Reload the integration to apply changes
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-
-            return self.async_create_entry(title="", data={})
 
         # Get credentials from config entry
         self._api_url = self.config_entry.data[CONF_API_URL]
@@ -952,10 +935,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
 
         if not self._available_clients and not errors:
             # No clients available, return with empty selection
-            return self.async_create_entry(title="", data={})
+            return self.async_create_entry(title="", data=self.config_entry.options)
 
         # Get currently selected clients
-        current_selection = self.config_entry.data.get(CONF_SELECTED_CLIENTS, [])
+        current_selection = self.config_entry.options.get(CONF_SELECTED_CLIENTS, [])
 
         # Create client selection options
         client_options = []
@@ -1005,19 +988,14 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
         if user_input is not None:
             selected_app_ids = user_input.get(CONF_SELECTED_APPLICATIONS, [])
 
-            # Update config entry with new application selection
-            self.hass.config_entries.async_update_entry(
-                self.config_entry,
+            # Return merged options — HA sets entry.options from data param
+            return self.async_create_entry(
+                title="",
                 data={
-                    **self.config_entry.data,
+                    **self.config_entry.options,
                     CONF_SELECTED_APPLICATIONS: selected_app_ids,
                 },
             )
-
-            # Reload the integration to apply changes
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-
-            return self.async_create_entry(title="", data={})
 
         # Get credentials from config entry
         self._api_url = self.config_entry.data[CONF_API_URL]
@@ -1038,10 +1016,12 @@ class OmadaOptionsFlowHandler(OptionsFlow):  # type: ignore[misc]
 
         if not self._available_applications and not errors:
             # No applications available, return with empty selection
-            return self.async_create_entry(title="", data={})
+            return self.async_create_entry(title="", data=self.config_entry.options)
 
         # Get currently selected applications
-        current_selection = self.config_entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+        current_selection = self.config_entry.options.get(
+            CONF_SELECTED_APPLICATIONS, []
+        )
 
         # Create application selection options (sorted by family then name)
         app_options = []

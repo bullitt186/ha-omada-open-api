@@ -10,11 +10,11 @@ from homeassistant.components.update import (
     UpdateEntity,
     UpdateEntityFeature,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OmadaApiError
 from .const import DOMAIN
 from .coordinator import OmadaSiteCoordinator
+from .entity import OmadaEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -46,12 +46,11 @@ async def async_setup_entry(
 
 
 class OmadaDeviceUpdateEntity(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     UpdateEntity,  # type: ignore[misc]
 ):
     """Update entity for Omada device firmware."""
 
-    _attr_has_entity_name = True
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = UpdateEntityFeature.INSTALL
 

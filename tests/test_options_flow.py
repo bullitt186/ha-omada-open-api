@@ -135,10 +135,10 @@ async def test_update_intervals_saves_values(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
-    # Verify saved values
-    assert entry.data[CONF_DEVICE_SCAN_INTERVAL] == 120
-    assert entry.data[CONF_CLIENT_SCAN_INTERVAL] == 15
-    assert entry.data[CONF_APP_SCAN_INTERVAL] == 600
+    # Verify saved values are in entry.options (not entry.data)
+    assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 120
+    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 15
+    assert entry.options[CONF_APP_SCAN_INTERVAL] == 600
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +148,11 @@ async def test_update_intervals_saves_values(hass: HomeAssistant) -> None:
 
 async def test_update_intervals_preserves_existing(hass: HomeAssistant) -> None:
     """Test that the form pre-fills with previously saved intervals."""
-    entry = _create_config_entry(
-        hass,
-        **{
+    entry = _create_config_entry(hass)
+    # Store intervals in options where they belong
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
             CONF_DEVICE_SCAN_INTERVAL: 90,
             CONF_CLIENT_SCAN_INTERVAL: 45,
             CONF_APP_SCAN_INTERVAL: 180,

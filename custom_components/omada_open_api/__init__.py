@@ -7,7 +7,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import Platform
-from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryNotReady,
+    ServiceValidationError,
+)
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .api import OmadaApiAuthError, OmadaApiClient
@@ -132,6 +136,50 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
+# Keys that belong in entry.options rather than entry.data.
+_OPTIONS_KEYS = {
+    CONF_SELECTED_CLIENTS,
+    CONF_SELECTED_APPLICATIONS,
+    CONF_DEVICE_SCAN_INTERVAL,
+    CONF_CLIENT_SCAN_INTERVAL,
+    CONF_APP_SCAN_INTERVAL,
+}
+
+
+def _migrate_data_to_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Move user-preference keys from entry.data to entry.options.
+
+    Older versions stored scan intervals and selections in entry.data.
+    This one-time migration moves them to entry.options where they belong.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry to migrate
+
+    """
+    migrated: dict[str, Any] = {}
+    for key in _OPTIONS_KEYS:
+        if key in entry.data:
+            migrated[key] = entry.data[key]
+
+    if not migrated:
+        return
+
+    _LOGGER.info("Migrating %d key(s) from entry.data to entry.options", len(migrated))
+
+    # Remove migrated keys from data
+    new_data = {k: v for k, v in entry.data.items() if k not in _OPTIONS_KEYS}
+
+    # Merge into existing options (existing options take precedence)
+    new_options = {**migrated, **dict(entry.options)}
+
+    hass.config_entries.async_update_entry(
+        entry,
+        data=new_data,
+        options=new_options,
+    )
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
     """Set up Omada Open API from a config entry.
 
@@ -147,6 +195,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
 
     """
     _LOGGER.debug("Setting up Omada Open API integration")
+
+    # Migrate legacy config: move user-preference keys from data to options.
+    _migrate_data_to_options(hass, entry)
 
     # Parse token expiration time
     token_expires_at = dt.datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRES_AT])
@@ -174,19 +225,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         raise ConfigEntryAuthFailed(
             "Authentication failed. Please re-authenticate."
         ) from err
+    except (TimeoutError, OSError) as err:
+        raise ConfigEntryNotReady(
+            "Unable to connect to Omada API. Will retry."
+        ) from err
 
     # Create coordinators for each selected site
     coordinators: dict[str, OmadaSiteCoordinator] = {}
     selected_site_ids: list[str] = entry.data.get(CONF_SELECTED_SITES, [])
 
-    # Get configured scan intervals
-    device_interval = entry.data.get(
+    # Get configured scan intervals from options
+    device_interval = entry.options.get(
         CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
     )
-    client_interval = entry.data.get(
+    client_interval = entry.options.get(
         CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
     )
-    app_interval = entry.data.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
+    app_interval = entry.options.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
 
     # Get all sites to find names for selected sites
     all_sites = await api_client.get_sites()
@@ -237,7 +292,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
 
     # Create client coordinators for selected clients
     client_coordinators: list[OmadaClientCoordinator] = []
-    selected_client_macs: list[str] = entry.data.get(CONF_SELECTED_CLIENTS, [])
+    selected_client_macs: list[str] = entry.options.get(CONF_SELECTED_CLIENTS, [])
 
     if selected_client_macs:
         _LOGGER.info("Setting up tracking for %d clients", len(selected_client_macs))
@@ -272,7 +327,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
 
     # Create app traffic coordinators for selected applications
     app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = []
-    selected_app_ids: list[str] = entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+    selected_app_ids: list[str] = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
 
     if selected_app_ids and selected_client_macs:
         _LOGGER.info(
@@ -357,14 +412,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
         "app_traffic_coordinators": app_traffic_coordinators,
         "has_write_access": has_write_access,
         "site_devices": site_devices,
+        "prev_data": dict(entry.data),
+        "prev_options": dict(entry.options),
     }
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Snapshot current data so the update listener can detect real config changes
-    # vs. token-only updates.
-    hass.data.setdefault(f"{DOMAIN}_prev_data", {})[entry.entry_id] = dict(entry.data)
 
     # Set up config entry update listener (skips reload on token-only changes)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -415,13 +468,20 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         CONF_TOKEN_EXPIRES,
     }
 
-    # Compare current runtime data snapshot with the new entry data.
-    # If only token keys differ, skip the reload.
-    prev_store: dict[str, dict[str, Any]] = hass.data.get(f"{DOMAIN}_prev_data", {})
-    previous_data = prev_store.get(entry.entry_id, {})
+    # Compare previous data/options snapshots with current values.
+    # If only token keys in data differ and options are unchanged, skip reload.
+    previous_data: dict[str, Any] = {}
+    previous_options: dict[str, Any] = {}
+    runtime_data = getattr(entry, "runtime_data", None)
+    if runtime_data:
+        previous_data = runtime_data.get("prev_data", {})
+        previous_options = runtime_data.get("prev_options", {})
     current_data = dict(entry.data)
+    current_options = dict(entry.options)
 
-    if previous_data:
+    options_changed = current_options != previous_options
+
+    if previous_data and not options_changed:
         changed_keys = {
             k
             for k in current_data.keys() | previous_data.keys()
@@ -429,10 +489,13 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         }
         if changed_keys and changed_keys <= token_keys:
             _LOGGER.debug("Skipping reload — only auth tokens changed")
-            prev_store[entry.entry_id] = current_data
+            if runtime_data:
+                runtime_data["prev_data"] = current_data
             return
 
-    prev_store[entry.entry_id] = current_data
+    if runtime_data:
+        runtime_data["prev_data"] = current_data
+        runtime_data["prev_options"] = current_options
 
     # Clean up devices and entities that are no longer selected before reloading
     await _cleanup_devices(hass, entry)
@@ -452,7 +515,7 @@ async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
     device_registry = dr.async_get(hass)
 
     # Get currently selected items
-    selected_client_macs = entry.data.get(CONF_SELECTED_CLIENTS, [])
+    selected_client_macs = entry.options.get(CONF_SELECTED_CLIENTS, [])
     selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
 
     # Normalize to uppercase with hyphens for comparison
@@ -503,7 +566,7 @@ async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entity_reg = er.async_get(hass)
 
     # Get currently selected applications
-    selected_app_ids = entry.data.get(CONF_SELECTED_APPLICATIONS, [])
+    selected_app_ids = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
 
     if not selected_app_ids:
         # No apps selected, remove all app traffic entities
@@ -561,7 +624,7 @@ async def async_remove_config_entry_device(
 
     """
     # Get the list of selected clients and sites
-    selected_client_macs = entry.data.get(CONF_SELECTED_CLIENTS, [])
+    selected_client_macs = entry.options.get(CONF_SELECTED_CLIENTS, [])
     selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
 
     # Normalize MAC addresses to match format (with hyphens)

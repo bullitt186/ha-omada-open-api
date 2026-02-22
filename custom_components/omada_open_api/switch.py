@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OmadaApiError
 from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .entity import OmadaEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -200,12 +200,11 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 
 
 class OmadaPoeSwitch(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     SwitchEntity,  # type: ignore[misc]
 ):
     """Switch entity to control PoE on a switch port."""
 
-    _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_icon = "mdi:ethernet"
 
@@ -328,7 +327,7 @@ class OmadaPoeSwitch(
 
 
 class OmadaClientBlockSwitch(
-    CoordinatorEntity[OmadaClientCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaClientCoordinator],
     SwitchEntity,  # type: ignore[misc]
 ):
     """Switch entity to block/unblock a client.
@@ -337,7 +336,6 @@ class OmadaClientBlockSwitch(
     When the switch is OFF the client is blocked.
     """
 
-    _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_icon = "mdi:account-lock"
 
@@ -410,12 +408,11 @@ class OmadaClientBlockSwitch(
 
 
 class OmadaLedSwitch(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     SwitchEntity,  # type: ignore[misc]
 ):
     """Switch entity to control site-wide LED setting."""
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:led-on"
 
     def __init__(
@@ -482,7 +479,7 @@ class OmadaLedSwitch(
 
 
 class OmadaSsidSwitch(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     SwitchEntity,  # type: ignore[misc]
 ):
     """Switch entity to control SSID broadcast (visibility) site-wide.
@@ -494,7 +491,6 @@ class OmadaSsidSwitch(
     For full enable/disable control per access point, use OmadaApSsidSwitch instead.
     """
 
-    _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
 
     def __init__(
@@ -651,7 +647,7 @@ class OmadaSsidSwitch(
 
 
 class OmadaApSsidSwitch(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     SwitchEntity,  # type: ignore[misc]
 ):
     """Switch entity to enable/disable SSID on a specific AP.
@@ -661,7 +657,6 @@ class OmadaApSsidSwitch(
     SSID at all (not just hidden - completely disabled).
     """
 
-    _attr_has_entity_name = True
     _attr_device_class = SwitchDeviceClass.SWITCH
 
     def __init__(

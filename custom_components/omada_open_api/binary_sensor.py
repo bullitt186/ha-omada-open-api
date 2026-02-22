@@ -10,11 +10,11 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import get_device_sort_key
+from .entity import OmadaEntity
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -112,13 +112,12 @@ async def async_setup_entry(
 
 
 class OmadaDeviceBinarySensor(
-    CoordinatorEntity[OmadaSiteCoordinator],
+    OmadaEntity[OmadaSiteCoordinator],
     BinarySensorEntity,
 ):
     """Representation of an Omada device binary sensor."""
 
     entity_description: OmadaBinarySensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -190,13 +189,12 @@ class OmadaDeviceBinarySensor(
 
 
 class OmadaClientBinarySensor(
-    CoordinatorEntity[OmadaClientCoordinator],
+    OmadaEntity[OmadaClientCoordinator],
     BinarySensorEntity,
 ):
     """Representation of an Omada client binary sensor."""
 
     entity_description: OmadaBinarySensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,

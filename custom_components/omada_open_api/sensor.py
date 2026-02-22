@@ -20,7 +20,6 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.helpers.entity import EntityCategory
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -46,6 +45,7 @@ from .coordinator import (
     OmadaSiteCoordinator,
 )
 from .devices import format_detail_status, format_link_speed, get_device_sort_key
+from .entity import OmadaEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -591,11 +591,10 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class OmadaDeviceSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
     """Representation of an Omada device sensor."""
 
     entity_description: OmadaSensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -666,11 +665,10 @@ class OmadaDeviceSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity): 
         return self.entity_description.available_fn(device_data)
 
 
-class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):  # type: ignore[misc]
     """Representation of an Omada client sensor."""
 
     entity_description: OmadaSensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -756,11 +754,10 @@ class OmadaClientSensor(CoordinatorEntity[OmadaClientCoordinator], SensorEntity)
         return self.entity_description.available_fn(client_data)
 
 
-class OmadaPoeBudgetSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
     """Sensor for per-switch PoE power budget metrics."""
 
     entity_description: OmadaSensorEntityDescription
-    _attr_has_entity_name = True
 
     def __init__(
         self,
@@ -823,10 +820,9 @@ POE_DISPLAY_TYPES: dict[int, str] = {
 }
 
 
-class OmadaPoeSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
+class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: ignore[misc]
     """Sensor for PoE power consumption on a switch port."""
 
-    _attr_has_entity_name = True
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.WATT
@@ -906,12 +902,11 @@ class OmadaPoeSensor(CoordinatorEntity[OmadaSiteCoordinator], SensorEntity):  # 
 
 
 class OmadaClientAppTrafficSensor(
-    CoordinatorEntity[OmadaAppTrafficCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaAppTrafficCoordinator],
     SensorEntity,  # type: ignore[misc]
 ):
     """Representation of an Omada client application traffic sensor."""
 
-    _attr_has_entity_name = True
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
 
     def __init__(

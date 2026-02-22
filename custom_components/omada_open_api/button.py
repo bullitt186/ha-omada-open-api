@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .api import OmadaApiError
 from .const import DOMAIN
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .entity import OmadaEntity
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -59,12 +59,11 @@ async def async_setup_entry(
 
 
 class OmadaDeviceRebootButton(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     ButtonEntity,  # type: ignore[misc]
 ):
     """Button entity to reboot an Omada device (AP, switch, gateway)."""
 
-    _attr_has_entity_name = True
     _attr_device_class = ButtonDeviceClass.RESTART
     _attr_icon = "mdi:restart"
 
@@ -118,12 +117,11 @@ class OmadaDeviceRebootButton(
 
 
 class OmadaClientReconnectButton(
-    CoordinatorEntity[OmadaClientCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaClientCoordinator],
     ButtonEntity,  # type: ignore[misc]
 ):
     """Button entity to reconnect a wireless client."""
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:wifi-refresh"
 
     def __init__(
@@ -176,12 +174,11 @@ class OmadaClientReconnectButton(
 
 
 class OmadaWlanOptimizationButton(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     ButtonEntity,  # type: ignore[misc]
 ):
     """Button entity to trigger WLAN optimization for a site."""
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:wifi-cog"
 
     def __init__(
@@ -217,12 +214,11 @@ class OmadaWlanOptimizationButton(
 
 
 class OmadaDeviceLocateButton(
-    CoordinatorEntity[OmadaSiteCoordinator],  # type: ignore[misc]
+    OmadaEntity[OmadaSiteCoordinator],
     ButtonEntity,  # type: ignore[misc]
 ):
     """Button entity to trigger the locate function on a device."""
 
-    _attr_has_entity_name = True
     _attr_icon = "mdi:crosshairs-gps"
 
     def __init__(
