@@ -2,20 +2,29 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.omada_open_api import _cleanup_devices, _cleanup_entities
+from custom_components.omada_open_api import (
+    _cleanup_devices,
+    _cleanup_entities,
+    _migrate_data_to_options,
+    async_remove_config_entry_device,
+)
 from custom_components.omada_open_api.api import OmadaApiAuthError
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
     CONF_CLIENT_ID,
+    CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
+    CONF_DEVICE_SCAN_INTERVAL,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -539,3 +548,301 @@ async def test_cleanup_entities_keeps_all_when_no_apps_deselected(
 
     # Existing entity should remain
     assert ent_reg.async_get(entity.entity_id) is not None
+
+
+# ---------------------------------------------------------------------------
+# Migration tests
+# ---------------------------------------------------------------------------
+
+
+async def test_migrate_data_to_options(hass: HomeAssistant) -> None:
+    """Test that legacy keys are moved from data to options."""
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_DEVICE_SCAN_INTERVAL: 120,
+            CONF_CLIENT_SCAN_INTERVAL: 45,
+        },
+    )
+
+    # Before migration, keys are in data
+    assert CONF_DEVICE_SCAN_INTERVAL in entry.data
+    assert CONF_CLIENT_SCAN_INTERVAL in entry.data
+
+    _migrate_data_to_options(hass, entry)
+
+    # After migration, keys moved to options
+    assert CONF_DEVICE_SCAN_INTERVAL not in entry.data
+    assert CONF_CLIENT_SCAN_INTERVAL not in entry.data
+    assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 120
+    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 45
+
+
+async def test_migrate_data_to_options_noop(hass: HomeAssistant) -> None:
+    """Test that migration does nothing when no legacy keys exist in data."""
+    # Build an entry where options keys are already in options, not data.
+    data = {
+        CONF_API_URL: TEST_API_URL,
+        CONF_OMADA_ID: TEST_OMADA_ID,
+        CONF_CLIENT_ID: TEST_CLIENT_ID,
+        CONF_CLIENT_SECRET: TEST_CLIENT_SECRET,
+        CONF_ACCESS_TOKEN: "valid_token",
+        CONF_REFRESH_TOKEN: "valid_refresh",
+        CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+        CONF_SELECTED_SITES: [TEST_SITE_ID],
+    }
+    options: dict[str, Any] = {
+        CONF_SELECTED_CLIENTS: [],
+        CONF_SELECTED_APPLICATIONS: [],
+    }
+    entry = MockConfigEntry(
+        domain=DOMAIN, data=data, options=options, entry_id="noop_entry"
+    )
+    entry.add_to_hass(hass)
+    original_data = dict(entry.data)
+
+    _migrate_data_to_options(hass, entry)
+
+    # Data should not have changed
+    assert dict(entry.data) == original_data
+
+
+# ---------------------------------------------------------------------------
+# Setup error tests
+# ---------------------------------------------------------------------------
+
+
+async def test_setup_entry_timeout_error(hass: HomeAssistant) -> None:
+    """Test that TimeoutError raises ConfigEntryNotReady."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=TimeoutError("Connection timed out")),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+async def test_setup_entry_os_error(hass: HomeAssistant) -> None:
+    """Test that OSError raises ConfigEntryNotReady."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=OSError("Network unreachable")),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+
+
+# ---------------------------------------------------------------------------
+# Debug service tests
+# ---------------------------------------------------------------------------
+
+
+async def test_debug_ssid_switches_service(hass: HomeAssistant) -> None:
+    """Test the debug_ssid_switches service with valid config entry."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Call the service — should not raise
+    await hass.services.async_call(
+        DOMAIN,
+        "debug_ssid_switches",
+        {"config_entry_id": entry.entry_id},
+        blocking=True,
+    )
+
+
+async def test_debug_ssid_service_missing_entry(hass: HomeAssistant) -> None:
+    """Test debug service with missing config entry raises error."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Call with non-existent entry ID
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "debug_ssid_switches",
+            {"config_entry_id": "nonexistent_entry_id"},
+            blocking=True,
+        )
+
+
+async def test_debug_ssid_service_no_runtime_data(hass: HomeAssistant) -> None:
+    """Test debug service when runtime data is missing raises error."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Remove runtime data to simulate edge case
+    entry.runtime_data = None  # type: ignore[assignment]
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "debug_ssid_switches",
+            {"config_entry_id": entry.entry_id},
+            blocking=True,
+        )
+
+
+async def test_debug_ssid_service_with_ssids(hass: HomeAssistant) -> None:
+    """Test debug service logs SSID information."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Add some fake SSID data to coordinator
+    coordinator = entry.runtime_data["coordinators"][TEST_SITE_ID]
+    coordinator.data["ssids"] = [
+        {"id": "ssid_1", "wlanId": "wlan_1", "name": "TestWiFi", "broadcast": True},
+    ]
+
+    # Should not raise and should log the SSID info
+    await hass.services.async_call(
+        DOMAIN,
+        "debug_ssid_switches",
+        {"config_entry_id": entry.entry_id},
+        blocking=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# async_remove_config_entry_device tests
+# ---------------------------------------------------------------------------
+
+
+async def test_remove_device_allows_untracked_device(hass: HomeAssistant) -> None:
+    """Test that untracked devices can be removed."""
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"]},
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Create an untracked device
+    dev_reg = dr.async_get(hass)
+    untracked_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "FF-FF-FF-FF-FF-FF")},
+        name="Untracked Device",
+    )
+
+    # Should allow removal
+    result = await async_remove_config_entry_device(hass, entry, untracked_device)
+    assert result is True
+
+
+async def test_remove_device_blocks_selected_client(hass: HomeAssistant) -> None:
+    """Test that selected client devices cannot be removed."""
+    client_mac = "11-22-33-44-55-AA"
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: [client_mac]},
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    client_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, client_mac)},
+        name="Phone",
+    )
+
+    # Should block removal
+    result = await async_remove_config_entry_device(hass, entry, client_device)
+    assert result is False
+
+
+async def test_remove_device_blocks_selected_site(hass: HomeAssistant) -> None:
+    """Test that selected site devices cannot be removed."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    site_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"site_{TEST_SITE_ID}")},
+        name="Test Site",
+    )
+
+    # Should block removal (site is still selected)
+    result = await async_remove_config_entry_device(hass, entry, site_device)
+    assert result is False
+
+
+async def test_remove_device_allows_deselected_site(hass: HomeAssistant) -> None:
+    """Test that devices for deselected sites can be removed."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    # Create a device for a site that is NOT in selected_sites
+    other_site_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "site_other_site_id")},
+        name="Other Site",
+    )
+
+    # Should allow removal (site is not selected)
+    result = await async_remove_config_entry_device(hass, entry, other_site_device)
+    assert result is True
+
+
+async def test_remove_device_non_domain_identifiers(hass: HomeAssistant) -> None:
+    """Test that devices with non-DOMAIN identifiers are allowed to be removed."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    # Create a device with a different domain identifier
+    other_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("other_domain", "some_id")},
+        name="Other Domain Device",
+    )
+
+    result = await async_remove_config_entry_device(hass, entry, other_device)
+    assert result is True

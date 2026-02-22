@@ -109,6 +109,22 @@ The integration guides you through a multi-step configuration:
 5. **Clients** *(optional)* — Select clients for presence detection and detailed monitoring
 6. **Applications** *(optional)* — Select DPI-tracked applications for per-client traffic sensors (requires DPI enabled on your gateway)
 
+### Installation Parameters
+
+The following parameters are required during the initial setup flow:
+
+| Parameter | Step | Required | Description |
+|---|---|---|---|
+| **Controller Type** | 1 – Controller type | Yes | `Cloud` (TP-Link cloud-hosted) or `Local` (self-hosted controller). Determines the API endpoint used. |
+| **Region** | 2 – Region *(cloud only)* | Yes (cloud) | Cloud region where your controller is deployed: **United States**, **Europe**, or **Asia Pacific (Singapore)**. Sets the API base URL automatically. |
+| **Controller URL** | 2 – Local URL *(local only)* | Yes (local) | Full URL of your self-hosted controller, including protocol and port (e.g., `https://192.168.1.100:8043`). |
+| **Omada ID** | 3 – Credentials | Yes | The MSP ID or Customer ID from your Open API application. Found in **Settings → Platform Integration → Open API** in the Omada controller. |
+| **Client ID** | 3 – Credentials | Yes | OAuth2 Client ID from your Open API application. Generated when creating a new application in the controller. |
+| **Client Secret** | 3 – Credentials | Yes | OAuth2 Client Secret from your Open API application. Shown once when the application is created — copy and store it securely. |
+| **Sites** | 4 – Site selection | Yes | One or more Omada sites to monitor. All devices and clients under the selected sites become available as Home Assistant entities. |
+| **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. Can be modified later via Options. Limited to the first 200 clients in the UI. |
+| **Applications** | 6 – Application selection | No | DPI-tracked applications for per-client traffic monitoring (upload/download sensors). Requires DPI enabled on the gateway. Can be modified later via Options. |
+
 **Network requirements:**
 - Cloud: outbound HTTPS (443) to TP-Link cloud
 - Local: network access to your controller's API port
@@ -239,13 +255,33 @@ automation:
 
 ## Options
 
-After initial setup, go to **Settings → Devices & Services → TP-Link Omada Open API → Configure** to access these options:
+After initial setup, go to **Settings → Devices & Services → TP-Link Omada Open API → Configure** to access a menu with the following configuration options:
 
-| Option | Description |
-|---|---|
-| **Client selection** | Add or remove tracked clients |
-| **Application selection** | Add or remove tracked DPI applications |
-| **Update intervals** | Configure polling intervals for devices (default 60 s), clients (default 30 s), and app traffic (default 300 s). Range: 10 – 3600 seconds |
+### Client Selection
+
+Add or remove tracked network clients. Select clients that should have device tracker entities and per-client sensors (IP, RSSI, SNR, traffic, etc.) created in Home Assistant.
+
+| Parameter | Type | Description |
+|---|---|---|
+| **Clients to Track** | Multi-select | List of network clients discovered on your Omada network. Select one or more to create entities. Deselecting a client removes its entities and device. Limited to 200 clients in the UI. |
+
+### Application Selection
+
+Add or remove tracked DPI applications for per-client traffic monitoring. Each selected application creates upload and download sensors for every tracked client.
+
+| Parameter | Type | Description |
+|---|---|---|
+| **Applications to Track** | Multi-select | List of DPI-tracked applications discovered on your network. Requires DPI (Deep Packet Inspection) to be enabled on your gateway. Traffic data resets daily at midnight. |
+
+### Update Intervals
+
+Configure how frequently each data type is polled from the Omada controller. Lower values give more responsive updates but increase API load.
+
+| Parameter | Default | Range | Description |
+|---|---|---|---|
+| **Device polling interval** | 60 s | 10 – 3600 s | How often infrastructure device data (APs, switches, gateways) is refreshed. Affects status, CPU, memory, uptime, PoE, and firmware sensors. |
+| **Client polling interval** | 30 s | 10 – 3600 s | How often client data is refreshed. Affects device trackers, RSSI, SNR, traffic, and activity rate sensors. |
+| **Application traffic polling interval** | 300 s | 10 – 3600 s | How often per-client application traffic data is refreshed. Higher values recommended since DPI data updates less frequently on the controller. |
 
 ---
 

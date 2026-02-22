@@ -16,6 +16,8 @@ from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import get_device_sort_key
 from .entity import OmadaEntity
 
+PARALLEL_UPDATES = 0
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 

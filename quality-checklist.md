@@ -23,14 +23,14 @@
 ## Silver
 - [x] `action-exceptions` - Service actions raise exceptions when encountering failures
 - [x] `config-entry-unloading` - Support config entry unloading
-- [ ] `docs-configuration-parameters` - The documentation describes all integration configuration options
-- [ ] `docs-installation-parameters` - The documentation describes all integration installation parameters
+- [x] `docs-configuration-parameters` - The documentation describes all integration configuration options
+- [x] `docs-installation-parameters` - The documentation describes all integration installation parameters
 - [x] `entity-unavailable` - Mark entity unavailable if appropriate
 - [x] `integration-owner` - Has an integration owner
-- [ ] `log-when-unavailable` - If internet/device/service is unavailable, log once when unavailable and once when back connected
-- [ ] `parallel-updates` - Number of parallel updates is specified
+- [x] `log-when-unavailable` - If internet/device/service is unavailable, log once when unavailable and once when back connected
+- [x] `parallel-updates` - Number of parallel updates is specified
 - [x] `reauthentication-flow` - Reauthentication needs to be available via the UI
-- [ ] `test-coverage` - Above 95% test coverage for all integration modules
+- [x] `test-coverage` - Above 95% test coverage for all integration modules
 
 ## Gold
 - [ ] `devices` - The integration creates devices

@@ -47,6 +47,8 @@ from .coordinator import (
 from .devices import format_detail_status, format_link_speed, get_device_sort_key
 from .entity import OmadaEntity
 
+PARALLEL_UPDATES = 0
+
 _LOGGER = logging.getLogger(__name__)
 
 # Human-readable labels for device type abbreviations from the API.
