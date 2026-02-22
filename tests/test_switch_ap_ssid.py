@@ -61,7 +61,8 @@ async def test_ap_ssid_switch_name(mock_coordinator):
         SAMPLE_AP_NAME,
         SAMPLE_AP_SSID_OVERRIDE,
     )
-    assert switch.name == "Corporate WiFi SSID"
+    assert switch.translation_key == "ap_ssid"
+    assert switch.translation_placeholders == {"ssid_name": "Corporate WiFi"}
 
 
 async def test_ap_ssid_switch_device_info(mock_coordinator):

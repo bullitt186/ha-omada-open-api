@@ -107,7 +107,8 @@ async def test_poe_sensor_name(hass: HomeAssistant) -> None:
         {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_DATA},
     )
 
-    assert sensor.name == "Port 1 PoE power"
+    assert sensor.translation_key == "poe_power"
+    assert sensor.translation_placeholders == {"port_name": "Port 1"}
 
 
 async def test_poe_sensor_device_info(hass: HomeAssistant) -> None:

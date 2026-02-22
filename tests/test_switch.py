@@ -113,7 +113,8 @@ def test_name(hass: HomeAssistant) -> None:
     switch = _create_switch(
         hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
     )
-    assert switch.name == "Port 1 PoE"
+    assert switch.translation_key == "poe"
+    assert switch.translation_placeholders == {"port_name": "Port 1"}
 
 
 def test_device_info(hass: HomeAssistant) -> None:
@@ -392,7 +393,7 @@ async def test_block_switch_name(hass: HomeAssistant) -> None:
     """Test block switch name includes client name."""
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
-    assert switch.name == "Phone Network Access"
+    assert switch.translation_key == "network_access"
 
 
 async def test_block_switch_is_on_not_blocked(hass: HomeAssistant) -> None:
@@ -539,7 +540,8 @@ async def test_led_switch_unique_id(hass: HomeAssistant) -> None:
 async def test_led_switch_name(hass: HomeAssistant) -> None:
     """Test LED switch name includes site name."""
     switch = _create_led_switch(hass)
-    assert switch.name == f"{TEST_SITE_NAME} LED"
+    assert switch.translation_key == "led"
+    assert switch.translation_placeholders == {"site_name": TEST_SITE_NAME}
 
 
 async def test_led_switch_is_on_initial(hass: HomeAssistant) -> None:

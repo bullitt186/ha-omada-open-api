@@ -1,0 +1,159 @@
+{
+    "entity": {
+        "sensor": {
+            "client_num": {
+                "default": "mdi:account-multiple"
+            },
+            "uptime": {
+                "default": "mdi:clock-outline"
+            },
+            "cpu_util": {
+                "default": "mdi:cpu-64-bit"
+            },
+            "mem_util": {
+                "default": "mdi:memory"
+            },
+            "device_type": {
+                "default": "mdi:devices"
+            },
+            "tag": {
+                "default": "mdi:tag"
+            },
+            "uplink_device": {
+                "default": "mdi:ethernet"
+            },
+            "uplink_port": {
+                "default": "mdi:ethernet"
+            },
+            "link_speed": {
+                "default": "mdi:ethernet"
+            },
+            "public_ip": {
+                "default": "mdi:ip-network"
+            },
+            "device_ip": {
+                "default": "mdi:ip-network"
+            },
+            "ipv6": {
+                "default": "mdi:ip-network"
+            },
+            "detail_status": {
+                "default": "mdi:check-network"
+            },
+            "temperature": {
+                "default": "mdi:thermometer"
+            },
+            "clients_2g": {
+                "default": "mdi:account-multiple"
+            },
+            "clients_5g": {
+                "default": "mdi:account-multiple"
+            },
+            "clients_5g2": {
+                "default": "mdi:account-multiple"
+            },
+            "clients_6g": {
+                "default": "mdi:account-multiple"
+            },
+            "connection_status": {
+                "default": "mdi:network"
+            },
+            "ip_address": {
+                "default": "mdi:ip-network"
+            },
+            "signal_strength": {
+                "default": "mdi:wifi-strength-4"
+            },
+            "connected_to": {
+                "default": "mdi:access-point"
+            },
+            "ssid": {
+                "default": "mdi:wifi"
+            },
+            "downloaded": {
+                "default": "mdi:download-network"
+            },
+            "uploaded": {
+                "default": "mdi:upload-network"
+            },
+            "rx_activity": {
+                "default": "mdi:download-network"
+            },
+            "tx_activity": {
+                "default": "mdi:upload-network"
+            },
+            "rssi": {
+                "default": "mdi:signal"
+            },
+            "snr": {
+                "default": "mdi:signal"
+            },
+            "client_uptime": {
+                "default": "mdi:clock-outline"
+            },
+            "poe_power_budget": {
+                "default": "mdi:flash"
+            },
+            "poe_power_used": {
+                "default": "mdi:flash"
+            },
+            "poe_power_remaining_percent": {
+                "default": "mdi:flash"
+            },
+            "poe_power": {
+                "default": "mdi:flash"
+            },
+            "app_upload": {
+                "default": "mdi:upload-network"
+            },
+            "app_download": {
+                "default": "mdi:download-network"
+            }
+        },
+        "binary_sensor": {
+            "status": {
+                "default": "mdi:check-network"
+            },
+            "power_save": {
+                "default": "mdi:leaf"
+            }
+        },
+        "switch": {
+            "poe": {
+                "default": "mdi:ethernet"
+            },
+            "network_access": {
+                "default": "mdi:account-lock"
+            },
+            "led": {
+                "default": "mdi:led-on"
+            },
+            "ssid_broadcast": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            },
+            "ap_ssid": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            }
+        },
+        "button": {
+            "reboot": {
+                "default": "mdi:restart"
+            },
+            "reconnect": {
+                "default": "mdi:wifi-refresh"
+            },
+            "wlan_optimization": {
+                "default": "mdi:wifi-cog"
+            },
+            "locate": {
+                "default": "mdi:crosshairs-gps"
+            }
+        }
+    }
+}

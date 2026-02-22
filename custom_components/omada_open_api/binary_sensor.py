@@ -10,6 +10,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
@@ -51,6 +52,7 @@ CLIENT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         translation_key="power_save",
         name="Power Save",
         icon=ICON_POWER_SAVE,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda client: client.get("power_save", False),
         available_fn=lambda client: client.get("wireless", False),
     ),

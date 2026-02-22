@@ -12,7 +12,11 @@ from homeassistant.exceptions import (
     ConfigEntryNotReady,
     ServiceValidationError,
 )
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 
 from .api import OmadaApiAuthError, OmadaApiClient
 from .clients import normalize_client_mac
@@ -82,12 +86,16 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
                 config_entry_id,
             )
             raise ServiceValidationError(
-                f"Config entry {config_entry_id} not found or not Omada"
+                translation_domain=DOMAIN,
+                translation_key="config_entry_not_found",
+                translation_placeholders={"config_entry_id": config_entry_id},
             )
         runtime_data = getattr(target_entry, "runtime_data", None)
         if not runtime_data:
             raise ServiceValidationError(
-                f"No runtime data for config entry {config_entry_id}"
+                translation_domain=DOMAIN,
+                translation_key="no_runtime_data",
+                translation_placeholders={"config_entry_id": config_entry_id},
             )
         coordinators = runtime_data.get("coordinators", {})
         has_write_access = runtime_data.get("has_write_access", False)
@@ -364,6 +372,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
                 len(app_coordinator.data),
             )
 
+    # Raise / clear a repair issue when DPI-based app tracking is configured
+    # but no gateway is present.  DPI requires a gateway in the Omada network.
+    if selected_app_ids and coordinators:
+        has_gateway = any(
+            dev.get("type", "").lower() == "gateway"
+            for coord in coordinators.values()
+            for dev in coord.data.get("devices", {}).values()
+        )
+        if not has_gateway:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                "dpi_no_gateway",
+                is_fixable=False,
+                issue_domain=DOMAIN,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="dpi_no_gateway",
+            )
+        else:
+            ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
+    else:
+        # No apps selected — clear any previous issue.
+        ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
+
     # Store API client and coordinators in runtime_data
     #
     # Check whether the API credentials have write access by performing a
@@ -378,6 +410,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
             "GRANTED" if has_write_access else "DENIED",
             first_site_id,
         )
+
+        # Raise / clear a repair issue for viewer-only credentials.
+        if not has_write_access:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                "write_access_denied",
+                is_fixable=False,
+                issue_domain=DOMAIN,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="write_access_denied",
+            )
+        else:
+            ir.async_delete_issue(hass, DOMAIN, "write_access_denied")
+
         # Log total SSID count across all sites for SSID switch troubleshooting
         total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
         _LOGGER.info(
@@ -654,6 +701,17 @@ async def async_remove_config_entry_device(
         normalize_site_id(site_id) for site_id in selected_site_ids
     }
 
+    # Collect all infrastructure device MACs still reported by coordinators.
+    # Blocking removal of live devices prevents accidental deletion of
+    # devices that would immediately reappear on the next poll.
+    active_device_macs: set[str] = set()
+    runtime_data = getattr(entry, "runtime_data", None)
+    if runtime_data:
+        for coordinator in runtime_data.get("coordinators", {}).values():
+            if coordinator.data:
+                for mac in coordinator.data.get("devices", {}):
+                    active_device_macs.add(mac.upper())
+
     # Check if this device is still in the selected lists
     for identifier in device_entry.identifiers:
         if identifier[0] == DOMAIN:
@@ -675,6 +733,14 @@ async def async_remove_config_entry_device(
                         device_id,
                     )
                     return False
+
+            # Block removal of infrastructure devices still in coordinator data
+            if device_id in active_device_macs:
+                _LOGGER.debug(
+                    "Device %s is still active in coordinator data, not removing",
+                    device_id,
+                )
+                return False
 
     # Device is not in any selected list, allow removal
     _LOGGER.info("Allowing removal of device %s", device_entry.name)

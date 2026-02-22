@@ -154,6 +154,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="device_type",
         name="Device type",
         icon=ICON_DEVICE_TYPE,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: DEVICE_TYPE_LABELS.get(
             device.get("type", ""), device.get("type")
         ),
@@ -164,6 +165,8 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="tag",
         name="Tag",
         icon=ICON_TAG,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("tag_name"),
         available_fn=lambda device: device.get("tag_name") is not None,
     ),
@@ -172,6 +175,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="uplink_device",
         name="Uplink device",
         icon=ICON_LINK,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: device.get("uplink_device_name"),
         available_fn=lambda device: device.get("uplink_device_name") is not None,
         applicable_types=("ap", "switch"),
@@ -181,6 +185,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="uplink_port",
         name="Uplink port",
         icon=ICON_LINK,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: device.get("uplink_device_port"),
         available_fn=lambda device: device.get("uplink_device_port") is not None,
         applicable_types=("ap", "switch"),
@@ -190,6 +195,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="link_speed",
         name="Link speed",
         icon=ICON_LINK,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: format_link_speed(device.get("link_speed")),
         available_fn=lambda device: device.get("link_speed") is not None,
         applicable_types=("ap", "switch"),
@@ -199,6 +205,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="public_ip",
         name="Public IP",
         icon="mdi:ip-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda device: device.get("public_ip"),
         available_fn=lambda device: device.get("public_ip") is not None,
         applicable_types=("gateway",),
@@ -217,6 +224,8 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="ipv6",
         name="IPv6 addresses",
         icon="mdi:ip-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: ", ".join(device.get("ipv6", []))
         if device.get("ipv6")
         else None,
@@ -227,6 +236,8 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="detail_status",
         name="Detail status",
         icon=ICON_STATUS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: format_detail_status(device.get("detail_status")),
         available_fn=lambda device: device.get("detail_status") is not None,
     ),
@@ -253,6 +264,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Clients 2.4 GHz",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_2g"),
         available_fn=lambda device: device.get("client_num_2g") is not None,
     ),
@@ -262,6 +274,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Clients 5 GHz-1",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_5g"),
         available_fn=lambda device: device.get("client_num_5g") is not None,
     ),
@@ -271,6 +284,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Clients 5 GHz-2",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_5g2"),
         available_fn=lambda device: device.get("client_num_5g2") is not None,
     ),
@@ -280,6 +294,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Clients 6 GHz",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
+        entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_6g"),
         available_fn=lambda device: device.get("client_num_6g") is not None,
     ),
@@ -299,6 +314,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="ip_address",
         name="IP Address",
         icon="mdi:ip-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda client: client.get("ip"),
     ),
     OmadaSensorEntityDescription(
@@ -317,6 +333,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="connected_to",
         name="Connected To",
         icon="mdi:access-point",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda client: client.get("ap_name")
         or client.get("switch_name")
         or client.get("gateway_name"),
@@ -326,6 +343,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="ssid",
         name="SSID",
         icon="mdi:wifi",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda client: client.get("ssid"),
         available_fn=lambda client: client.get("wireless", False),
     ),
@@ -405,6 +423,7 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="snr",
         name="SNR",
         icon=ICON_SIGNAL,
+        device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         native_unit_of_measurement="dB",
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda client: client.get("snr"),
@@ -852,7 +871,8 @@ class OmadaPoeSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):  # type: 
         port_name = port_data.get("port_name", f"Port {port_num}")
 
         self._attr_unique_id = f"{switch_mac}_port{port_num}_poe_power"
-        self._attr_name = f"{port_name} PoE power"
+        self._attr_translation_key = "poe_power"
+        self._attr_translation_placeholders = {"port_name": port_name}
 
         # Link to the parent switch device
         self._attr_device_info = {
@@ -930,8 +950,9 @@ class OmadaClientAppTrafficSensor(
         self._attr_unique_id = f"{client_mac}_{app_id}_{metric_type}_app_traffic"
 
         # Set name based on metric type
-        metric_name = "Upload" if metric_type == "upload" else "Download"
-        self._attr_name = f"{app_name} {metric_name}"
+        metric_key = "app_upload" if metric_type == "upload" else "app_download"
+        self._attr_translation_key = metric_key
+        self._attr_translation_placeholders = {"app_name": app_name}
 
         # Set icon based on metric type
         self._attr_icon = (

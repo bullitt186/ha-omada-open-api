@@ -78,6 +78,33 @@
             "reauth_confirm": {
                 "title": "Re-authenticate Omada Integration",
                 "description": "The Omada API credentials have expired or are invalid. Please re-enter your credentials to continue."
+            },
+            "reconfigure": {
+                "title": "Reconfigure Omada Integration",
+                "description": "Update the connection settings for this Omada integration. You can change the controller type, region, URL, and credentials.\n\nFor cloud controllers, select a region. For local controllers, provide the API URL.\n\nCredentials will be validated before saving.",
+                "data": {
+                    "controller_type": "Controller Type",
+                    "region": "Region",
+                    "api_url": "Controller URL",
+                    "omada_id": "Omada ID",
+                    "client_id": "Client ID",
+                    "client_secret": "Client Secret"
+                },
+                "data_description": {
+                    "controller_type": "Cloud-hosted uses TP-Link cloud; local connects directly to your controller",
+                    "region": "Cloud region (only for cloud controllers)",
+                    "api_url": "Full URL including protocol (only for local controllers)",
+                    "omada_id": "MSP ID or Customer ID from your Open API application",
+                    "client_id": "OAuth2 Client ID from your Open API application",
+                    "client_secret": "OAuth2 Client Secret from your Open API application"
+                }
+            },
+            "reconfigure_sites": {
+                "title": "Select Sites",
+                "description": "Select which sites you want to monitor. Found {site_count} site(s).\n\nPreviously selected sites are pre-selected.",
+                "data": {
+                    "selected_sites": "Sites to Monitor"
+                }
             }
         },
         "error": {
@@ -89,7 +116,8 @@
         },
         "abort": {
             "already_configured": "This Omada controller is already configured",
-            "reauth_successful": "Re-authentication successful"
+            "reauth_successful": "Re-authentication successful",
+            "reconfigure_successful": "Reconfiguration successful"
         }
     },
     "options": {
@@ -141,12 +169,6 @@
             "mem_util": {
                 "name": "Memory utilization"
             },
-            "model": {
-                "name": "Model"
-            },
-            "firmware_version": {
-                "name": "Firmware version"
-            },
             "device_type": {
                 "name": "Device type"
             },
@@ -166,7 +188,7 @@
                 "name": "Public IP"
             },
             "device_ip": {
-                "name": "IP Address"
+                "name": "IP address"
             },
             "temperature": {
                 "name": "Temperature"
@@ -174,26 +196,137 @@
             "ipv6": {
                 "name": "IPv6 addresses"
             },
+            "detail_status": {
+                "name": "Detail status"
+            },
+            "clients_2g": {
+                "name": "Clients 2.4 GHz"
+            },
+            "clients_5g": {
+                "name": "Clients 5 GHz-1"
+            },
+            "clients_5g2": {
+                "name": "Clients 5 GHz-2"
+            },
+            "clients_6g": {
+                "name": "Clients 6 GHz"
+            },
             "connection_status": {
-                "name": "Connection Status"
+                "name": "Connection status"
             },
             "ip_address": {
-                "name": "IP Address"
+                "name": "IP address"
             },
             "signal_strength": {
-                "name": "Signal Strength"
+                "name": "Signal strength"
             },
             "connected_to": {
-                "name": "Connected To"
+                "name": "Connected to"
             },
             "ssid": {
                 "name": "SSID"
+            },
+            "downloaded": {
+                "name": "Downloaded"
+            },
+            "uploaded": {
+                "name": "Uploaded"
+            },
+            "rx_activity": {
+                "name": "RX activity"
+            },
+            "tx_activity": {
+                "name": "TX activity"
+            },
+            "rssi": {
+                "name": "RSSI"
+            },
+            "snr": {
+                "name": "SNR"
+            },
+            "client_uptime": {
+                "name": "Uptime"
+            },
+            "poe_power_budget": {
+                "name": "PoE power budget"
+            },
+            "poe_power_used": {
+                "name": "PoE power used"
+            },
+            "poe_power_remaining_percent": {
+                "name": "PoE power remaining"
+            },
+            "poe_power": {
+                "name": "{port_name} PoE power"
+            },
+            "app_upload": {
+                "name": "{app_name} upload"
+            },
+            "app_download": {
+                "name": "{app_name} download"
             }
         },
         "binary_sensor": {
             "status": {
                 "name": "Status"
+            },
+            "power_save": {
+                "name": "Power save"
             }
+        },
+        "switch": {
+            "poe": {
+                "name": "{port_name} PoE"
+            },
+            "network_access": {
+                "name": "Network access"
+            },
+            "led": {
+                "name": "{site_name} LED"
+            },
+            "ssid_broadcast": {
+                "name": "{ssid_name} broadcast"
+            },
+            "ap_ssid": {
+                "name": "{ssid_name} SSID"
+            }
+        },
+        "button": {
+            "reboot": {
+                "name": "Reboot"
+            },
+            "reconnect": {
+                "name": "Reconnect"
+            },
+            "wlan_optimization": {
+                "name": "{site_name} WLAN optimization"
+            },
+            "locate": {
+                "name": "Locate"
+            }
+        },
+        "update": {
+            "firmware": {
+                "name": "Firmware"
+            }
+        }
+    },
+    "exceptions": {
+        "config_entry_not_found": {
+            "message": "Config entry {config_entry_id} not found or is not an Omada integration."
+        },
+        "no_runtime_data": {
+            "message": "No runtime data available for config entry {config_entry_id}."
+        }
+    },
+    "issues": {
+        "write_access_denied": {
+            "title": "Omada API credentials have read-only access",
+            "description": "The API credentials configured for this integration have viewer-only permissions. Device controls such as PoE switches, LED toggles, and reboot buttons are unavailable. To enable full control, update the Omada Open API application to grant write access and reconfigure the integration."
+        },
+        "dpi_no_gateway": {
+            "title": "Application traffic tracking requires a gateway",
+            "description": "You have selected applications for DPI-based traffic tracking, but no Omada gateway was found on any configured site. Deep Packet Inspection (DPI) requires an Omada gateway in the network. Add a gateway to your Omada network or remove the application tracking selection in the integration options."
         }
     }
 }

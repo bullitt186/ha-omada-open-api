@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .api import OmadaApiError
 from .const import DOMAIN
@@ -66,6 +66,7 @@ class OmadaDeviceRebootButton(
 
     _attr_device_class = ButtonDeviceClass.RESTART
     _attr_icon = "mdi:restart"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -75,9 +76,7 @@ class OmadaDeviceRebootButton(
         """Initialize the reboot button."""
         super().__init__(coordinator)
         self._device_mac = device_mac
-        device_data = self._device_data
-        device_name = device_data.get("name", device_mac)
-        self._attr_name = f"{device_name} Reboot"
+        self._attr_translation_key = "reboot"
         self._attr_unique_id = f"{DOMAIN}_{device_mac}_reboot"
 
     @property
@@ -123,6 +122,7 @@ class OmadaClientReconnectButton(
     """Button entity to reconnect a wireless client."""
 
     _attr_icon = "mdi:wifi-refresh"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -132,11 +132,7 @@ class OmadaClientReconnectButton(
         """Initialize the reconnect button."""
         super().__init__(coordinator)
         self._client_mac = client_mac
-        client_data = coordinator.data.get(client_mac, {})
-        client_name = (
-            client_data.get("name") or client_data.get("host_name") or client_mac
-        )
-        self._attr_name = f"{client_name} Reconnect"
+        self._attr_translation_key = "reconnect"
         self._attr_unique_id = f"{DOMAIN}_{client_mac}_reconnect"
 
     @property
@@ -180,6 +176,7 @@ class OmadaWlanOptimizationButton(
     """Button entity to trigger WLAN optimization for a site."""
 
     _attr_icon = "mdi:wifi-cog"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -187,7 +184,10 @@ class OmadaWlanOptimizationButton(
     ) -> None:
         """Initialize the WLAN optimization button."""
         super().__init__(coordinator)
-        self._attr_name = f"{coordinator.site_name} WLAN Optimization"
+        self._attr_translation_key = "wlan_optimization"
+        self._attr_translation_placeholders = {
+            "site_name": coordinator.site_name,
+        }
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_wlan_optimization"
 
     @property
@@ -220,6 +220,8 @@ class OmadaDeviceLocateButton(
     """Button entity to trigger the locate function on a device."""
 
     _attr_icon = "mdi:crosshairs-gps"
+    _attr_device_class = ButtonDeviceClass.IDENTIFY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,
@@ -229,9 +231,7 @@ class OmadaDeviceLocateButton(
         """Initialize the locate button."""
         super().__init__(coordinator)
         self._device_mac = device_mac
-        device_data = self._device_data
-        device_name = device_data.get("name", device_mac)
-        self._attr_name = f"{device_name} Locate"
+        self._attr_translation_key = "locate"
         self._attr_unique_id = f"{DOMAIN}_{device_mac}_locate"
 
     @property

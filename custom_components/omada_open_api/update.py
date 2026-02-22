@@ -10,6 +10,7 @@ from homeassistant.components.update import (
     UpdateEntity,
     UpdateEntityFeature,
 )
+from homeassistant.helpers.entity import EntityCategory
 
 from .api import OmadaApiError
 from .const import DOMAIN
@@ -53,6 +54,7 @@ class OmadaDeviceUpdateEntity(
 
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = UpdateEntityFeature.INSTALL
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -63,11 +65,8 @@ class OmadaDeviceUpdateEntity(
         super().__init__(coordinator)
         self._device_mac = device_mac
 
-        device = coordinator.data.get("devices", {}).get(device_mac, {})
-        device_name = device.get("name") or device.get("model") or device_mac
-
         self._attr_unique_id = f"{DOMAIN}_{device_mac}_firmware"
-        self._attr_name = f"{device_name} Firmware"
+        self._attr_translation_key = "firmware"
         self._attr_device_info = {"identifiers": {(DOMAIN, device_mac)}}
 
         # Cache firmware info to avoid polling per-entity.

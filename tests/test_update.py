@@ -83,7 +83,7 @@ async def test_update_unique_id(hass: HomeAssistant) -> None:
 async def test_update_name(hass: HomeAssistant) -> None:
     """Test update entity name includes device name."""
     entity = _create_update_entity(hass)
-    assert "Firmware" in entity.name
+    assert entity.translation_key == "firmware"
 
 
 async def test_update_installed_version(hass: HomeAssistant) -> None:

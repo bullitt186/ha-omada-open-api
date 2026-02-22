@@ -727,6 +727,199 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg,misc]
             },
         )
 
+    # ------------------------------------------------------------------
+    # Reconfigure flow
+    # ------------------------------------------------------------------
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle reconfiguration of the integration."""
+        errors: dict[str, str] = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            controller_type = user_input.get(
+                CONF_CONTROLLER_TYPE,
+                reconfigure_entry.data.get(CONF_CONTROLLER_TYPE, CONTROLLER_TYPE_CLOUD),
+            )
+            self._controller_type = controller_type
+
+            if controller_type == CONTROLLER_TYPE_CLOUD:
+                region = user_input.get(
+                    CONF_REGION,
+                    reconfigure_entry.data.get(CONF_REGION, "us"),
+                )
+                self._region = region
+                self._api_url = REGIONS[region]["api_url"]
+            else:
+                api_url = user_input.get(
+                    CONF_API_URL,
+                    reconfigure_entry.data.get(CONF_API_URL, ""),
+                )
+                if not api_url or not api_url.startswith(("http://", "https://")):
+                    errors["base"] = "invalid_url"
+                    return self._show_reconfigure_form(reconfigure_entry, errors)
+                self._api_url = api_url.rstrip("/")
+
+            omada_id = user_input.get(
+                CONF_OMADA_ID,
+                reconfigure_entry.data.get(CONF_OMADA_ID, ""),
+            )
+            client_id = user_input.get(
+                CONF_CLIENT_ID,
+                reconfigure_entry.data.get(CONF_CLIENT_ID, ""),
+            )
+            client_secret = user_input.get(
+                CONF_CLIENT_SECRET,
+                reconfigure_entry.data.get(CONF_CLIENT_SECRET, ""),
+            )
+
+            self._omada_id = omada_id
+            self._client_id = client_id
+            self._client_secret = client_secret
+
+            try:
+                token_data = await self._get_access_token(
+                    self._api_url,  # type: ignore[arg-type]
+                    omada_id,
+                    client_id,
+                    client_secret,
+                )
+                self._access_token = token_data["accessToken"]
+                self._refresh_token = token_data["refreshToken"]
+                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
+                    seconds=token_data["expiresIn"]
+                )
+            except aiohttp.ClientError:
+                errors["base"] = "cannot_connect"
+                return self._show_reconfigure_form(reconfigure_entry, errors)
+            except InvalidAuthError:
+                errors["base"] = "invalid_auth"
+                return self._show_reconfigure_form(reconfigure_entry, errors)
+            except Exception:
+                _LOGGER.exception("Unexpected exception during reconfigure")
+                errors["base"] = "unknown"
+                return self._show_reconfigure_form(reconfigure_entry, errors)
+
+            # Proceed to site selection
+            return await self.async_step_reconfigure_sites()
+
+        return self._show_reconfigure_form(reconfigure_entry, errors)
+
+    def _show_reconfigure_form(
+        self,
+        entry: ConfigEntry,
+        errors: dict[str, str],
+    ) -> ConfigFlowResult:
+        """Show the reconfigure form with current values pre-populated."""
+        controller_type = entry.data.get(CONF_CONTROLLER_TYPE, CONTROLLER_TYPE_CLOUD)
+        is_cloud = controller_type == CONTROLLER_TYPE_CLOUD
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_CONTROLLER_TYPE,
+                    default=controller_type,
+                ): vol.In(
+                    {
+                        CONTROLLER_TYPE_CLOUD: "Cloud",
+                        CONTROLLER_TYPE_LOCAL: "Local",
+                    }
+                ),
+                vol.Optional(
+                    CONF_REGION,
+                    default=entry.data.get(CONF_REGION, "us"),
+                ): vol.In({key: info["name"] for key, info in REGIONS.items()}),
+                vol.Optional(
+                    CONF_API_URL,
+                    default=entry.data.get(CONF_API_URL, "") if not is_cloud else "",
+                ): cv.string,
+                vol.Required(
+                    CONF_OMADA_ID,
+                    default=entry.data.get(CONF_OMADA_ID, ""),
+                ): cv.string,
+                vol.Required(
+                    CONF_CLIENT_ID,
+                    default=entry.data.get(CONF_CLIENT_ID, ""),
+                ): cv.string,
+                vol.Required(CONF_CLIENT_SECRET): cv.string,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=data_schema,
+            errors=errors,
+        )
+
+    async def async_step_reconfigure_sites(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle site selection during reconfiguration."""
+        reconfigure_entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            selected = user_input.get(CONF_SELECTED_SITES, [])
+            if not selected:
+                errors["base"] = "no_sites"
+            else:
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates={
+                        CONF_CONTROLLER_TYPE: self._controller_type,
+                        CONF_REGION: self._region,
+                        CONF_API_URL: self._api_url,
+                        CONF_OMADA_ID: self._omada_id,
+                        CONF_CLIENT_ID: self._client_id,
+                        CONF_CLIENT_SECRET: self._client_secret,
+                        CONF_ACCESS_TOKEN: self._access_token,
+                        CONF_REFRESH_TOKEN: self._refresh_token,
+                        CONF_TOKEN_EXPIRES_AT: (
+                            self._token_expires_at.isoformat()
+                            if self._token_expires_at
+                            else ""
+                        ),
+                        CONF_SELECTED_SITES: selected,
+                    },
+                )
+
+        # Fetch available sites
+        try:
+            sites = await self._get_sites()
+        except Exception:
+            _LOGGER.exception("Failed to fetch sites during reconfigure")
+            return self.async_abort(reason="cannot_connect")
+
+        if not sites:
+            return self.async_abort(reason="no_sites")
+
+        site_options = {
+            site["siteId"]: site.get("name", site["siteId"]) for site in sites
+        }
+        previously_selected = reconfigure_entry.data.get(CONF_SELECTED_SITES, [])
+        # Only default to previously selected sites that still exist.
+        default_selected = [s for s in previously_selected if s in site_options]
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SELECTED_SITES,
+                    default=default_selected,
+                ): cv.multi_select(site_options),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="reconfigure_sites",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "site_count": str(len(sites)),
+            },
+        )
+
     async def async_step_reauth(
         self, entry_data: dict[str, Any] | None = None
     ) -> ConfigFlowResult:

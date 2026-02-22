@@ -7,7 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+    issue_registry as ir,
+)
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -846,3 +850,123 @@ async def test_remove_device_non_domain_identifiers(hass: HomeAssistant) -> None
 
     result = await async_remove_config_entry_device(hass, entry, other_device)
     assert result is True
+
+
+# ---------------------------------------------------------------------------
+# Repair issue tests
+# ---------------------------------------------------------------------------
+
+
+async def test_repair_issue_write_access_denied(hass: HomeAssistant) -> None:
+    """Test that a repair issue is created when write access is denied."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        check_write_access=AsyncMock(return_value=False),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, "write_access_denied")
+    assert issue is not None
+    assert issue.severity == ir.IssueSeverity.WARNING
+    assert issue.translation_key == "write_access_denied"
+
+
+async def test_repair_issue_write_access_cleared(hass: HomeAssistant) -> None:
+    """Test that the write-access issue is cleared when access is granted."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        check_write_access=AsyncMock(return_value=True),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, "write_access_denied")
+    assert issue is None
+
+
+async def test_repair_issue_dpi_no_gateway(hass: HomeAssistant) -> None:
+    """Test that a repair issue is created when apps selected but no gateway."""
+    # Devices without a gateway
+    devices_no_gw = [SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_APPLICATIONS: ["app_1"]},
+    )
+    patcher, _mock_client = _patch_api_client(
+        get_devices=AsyncMock(return_value=devices_no_gw),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, "dpi_no_gateway")
+    assert issue is not None
+    assert issue.severity == ir.IssueSeverity.WARNING
+
+
+async def test_repair_issue_dpi_cleared_with_gateway(hass: HomeAssistant) -> None:
+    """Test that the DPI issue is cleared when a gateway exists."""
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_APPLICATIONS: ["app_1"]},
+    )
+    patcher, _mock_client = _patch_api_client()  # includes gateway in default devices
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, "dpi_no_gateway")
+    assert issue is None
+
+
+async def test_repair_issue_dpi_cleared_no_apps(hass: HomeAssistant) -> None:
+    """Test that the DPI issue is cleared when no apps are selected."""
+    entry = _build_entry(hass)  # no selected apps
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue_reg = ir.async_get(hass)
+    issue = issue_reg.async_get_issue(DOMAIN, "dpi_no_gateway")
+    assert issue is None
+
+
+# ---------------------------------------------------------------------------
+# Enhanced device removal: active infrastructure blocking
+# ---------------------------------------------------------------------------
+
+
+async def test_remove_device_blocks_active_infrastructure(
+    hass: HomeAssistant,
+) -> None:
+    """Test that active infrastructure devices cannot be removed."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    # The AP MAC is in coordinator data — device should be blocked
+    ap_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
+    result = await async_remove_config_entry_device(hass, entry, ap_device)
+    assert result is False

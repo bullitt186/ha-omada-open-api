@@ -105,7 +105,7 @@ async def test_reboot_button_name(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_AP)
     coordinator = _build_site_coordinator(hass, {AP_MAC: data})
     button = OmadaDeviceRebootButton(coordinator, AP_MAC)
-    assert button.name == "Office AP Reboot"
+    assert button.translation_key == "reboot"
 
 
 async def test_reboot_button_device_info(hass: HomeAssistant) -> None:
@@ -175,7 +175,7 @@ async def test_reboot_button_switch(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_SWITCH)
     coordinator = _build_site_coordinator(hass, {SWITCH_MAC: data})
     button = OmadaDeviceRebootButton(coordinator, SWITCH_MAC)
-    assert button.name == "Core Switch Reboot"
+    assert button.translation_key == "reboot"
     await button.async_press()
     coordinator.api_client.reboot_device.assert_called_once_with(
         TEST_SITE_ID, SWITCH_MAC
@@ -187,7 +187,7 @@ async def test_reboot_button_gateway(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_GATEWAY)
     coordinator = _build_site_coordinator(hass, {GATEWAY_MAC: data})
     button = OmadaDeviceRebootButton(coordinator, GATEWAY_MAC)
-    assert button.name == "Main Gateway Reboot"
+    assert button.translation_key == "reboot"
 
 
 # ===========================================================================
@@ -208,7 +208,7 @@ async def test_reconnect_button_name(hass: HomeAssistant) -> None:
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
     button = OmadaClientReconnectButton(coordinator, WIRELESS_MAC)
-    assert button.name == "Phone Reconnect"
+    assert button.translation_key == "reconnect"
 
 
 async def test_reconnect_button_available(hass: HomeAssistant) -> None:
@@ -287,7 +287,8 @@ async def test_wlan_button_name(hass: HomeAssistant) -> None:
     """Test WLAN optimization button name."""
     coordinator = _build_site_coordinator(hass)
     button = OmadaWlanOptimizationButton(coordinator)
-    assert button.name == f"{TEST_SITE_NAME} WLAN Optimization"
+    assert button.translation_key == "wlan_optimization"
+    assert button.translation_placeholders == {"site_name": TEST_SITE_NAME}
 
 
 async def test_wlan_button_available(hass: HomeAssistant) -> None:
@@ -340,7 +341,7 @@ async def test_locate_button_name(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_AP)
     coordinator = _build_site_coordinator(hass, {AP_MAC: data})
     button = OmadaDeviceLocateButton(coordinator, AP_MAC)
-    assert "Locate" in button.name
+    assert button.translation_key == "locate"
 
 
 async def test_locate_button_device_info(hass: HomeAssistant) -> None:

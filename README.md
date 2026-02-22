@@ -30,7 +30,12 @@
 - [Automation Examples](#automation-examples)
 - [Options](#options)
 - [Supported Devices](#supported-devices)
+- [Data Update](#data-update)
+- [Use Cases](#use-cases)
+- [Diagnostics](#diagnostics)
+- [Removing the Integration](#removing-the-integration)
 - [Troubleshooting](#troubleshooting)
+- [Services](#services)
 - [Known Limitations](#known-limitations)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -299,6 +304,72 @@ Device availability depends on your controller's firmware version and API access
 
 ---
 
+## Data Update
+
+The integration uses Home Assistant's **DataUpdateCoordinator** pattern to fetch data efficiently from the Omada Open API. Three separate coordinators handle different data types, each with its own polling interval:
+
+| Coordinator | Default Interval | Data Fetched |
+|---|---|---|
+| **Device Coordinator** | 60 s | Infrastructure devices (APs, switches, gateways), SSIDs, PoE budgets, AP band stats, gateway temperature, uplink info, AP SSID overrides |
+| **Client Coordinator** | 30 s | Connected clients (IP, MAC, RSSI, SNR, traffic, activity rates), device tracker state |
+| **App Traffic Coordinator** | 300 s | Per-client application traffic (upload/download) from DPI data, queried from midnight to now, resets daily |
+
+### Polling Architecture
+
+- **One coordinator per site** — each selected site gets its own set of coordinators
+- **Hierarchical fetch** — device data merges supplementary info (uplink, band stats, temperature, PoE) in a single update cycle
+- **Token management** — OAuth2 tokens refresh automatically 5 minutes before expiry; expired refresh tokens trigger full re-authentication using client credentials
+- **Error recovery** — transient API failures raise `UpdateFailed`, triggering HA's automatic back-off and retry. Authentication errors raise `ConfigEntryAuthFailed`, prompting a reauth flow
+
+All polling intervals are configurable via **Options → Update Intervals** (range: 10–3600 s).
+
+---
+
+## Use Cases
+
+### Network Monitoring Dashboard
+
+Build a Lovelace dashboard showing all your Omada infrastructure at a glance — device status, connected client counts, CPU/memory usage, and PoE budgets. Use conditional cards to highlight offline devices.
+
+### Presence Detection
+
+Track family members' phones or laptops as they connect to your Omada network. Use device tracker entities to trigger automations (lights on arrival, lock doors on departure, set thermostat away mode).
+
+### PoE Scheduling
+
+Automate PoE ports to power down IP cameras, access points, or VoIP phones at night to save energy, then bring them back up in the morning.
+
+### Firmware Management
+
+Receive notifications when firmware updates are available for your network devices. Install updates directly from Home Assistant during maintenance windows.
+
+### Bandwidth Alerts
+
+Monitor per-client download/upload traffic and per-app DPI data. Alert when a device exceeds a traffic threshold or when unusual application usage is detected.
+
+### Guest Network Automation
+
+Toggle SSID broadcasts on or off to control guest network availability based on time of day, presence, or manual switch.
+
+### Infrastructure Health
+
+Set up automations that alert you when CPU or memory utilization on any device exceeds a threshold for a sustained period, allowing proactive maintenance.
+
+---
+
+## Diagnostics
+
+The integration provides downloadable diagnostics to help with troubleshooting. Go to **Settings → Devices & Services → TP-Link Omada Open API → 3 dots → Download diagnostics**.
+
+The diagnostics file includes:
+- Redacted configuration data (tokens and credentials are masked)
+- Coordinator summaries (device counts by type, client counts, tracked applications)
+- Write access status
+- Site device information
+
+Sensitive data (API tokens, client secrets, MAC addresses, IP addresses) is automatically redacted.
+
+---
 
 ## Removing the Integration
 
@@ -350,6 +421,17 @@ For more details, see the [removal instructions rule](ha-developer-docs/core/int
 ### Token Errors
 
 Token refresh is fully automatic. If you see persistent token errors in logs, use the **Reauthenticate** flow to obtain fresh credentials.
+
+### Reconfiguring the Integration
+
+To change the controller type, API URL, credentials, or selected sites without deleting and re-adding the integration, use **Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Reconfigure**. The reconfigure flow walks through the same steps as initial setup and preserves your options (clients, applications, intervals).
+
+### Repair Notifications
+
+The integration may create repair notifications under **Settings → Repairs**:
+
+- **Read-only API credentials** — Your API application has viewer-only permissions. Device controls (PoE, LED, reboot) are unavailable. Update the application permissions in your Omada controller.
+- **No gateway for DPI tracking** — You selected applications for traffic tracking but no gateway was found. DPI requires an Omada gateway in your network.
 
 ---
 

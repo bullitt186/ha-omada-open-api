@@ -6,7 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
 
 from .api import OmadaApiError
 from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
@@ -207,6 +207,7 @@ class OmadaPoeSwitch(
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_icon = "mdi:ethernet"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -232,7 +233,8 @@ class OmadaPoeSwitch(
         self._port_num = port_num
 
         self._attr_unique_id = f"{switch_mac}_port{port_num}_poe"
-        self._attr_name = f"{port_name} PoE"
+        self._attr_translation_key = "poe"
+        self._attr_translation_placeholders = {"port_name": port_name}
 
         # Link to the parent switch device.
         self._attr_device_info = {
@@ -353,7 +355,7 @@ class OmadaClientBlockSwitch(
             client_data.get("name") or client_data.get("host_name") or client_mac
         )
 
-        self._attr_name = f"{client_name} Network Access"
+        self._attr_translation_key = "network_access"
         self._attr_unique_id = f"{DOMAIN}_{client_mac}_block"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, client_mac)},
@@ -414,6 +416,7 @@ class OmadaLedSwitch(
     """Switch entity to control site-wide LED setting."""
 
     _attr_icon = "mdi:led-on"
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self,
@@ -421,7 +424,10 @@ class OmadaLedSwitch(
     ) -> None:
         """Initialize the LED switch."""
         super().__init__(coordinator)
-        self._attr_name = f"{coordinator.site_name} LED"
+        self._attr_translation_key = "led"
+        self._attr_translation_placeholders = {
+            "site_name": coordinator.site_name,
+        }
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_led"
         self._led_enabled: bool | None = None
 
@@ -522,7 +528,8 @@ class OmadaSsidSwitch(
         self._attr_unique_id = (
             f"omada_open_api_{coordinator.site_id}_ssid_{self._ssid_id}"
         )
-        self._attr_name = f"{self._ssid_name} Broadcast"
+        self._attr_translation_key = "ssid_broadcast"
+        self._attr_translation_placeholders = {"ssid_name": self._ssid_name}
         self._attr_entity_category = None  # Make it a primary control, not config
 
     @property
@@ -684,7 +691,8 @@ class OmadaApSsidSwitch(
         self._enabled: bool = bool(ssid_data.get("ssidEnable", True))
 
         self._attr_unique_id = f"omada_open_api_{ap_mac}_ssid_{self._ssid_id}"
-        self._attr_name = f"{self._ssid_name} SSID"
+        self._attr_translation_key = "ap_ssid"
+        self._attr_translation_placeholders = {"ssid_name": self._ssid_name}
 
     @property
     def device_info(self) -> DeviceInfo:
