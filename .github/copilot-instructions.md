@@ -962,3 +962,56 @@ The file `custom_components/omada_open_api/quality_scale.yaml` is the **single s
 | `reauthentication-flow` | `async_step_reauth` in config_flow.py |
 | `reconfiguration-flow` | `async_step_reconfigure` in config_flow.py |
 | `dynamic-devices` | Coordinator listeners for new device discovery |
+
+## CI/CD Pipeline
+
+### Continuous Integration (`.github/workflows/ci.yml`)
+Runs on every push to `main` and every pull request targeting `main`. Mirrors the pre-commit hooks exactly:
+
+| CI Job | Pre-commit Equivalent | What it checks |
+|--------|----------------------|----------------|
+| **Lint & Format** | `ruff --fix` + `ruff-format` | Ruff lint + format (same `pyproject.toml` rules) |
+| **Lint & Format** | `pylint` | Pylint on `custom_components/` |
+| **Type Check** | `mypy` | Mypy strict on `custom_components/omada_open_api/` |
+| **Test & Coverage** | `scripts/check_coverage.sh` | Pytest + `--cov-fail-under` from `.coverage-threshold` |
+| **HACS & hassfest** | *(CI only)* | HACS repo validation + HA hassfest manifest check |
+
+### Release Pipeline (`.github/workflows/release.yml`)
+Tag-based release triggered by pushing a version tag (`v*`).
+
+**How to create a release:**
+
+1. **Update version numbers** — both files must match the tag:
+   ```bash
+   # Edit version in both files to match the new tag (e.g., 1.2.0)
+   # custom_components/omada_open_api/manifest.json → "version": "1.2.0"
+   # pyproject.toml → version = "1.2.0"
+   ```
+
+2. **Commit the version bump:**
+   ```bash
+   git add custom_components/omada_open_api/manifest.json pyproject.toml
+   git commit -m "release: bump version to 1.2.0"
+   ```
+
+3. **Tag and push:**
+   ```bash
+   git tag v1.2.0
+   git push origin main --tags
+   ```
+
+4. **CI does the rest:**
+   - Runs full quality gate (lint, typecheck, tests, coverage, HACS, hassfest)
+   - Verifies tag version matches `manifest.json` version
+   - Builds `omada_open_api.zip` release archive
+   - Creates GitHub Release with auto-generated changelog
+
+**Version numbering:** Use semantic versioning (`MAJOR.MINOR.PATCH`):
+- `PATCH` (1.1.1): Bug fixes, minor improvements
+- `MINOR` (1.2.0): New features, new entity types, new platforms
+- `MAJOR` (2.0.0): Breaking changes (config flow changes requiring re-setup, removed entities)
+
+**CRITICAL — Version Consistency:**
+- `manifest.json` `version` and `pyproject.toml` `version` MUST always match each other and the git tag.
+- The release workflow has a `version-check` job that blocks the release if tag ≠ manifest version.
+- When asked to prepare a release, always update both version files before tagging.

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements_dev.txt
+
+      # Mirrors pre-commit: ruff (lint + format)
+      - name: Ruff lint
+        run: ruff check custom_components/ tests/
+
+      - name: Ruff format check
+        run: ruff format --check custom_components/ tests/
+
+      # Mirrors pre-commit: pylint
+      - name: Pylint
+        run: pylint custom_components/omada_open_api/
+
+  typecheck:
+    name: Type Check (mypy strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements_dev.txt
+
+      # Mirrors pre-commit: mypy --config-file=pyproject.toml
+      - name: Mypy strict
+        run: mypy --config-file pyproject.toml custom_components/omada_open_api/
+
+  test:
+    name: Test & Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements_dev.txt
+
+      # Mirrors pre-commit: scripts/check_coverage.sh (pytest + coverage gate)
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ \
+            --cov=custom_components.omada_open_api \
+            --cov-report=term-missing \
+            --cov-fail-under=$(cat .coverage-threshold) \
+            -v
+
+  validate:
+    name: HACS & hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration
+
+      - name: hassfest validation
+        uses: home-assistant/actions/hassfest@master
