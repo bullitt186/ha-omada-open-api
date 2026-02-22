@@ -493,112 +493,131 @@ async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 runtime_data["prev_data"] = current_data
             return
 
+    # Clean up devices and entities that are no longer selected before reloading.
+    # Must run BEFORE updating prev snapshots so cleanup can compute the diff.
+    await _cleanup_devices(hass, entry)
+    await _cleanup_entities(hass, entry)
+
     if runtime_data:
         runtime_data["prev_data"] = current_data
         runtime_data["prev_options"] = current_options
-
-    # Clean up devices and entities that are no longer selected before reloading
-    await _cleanup_devices(hass, entry)
-    await _cleanup_entities(hass, entry)
 
     await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def _cleanup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove devices that are no longer in the selected lists.
+    """Remove devices for clients/sites that were deselected.
+
+    Only removes devices whose identifier matches a previously-selected
+    client MAC or site that is no longer selected.  Infrastructure devices
+    (router, switches, APs) are never touched — they are managed by the
+    coordinator and will be re-created during setup.
 
     Args:
         hass: Home Assistant instance
         entry: Config entry
 
     """
+    runtime_data = getattr(entry, "runtime_data", None)
+    if not runtime_data:
+        return
+
+    prev_options: dict[str, Any] = runtime_data.get("prev_options", {})
+    prev_data: dict[str, Any] = runtime_data.get("prev_data", {})
+
+    # Compute deselected clients (previously selected but no longer)
+    prev_clients = {
+        normalize_client_mac(m) for m in prev_options.get(CONF_SELECTED_CLIENTS, [])
+    }
+    curr_clients = {
+        normalize_client_mac(m) for m in entry.options.get(CONF_SELECTED_CLIENTS, [])
+    }
+    deselected_clients = prev_clients - curr_clients
+
+    # Compute deselected sites
+    prev_sites = {normalize_site_id(s) for s in prev_data.get(CONF_SELECTED_SITES, [])}
+    curr_sites = {normalize_site_id(s) for s in entry.data.get(CONF_SELECTED_SITES, [])}
+    deselected_sites = prev_sites - curr_sites
+
+    if not deselected_clients and not deselected_sites:
+        return
+
     device_registry = dr.async_get(hass)
-
-    # Get currently selected items
-    selected_client_macs = entry.options.get(CONF_SELECTED_CLIENTS, [])
-    selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
-
-    # Normalize to uppercase with hyphens for comparison
-    selected_client_macs_normalized = {
-        normalize_client_mac(mac) for mac in selected_client_macs
-    }
-    selected_site_ids_normalized = {
-        normalize_site_id(site_id) for site_id in selected_site_ids
-    }
-
-    # Get all devices for this config entry
     devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
 
     removed_count = 0
     for device in devices:
-        should_remove = True
-
-        # Check if device is in selected lists
         for identifier in device.identifiers:
-            if identifier[0] == DOMAIN:
-                device_id = identifier[1].upper()
+            if identifier[0] != DOMAIN:
+                continue
+            device_id = identifier[1].upper()
 
-                # Keep if it's a selected client or site
-                if (
-                    device_id in selected_client_macs_normalized
-                    or device_id in selected_site_ids_normalized
-                ):
-                    should_remove = False
+            # Remove deselected client devices
+            if device_id in deselected_clients:
+                _LOGGER.info("Removing deselected client device: %s", device.name)
+                device_registry.async_remove_device(device.id)
+                removed_count += 1
+                break
+
+            # Remove deselected site devices (identifier: "site_{id}")
+            if device_id.startswith("SITE_"):
+                raw_site_id = device_id[5:]  # Strip "SITE_" prefix
+                if raw_site_id in deselected_sites:
+                    _LOGGER.info("Removing deselected site device: %s", device.name)
+                    device_registry.async_remove_device(device.id)
+                    removed_count += 1
                     break
-
-        if should_remove:
-            _LOGGER.info("Removing deselected device: %s", device.name)
-            device_registry.async_remove_device(device.id)
-            removed_count += 1
 
     if removed_count > 0:
         _LOGGER.info("Removed %d deselected device(s)", removed_count)
 
 
 async def _cleanup_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove entities for deselected applications.
+    """Remove entities for applications that were deselected.
+
+    Only removes app-traffic sensor entities whose application was
+    previously selected but is no longer in the current selection.
 
     Args:
         hass: Home Assistant instance
         entry: Config entry
 
     """
+    runtime_data = getattr(entry, "runtime_data", None)
+    if not runtime_data:
+        return
+
+    prev_options: dict[str, Any] = runtime_data.get("prev_options", {})
+
+    prev_apps = {str(a) for a in prev_options.get(CONF_SELECTED_APPLICATIONS, [])}
+    curr_apps = {str(a) for a in entry.options.get(CONF_SELECTED_APPLICATIONS, [])}
+    deselected_apps = prev_apps - curr_apps
+
+    if not deselected_apps:
+        return
+
     entity_reg = er.async_get(hass)
-
-    # Get currently selected applications
-    selected_app_ids = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
-
-    if not selected_app_ids:
-        # No apps selected, remove all app traffic entities
-        _LOGGER.debug("No applications selected, will remove all app traffic entities")
-
-    # Normalize app IDs for comparison
-    selected_app_ids_normalized = {str(app_id) for app_id in selected_app_ids}
-
-    # Get all entities for this config entry
     entities = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
 
     removed_count = 0
     for entity in entities:
-        # Check if this is an app traffic entity (format: {mac}_{app_id}_{upload/download}_app_traffic)
-        if entity.unique_id and entity.unique_id.endswith("_app_traffic"):
-            # Extract app_id from unique_id: "MAC_APPID_upload_app_traffic" or "MAC_APPID_download_app_traffic"
-            parts = entity.unique_id.split("_")
-            if len(parts) >= 4:  # MAC, APPID, upload/download, app, traffic
-                # App ID is between MAC and metric type (upload/download)
-                # Format: {mac}_{app_id}_{metric}_app_traffic
-                # So app_id is parts[-3] (third from end)
-                app_id = parts[-3]
+        # App traffic entities: "{mac}_{app_id}_{upload|download}_app_traffic"
+        if not (entity.unique_id and entity.unique_id.endswith("_app_traffic")):
+            continue
 
-                # Check if this app is still selected
-                if app_id not in selected_app_ids_normalized:
-                    _LOGGER.info(
-                        "Removing entity for deselected application: %s (app_id: %s)",
-                        entity.entity_id,
-                        app_id,
-                    )
-                    entity_reg.async_remove(entity.entity_id)
-                    removed_count += 1
+        parts = entity.unique_id.split("_")
+        # parts: [mac, app_id, metric, "app", "traffic"]  (5 elements minimum)
+        if len(parts) >= 5:
+            app_id = parts[-4]  # app_id is 4th from end
+
+            if app_id in deselected_apps:
+                _LOGGER.info(
+                    "Removing entity for deselected application: %s (app_id: %s)",
+                    entity.entity_id,
+                    app_id,
+                )
+                entity_reg.async_remove(entity.entity_id)
+                removed_count += 1
 
     if removed_count > 0:
         _LOGGER.info(
@@ -647,12 +666,15 @@ async def async_remove_config_entry_device(
                 )
                 return False
 
-            # Check if it's a selected site
-            if device_id in selected_site_ids_normalized:
-                _LOGGER.debug(
-                    "Device %s is still a selected site, not removing", device_id
-                )
-                return False
+            # Check if it's a selected site (identifier: "site_{id}")
+            if device_id.startswith("SITE_"):
+                raw_site_id = device_id[5:]  # Strip "SITE_" prefix
+                if raw_site_id in selected_site_ids_normalized:
+                    _LOGGER.debug(
+                        "Device %s is still a selected site, not removing",
+                        device_id,
+                    )
+                    return False
 
     # Device is not in any selected list, allow removal
     _LOGGER.info("Allowing removal of device %s", device_entry.name)

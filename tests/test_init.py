@@ -6,8 +6,10 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.omada_open_api import _cleanup_devices, _cleanup_entities
 from custom_components.omada_open_api.api import OmadaApiAuthError
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
@@ -293,3 +295,247 @@ async def test_setup_viewer_only_sets_no_write_access(hass: HomeAssistant) -> No
 
     assert entry.state is ConfigEntryState.LOADED
     assert entry.runtime_data["has_write_access"] is False
+
+
+# ---------------------------------------------------------------------------
+# Cleanup tests (_cleanup_devices / _cleanup_entities)
+# ---------------------------------------------------------------------------
+
+
+async def test_cleanup_does_not_remove_infrastructure_devices(
+    hass: HomeAssistant,
+) -> None:
+    """Test that reload does not remove infrastructure devices (APs, switches, etc.)."""
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"]},
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Register an infrastructure device (AP) — simulating what platforms do
+    dev_reg = dr.async_get(hass)
+    ap_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
+    # Simulate adding a new client (options change triggers reload)
+    with (
+        patcher,
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()),
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA", "66-77-88-99-00-BB"],
+            },
+        )
+        await hass.async_block_till_done()
+
+    # Infrastructure device should still exist
+    assert dev_reg.async_get(ap_device.id) is not None
+
+
+async def test_cleanup_removes_deselected_client_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test that deselecting a client removes only that client's device."""
+    client_mac = "11-22-33-44-55-AA"
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: [client_mac]},
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Register a client device and an infrastructure device
+    dev_reg = dr.async_get(hass)
+    client_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, client_mac)},
+        name="Phone",
+    )
+    ap_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
+    # Deselect the client (remove from selected list)
+    with (
+        patcher,
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()),
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, CONF_SELECTED_CLIENTS: []},
+        )
+        await hass.async_block_till_done()
+
+    # Client device should be removed; AP device should remain
+    assert dev_reg.async_get(client_device.id) is None
+    assert dev_reg.async_get(ap_device.id) is not None
+
+
+async def test_cleanup_does_not_remove_site_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test that site devices are kept when the site is still selected."""
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # The site device is created in async_setup_entry
+    dev_reg = dr.async_get(hass)
+    site_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"site_{TEST_SITE_ID}")},
+        name="Test Site",
+    )
+
+    # Trigger an options update (no client changes — just add a scan interval)
+    with (
+        patcher,
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()),
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={**entry.options, CONF_SELECTED_CLIENTS: ["AA-BB-CC-DD-EE-FF"]},
+        )
+        await hass.async_block_till_done()
+
+    # Site device should still exist
+    assert dev_reg.async_get(site_device.id) is not None
+
+
+async def test_cleanup_no_runtime_data_is_safe(
+    hass: HomeAssistant,
+) -> None:
+    """Test that cleanup functions are safe when runtime_data is missing."""
+    entry = _build_entry(hass)
+    # Don't set up the entry — no runtime_data exists.
+    # These should not raise.
+    await _cleanup_devices(hass, entry)
+    await _cleanup_entities(hass, entry)
+
+
+async def test_cleanup_entities_removes_deselected_app(
+    hass: HomeAssistant,
+) -> None:
+    """Test that deselecting an app removes only that app's traffic entities."""
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"],
+            CONF_SELECTED_APPLICATIONS: ["100", "200"],
+        },
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Register fake app traffic entities
+    ent_reg = er.async_get(hass)
+    kept_entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "11-22-33-44-55-AA_100_upload_app_traffic",
+        config_entry=entry,
+    )
+    removed_entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "11-22-33-44-55-AA_200_download_app_traffic",
+        config_entry=entry,
+    )
+    unrelated_entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "some_other_sensor",
+        config_entry=entry,
+    )
+
+    # Deselect app 200, keep app 100
+    with (
+        patcher,
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()),
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SELECTED_APPLICATIONS: ["100"],
+            },
+        )
+        await hass.async_block_till_done()
+
+    # App 100 entity should remain, app 200 entity should be removed
+    assert ent_reg.async_get(kept_entity.entity_id) is not None
+    assert ent_reg.async_get(removed_entity.entity_id) is None
+    assert ent_reg.async_get(unrelated_entity.entity_id) is not None
+
+
+async def test_cleanup_entities_keeps_all_when_no_apps_deselected(
+    hass: HomeAssistant,
+) -> None:
+    """Test that adding an app does not remove existing app entities."""
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"],
+            CONF_SELECTED_APPLICATIONS: ["100"],
+        },
+    )
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Register a fake app traffic entity
+    ent_reg = er.async_get(hass)
+    entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        "11-22-33-44-55-AA_100_upload_app_traffic",
+        config_entry=entry,
+    )
+
+    # Add a new app (no deselections)
+    with (
+        patcher,
+        patch.object(hass.config_entries, "async_reload", new=AsyncMock()),
+    ):
+        hass.config_entries.async_update_entry(
+            entry,
+            options={
+                **entry.options,
+                CONF_SELECTED_APPLICATIONS: ["100", "200"],
+            },
+        )
+        await hass.async_block_till_done()
+
+    # Existing entity should remain
+    assert ent_reg.async_get(entity.entity_id) is not None
