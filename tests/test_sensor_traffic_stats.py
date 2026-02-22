@@ -66,17 +66,17 @@ async def test_daily_download(hass: HomeAssistant) -> None:
         {AP_MAC: {"daily_rx": 1_200_000_000, "daily_tx": 500_000_000}},
         "daily_download",
     )
-    assert sensor.native_value == 1_200_000_000
+    assert sensor.native_value == 1_200.0
 
 
 async def test_daily_upload(hass: HomeAssistant) -> None:
-    """Test daily upload sensor returns daily_tx bytes."""
+    """Test daily upload sensor returns daily_tx in MB."""
     sensor = _create_device_traffic_sensor(
         hass,
         {AP_MAC: {"daily_rx": 1_200_000_000, "daily_tx": 500_000_000}},
         "daily_upload",
     )
-    assert sensor.native_value == 500_000_000
+    assert sensor.native_value == 500.0
 
 
 async def test_daily_download_zero(hass: HomeAssistant) -> None:
@@ -86,7 +86,7 @@ async def test_daily_download_zero(hass: HomeAssistant) -> None:
         {AP_MAC: {"daily_rx": 0, "daily_tx": 0}},
         "daily_download",
     )
-    assert sensor.native_value == 0
+    assert sensor.native_value == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ async def test_daily_download_switch(hass: HomeAssistant) -> None:
         "daily_download",
         device_mac=SWITCH_MAC,
     )
-    assert sensor.native_value == 5_000_000_000
+    assert sensor.native_value == 5_000.0
 
 
 async def test_daily_upload_gateway(hass: HomeAssistant) -> None:
@@ -113,7 +113,7 @@ async def test_daily_upload_gateway(hass: HomeAssistant) -> None:
         "daily_upload",
         device_mac=GATEWAY_MAC,
     )
-    assert sensor.native_value == 8_000_000_000
+    assert sensor.native_value == 8_000.0
 
 
 # ---------------------------------------------------------------------------

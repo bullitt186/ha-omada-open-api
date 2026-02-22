@@ -110,17 +110,17 @@ async def test_wan_download_total(hass: HomeAssistant) -> None:
         {GATEWAY_MAC: [SAMPLE_WAN_PORT_1]},
         "wan_download_total",
     )
-    assert sensor.native_value == 15_000_000_000
+    assert sensor.native_value == 15_000.0
 
 
 async def test_wan_upload_total(hass: HomeAssistant) -> None:
-    """Test WAN upload total sensor returns tx bytes."""
+    """Test WAN upload total sensor returns tx in MB."""
     sensor = _create_wan_sensor(
         hass,
         {GATEWAY_MAC: [SAMPLE_WAN_PORT_1]},
         "wan_upload_total",
     )
-    assert sensor.native_value == 3_000_000_000
+    assert sensor.native_value == 3_000.0
 
 
 # ---------------------------------------------------------------------------
