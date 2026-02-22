@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import Platform
-from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.exceptions import ConfigEntryAuthFailed, ServiceValidationError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
 from .api import OmadaApiAuthError, OmadaApiClient
@@ -61,7 +61,74 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
 
     This integration only supports config flow setup.
     YAML configuration is not supported.
+    Also registers Omada diagnostic services (see checklist/rules: action-setup).
     """
+
+    # Register diagnostic service globally (action-setup rule)
+    async def debug_ssid_switches_service(call: Any) -> None:
+        """Service to dump SSID switch diagnostic information."""
+        config_entry_id = call.data.get("config_entry_id")
+        if not config_entry_id:
+            _LOGGER.error("config_entry_id must be provided to the service call")
+            return
+        target_entry = hass.config_entries.async_get_entry(config_entry_id)
+        if not target_entry or target_entry.domain != DOMAIN:
+            _LOGGER.error(
+                "Config entry %s not found or not an Omada integration",
+                config_entry_id,
+            )
+            raise ServiceValidationError(
+                f"Config entry {config_entry_id} not found or not Omada"
+            )
+        runtime_data = getattr(target_entry, "runtime_data", None)
+        if not runtime_data:
+            raise ServiceValidationError(
+                f"No runtime data for config entry {config_entry_id}"
+            )
+        coordinators = runtime_data.get("coordinators", {})
+        has_write_access = runtime_data.get("has_write_access", False)
+        site_devices = runtime_data.get("site_devices", {})
+        _LOGGER.info("=== SSID Switch Diagnostic Info ===")
+        _LOGGER.info("Config Entry: %s (%s)", target_entry.title, config_entry_id)
+        _LOGGER.info("Write Access: %s", has_write_access)
+        _LOGGER.info("Coordinators: %d", len(coordinators))
+        _LOGGER.info("Site Devices: %d", len(site_devices))
+        total_ssids = 0
+        for site_id, coordinator in coordinators.items():
+            ssids = coordinator.data.get("ssids", [])
+            total_ssids += len(ssids)
+            _LOGGER.info(
+                "  Site '%s': %d SSIDs",
+                site_id,
+                len(ssids),
+            )
+            for ssid in ssids:
+                _LOGGER.info(
+                    "    - ID: %s, wlanId: %s, name: %s, broadcast: %s",
+                    ssid.get("id", "missing"),
+                    ssid.get("wlanId", "missing"),
+                    ssid.get("name", "missing"),
+                    ssid.get("broadcast", "missing"),
+                )
+        _LOGGER.info("Total SSIDs across all sites: %d", total_ssids)
+        entity_reg = er.async_get(hass)
+        ssid_switches = [
+            ent
+            for ent in entity_reg.entities.values()
+            if ent.config_entry_id == config_entry_id
+            and ent.domain == "switch"
+            and "ssid" in ent.unique_id
+        ]
+        _LOGGER.info("SSID switch entities created: %d", len(ssid_switches))
+        for ent in ssid_switches:
+            _LOGGER.info("  - %s (%s)", ent.entity_id, ent.unique_id)
+        _LOGGER.info("=== End SSID Switch Diagnostic Info ===")
+
+    hass.services.async_register(
+        DOMAIN,
+        "debug_ssid_switches",
+        debug_ssid_switches_service,
+    )
     return True
 
 
@@ -294,72 +361,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:  #
 
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # Register diagnostic service
-    async def debug_ssid_switches_service(call: Any) -> None:
-        """Service to dump SSID switch diagnostic information."""
-        config_entry_id = call.data.get("config_entry_id", entry.entry_id)
-
-        # Find the config entry
-        target_entry = hass.config_entries.async_get_entry(config_entry_id)
-        if not target_entry or target_entry.domain != DOMAIN:
-            _LOGGER.error(
-                "Config entry %s not found or not an Omada integration",
-                config_entry_id,
-            )
-            return
-
-        runtime_data = target_entry.runtime_data
-        coordinators = runtime_data.get("coordinators", {})
-        has_write_access = runtime_data.get("has_write_access", False)
-        site_devices = runtime_data.get("site_devices", {})
-
-        _LOGGER.info("=== SSID Switch Diagnostic Info ===")
-        _LOGGER.info("Config Entry: %s (%s)", target_entry.title, config_entry_id)
-        _LOGGER.info("Write Access: %s", has_write_access)
-        _LOGGER.info("Coordinators: %d", len(coordinators))
-        _LOGGER.info("Site Devices: %d", len(site_devices))
-
-        total_ssids = 0
-        for site_id, coordinator in coordinators.items():
-            ssids = coordinator.data.get("ssids", [])
-            total_ssids += len(ssids)
-            _LOGGER.info(
-                "  Site '%s': %d SSIDs",
-                site_id,
-                len(ssids),
-            )
-            for ssid in ssids:
-                _LOGGER.info(
-                    "    - ID: %s, wlanId: %s, name: %s, broadcast: %s",
-                    ssid.get("id", "missing"),
-                    ssid.get("wlanId", "missing"),
-                    ssid.get("name", "missing"),
-                    ssid.get("broadcast", "missing"),
-                )
-
-        _LOGGER.info("Total SSIDs across all sites: %d", total_ssids)
-
-        # Count actual SSID switch entities
-        entity_reg = er.async_get(hass)
-        ssid_switches = [
-            ent
-            for ent in entity_reg.entities.values()
-            if ent.config_entry_id == config_entry_id
-            and ent.domain == "switch"
-            and "ssid" in ent.unique_id
-        ]
-        _LOGGER.info("SSID switch entities created: %d", len(ssid_switches))
-        for ent in ssid_switches:
-            _LOGGER.info("  - %s (%s)", ent.entity_id, ent.unique_id)
-
-        _LOGGER.info("=== End SSID Switch Diagnostic Info ===")
-
-    hass.services.async_register(
-        DOMAIN,
-        "debug_ssid_switches",
-        debug_ssid_switches_service,
-    )
 
     # Snapshot current data so the update listener can detect real config changes
     # vs. token-only updates.

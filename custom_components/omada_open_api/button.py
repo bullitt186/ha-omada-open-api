@@ -181,7 +181,7 @@ class OmadaWlanOptimizationButton(
 ):
     """Button entity to trigger WLAN optimization for a site."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_icon = "mdi:wifi-cog"
 
     def __init__(

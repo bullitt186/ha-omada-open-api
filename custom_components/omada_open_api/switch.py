@@ -415,7 +415,7 @@ class OmadaLedSwitch(
 ):
     """Switch entity to control site-wide LED setting."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
     _attr_icon = "mdi:led-on"
 
     def __init__(

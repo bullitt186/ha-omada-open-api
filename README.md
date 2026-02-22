@@ -263,6 +263,21 @@ Device availability depends on your controller's firmware version and API access
 
 ---
 
+
+## Removing the Integration
+
+To remove the TP-Link Omada Open API integration from Home Assistant:
+
+1. Go to **Settings → Devices & Services** in Home Assistant.
+2. Find the **TP-Link Omada Open API** integration in the list.
+3. Click the integration, then click the three-dot menu (⋮) and select **Delete**.
+4. Confirm the removal when prompted.
+
+All entities and devices created by the integration will be removed. If you wish to remove configuration data and tokens, you may also delete the integration folder from `custom_components/` after removal.
+
+For more details, see the [removal instructions rule](ha-developer-docs/core/integration-quality-scale/rules/docs-removal-instructions.md).
+
+---
 ## Troubleshooting
 
 ### Integration Not Loading
@@ -302,6 +317,29 @@ Token refresh is fully automatic. If you see persistent token errors in logs, us
 
 ---
 
+
+## Services
+
+This integration provides the following Home Assistant service:
+
+### `omada_open_api.debug_ssid_switches`
+
+**Description:**
+  Dumps diagnostic information about SSID switch entities for a given config entry to the Home Assistant log. Useful for troubleshooting entity creation and mapping.
+
+**Fields:**
+  - `config_entry_id` (string, required): The config entry ID of the Omada integration instance to debug. You can find this in the entity registry or by inspecting the integration in Home Assistant.
+
+**Example YAML:**
+```yaml
+service: omada_open_api.debug_ssid_switches
+data:
+  config_entry_id: "your_config_entry_id_here"
+```
+
+See the [integration documentation](ha-developer-docs/core/integration-quality-scale/rules/docs-actions.md) for more details on service usage and troubleshooting.
+
+---
 ## Known Limitations
 
 - **Cloud dependency**: Cloud controllers require internet connectivity

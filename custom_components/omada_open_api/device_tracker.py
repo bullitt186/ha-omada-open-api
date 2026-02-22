@@ -87,7 +87,7 @@ class OmadaDeviceTracker(
 ):
     """Representation of an Omada network device (AP/switch/gateway) for presence detection."""
 
-    _attr_has_entity_name = False
+    _attr_has_entity_name = True
 
     def __init__(
         self,
