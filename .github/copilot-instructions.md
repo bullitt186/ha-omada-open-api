@@ -895,3 +895,70 @@ def _auto_scale_bytes(bytes_value: int) -> tuple[float, str]:
 - **Mark Assumptions**: If required details are missing (e.g., licence or target audience), clearly mark your assumptions and actively request a verification step.
 - **Currency**: Ensure that version notes and documentation links are up to date. Check releases regularly.
 - **Language & Style**: Use clear, precise language; emphasize keywords in bold; structure sections logically. Use English for code and specifications.
+
+## Quality Scale Enforcement
+
+### quality_scale.yaml Contract
+The file `custom_components/omada_open_api/quality_scale.yaml` is the **single source of truth** for the integration's quality tier compliance.
+
+**Rules for AI agents:**
+
+1. **Never downgrade a rule** from `done` to `todo` or remove it without explicit user instruction and a documented reason.
+
+2. **When modifying code**, verify affected rules still hold:
+   - Removing `PARALLEL_UPDATES` from a platform file → violates `parallel-updates`
+   - Adding `hass.data[DOMAIN]` → violates `runtime-data`
+   - Storing `self._hass` in api.py → violates `inject-websession`
+   - Removing `HomeAssistantError` wrapping → violates `action-exceptions`
+   - Removing `py.typed` → violates `strict-typing`
+   - Hardcoding entity names instead of `translation_key` → violates `entity-translations`
+   - Hardcoding `_attr_icon` instead of using `icons.json` → violates `icon-translations`
+   - Raising raw exceptions in service handlers → violates `exception-translations`
+
+3. **When adding new entities**, ensure:
+   - `translation_key` is set (not `_attr_name`)
+   - Entry added to `strings.json` AND `translations/en.json` (keep in sync)
+   - Entry added to `icons.json`
+   - `entity_category` is set (DIAGNOSTIC or CONFIG) unless it's a primary entity
+   - `device_class` is set if a standard class applies
+   - `PARALLEL_UPDATES` exists in the platform file
+   - `_attr_has_entity_name = True` (inherited from base or set explicitly)
+
+4. **When adding new platforms**, ensure:
+   - `PARALLEL_UPDATES` constant is defined
+   - Platform is added to `PLATFORMS` list in `const.py`
+   - Platform is added to `async_setup_entry` / `async_unload_entry`
+
+5. **When modifying config flow**, ensure:
+   - `async_step_reauth` still exists (`reauthentication-flow`)
+   - `async_step_reconfigure` still exists (`reconfiguration-flow`)
+   - `async_set_unique_id` + `_abort_if_unique_id_configured` still present (`unique-config-entry`)
+   - Credentials are validated before entry creation (`test-before-configure`)
+
+6. **When modifying translations**, always run:
+   ```bash
+   cp custom_components/omada_open_api/strings.json \
+      custom_components/omada_open_api/translations/en.json
+   ```
+
+7. **Before finalizing any change**, mentally verify:
+   - Would the quality_scale.yaml rules still all hold?
+   - Is test coverage still ≥ 95%?
+   - Does mypy strict still pass?
+
+### Quality Rules Quick Reference
+| Rule | What to preserve |
+|------|-----------------|
+| `parallel-updates` | `PARALLEL_UPDATES` constant in every platform file |
+| `has-entity-name` | `_attr_has_entity_name = True` on all entities |
+| `runtime-data` | Typed `entry.runtime_data`, never `hass.data[DOMAIN]` |
+| `strict-typing` | `py.typed` marker + full type hints |
+| `icon-translations` | All icons in `icons.json`, not `_attr_icon` |
+| `entity-translations` | All names via `translation_key` in `strings.json` |
+| `exception-translations` | `exceptions` section in `strings.json` |
+| `action-exceptions` | `HomeAssistantError` wrapping in service handlers |
+| `inject-websession` | No `self._hass` / `self.hass` in api.py |
+| `diagnostics` | `diagnostics.py` exists |
+| `reauthentication-flow` | `async_step_reauth` in config_flow.py |
+| `reconfiguration-flow` | `async_step_reconfigure` in config_flow.py |
+| `dynamic-devices` | Coordinator listeners for new device discovery |
