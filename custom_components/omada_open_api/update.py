@@ -10,6 +10,8 @@ from homeassistant.components.update import (
     UpdateEntity,
     UpdateEntityFeature,
 )
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
@@ -36,14 +38,33 @@ async def async_setup_entry(
     """Set up Omada update entities from a config entry."""
     coordinators: dict[str, OmadaSiteCoordinator] = entry.runtime_data.coordinators
 
-    entities: list[OmadaDeviceUpdateEntity] = []
+    known_device_macs: set[str] = set()
+
     for coordinator in coordinators.values():
-        devices = coordinator.data.get("devices", {})
-        entities.extend(
-            OmadaDeviceUpdateEntity(coordinator=coordinator, device_mac=mac)
-            for mac in devices
-        )
-    async_add_entities(entities)
+
+        @callback
+        def _async_check_new_devices(
+            coord: OmadaSiteCoordinator = coordinator,
+        ) -> None:
+            """Add update entities for newly discovered devices."""
+            devices: dict[str, Any] = (
+                coord.data.get("devices", {}) if coord.data else {}
+            )
+            new_macs = set(devices.keys()) - known_device_macs
+            if not new_macs:
+                return
+
+            known_device_macs.update(new_macs)
+
+            new_entities = [
+                OmadaDeviceUpdateEntity(coordinator=coord, device_mac=mac)
+                for mac in new_macs
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_devices()
+        entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
 
 
 class OmadaDeviceUpdateEntity(
@@ -130,9 +151,8 @@ class OmadaDeviceUpdateEntity(
             await self.coordinator.api_client.start_online_upgrade(
                 site_id, self._device_mac
             )
-        except OmadaApiError:
-            _LOGGER.exception(
-                "Failed to start firmware upgrade for %s", self._device_mac
-            )
-            return
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to start firmware upgrade for {self._device_mac}"
+            ) from err
         await self.coordinator.async_request_refresh()

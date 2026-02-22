@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
+from homeassistant.exceptions import HomeAssistantError
+import pytest
+
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
@@ -212,7 +215,7 @@ async def test_ssid_switch_turn_off(hass: HomeAssistant) -> None:
 
 
 async def test_ssid_switch_turn_on_permission_error(hass: HomeAssistant) -> None:
-    """Test turning on SSID with permission error handles gracefully."""
+    """Test turning on SSID with permission error raises HomeAssistantError."""
     ssid_data = {
         "ssidId": "ssid_001",
         "wlanId": "wlan_001",
@@ -224,15 +227,15 @@ async def test_ssid_switch_turn_on_permission_error(hass: HomeAssistant) -> None
         side_effect=OmadaApiError("Permission denied", error_code=-1007)
     )
 
-    # Should not raise, just log warning
-    await switch.async_turn_on()
+    with pytest.raises(HomeAssistantError, match="Permission denied"):
+        await switch.async_turn_on()
 
     # State should not change on error
     assert switch.is_on is False
 
 
 async def test_ssid_switch_turn_off_api_error(hass: HomeAssistant) -> None:
-    """Test turning off SSID with API error handles gracefully."""
+    """Test turning off SSID with API error raises HomeAssistantError."""
     ssid_data = {
         "ssidId": "ssid_001",
         "wlanId": "wlan_001",
@@ -244,8 +247,8 @@ async def test_ssid_switch_turn_off_api_error(hass: HomeAssistant) -> None:
         side_effect=OmadaApiError("API Error")
     )
 
-    # Should not raise, just log exception
-    await switch.async_turn_off()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()
 
     # State should not change on error
     assert switch.is_on is True
@@ -296,3 +299,65 @@ async def test_ssid_switch_available(hass: HomeAssistant) -> None:
 
     switch.coordinator.last_update_success = False
     assert switch.available is False
+
+
+async def test_ssid_switch_turn_on_permission_error_1005(
+    hass: HomeAssistant,
+) -> None:
+    """Test turning on SSID with error_code=-1005 raises HomeAssistantError."""
+    ssid_data = {
+        "ssidId": "ssid_001",
+        "wlanId": "wlan_001",
+        "ssidName": "HomeWiFi",
+        "broadcast": False,
+    }
+    switch = _create_ssid_switch(hass, ssid_data)
+    switch.coordinator.api_client.update_ssid_basic_config = AsyncMock(
+        side_effect=OmadaApiError("Access denied", error_code=-1005)
+    )
+
+    with pytest.raises(HomeAssistantError, match="Permission denied"):
+        await switch.async_turn_on()
+
+
+async def test_ssid_switch_turn_off_permission_error_1005(
+    hass: HomeAssistant,
+) -> None:
+    """Test turning off SSID with error_code=-1005 raises HomeAssistantError."""
+    ssid_data = {
+        "ssidId": "ssid_001",
+        "wlanId": "wlan_001",
+        "ssidName": "HomeWiFi",
+        "broadcast": True,
+    }
+    switch = _create_ssid_switch(hass, ssid_data)
+    switch.coordinator.api_client.update_ssid_basic_config = AsyncMock(
+        side_effect=OmadaApiError("Access denied", error_code=-1005)
+    )
+
+    with pytest.raises(HomeAssistantError, match="Permission denied"):
+        await switch.async_turn_off()
+
+
+async def test_ssid_switch_sanitize_vlan_mode_default(
+    hass: HomeAssistant,
+) -> None:
+    """Test SSID config sanitization with vlan_mode=0 removes vlanId."""
+    ssid_data = {
+        "ssidId": "ssid_001",
+        "wlanId": "wlan_001",
+        "ssidName": "HomeWiFi",
+        "broadcast": True,
+    }
+    switch = _create_ssid_switch(hass, ssid_data)
+
+    detail = {
+        "ssidId": "ssid_001",
+        "wlanId": "wlan_001",
+        "vlanId": 100,
+        "vlanSetting": {"mode": 0, "customConfig": {"some": "data"}},
+        "broadcast": True,
+    }
+    sanitized = switch._sanitize_ssid_config(detail)  # noqa: SLF001
+    assert "vlanId" not in sanitized
+    assert "customConfig" not in sanitized.get("vlanSetting", {})

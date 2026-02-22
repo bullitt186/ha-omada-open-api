@@ -42,16 +42,31 @@ async def async_setup_entry(
     rd = entry.runtime_data
 
     # --- Device trackers (APs, switches, gateways) ---
+    known_device_macs: set[str] = set()
     site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
+
     for site_coordinator in site_coordinators:
-        devices = (
-            site_coordinator.data.get("devices", {}) if site_coordinator.data else {}
+
+        @callback
+        def _async_check_new_devices(
+            coord: OmadaSiteCoordinator = site_coordinator,
+        ) -> None:
+            """Add device trackers for newly discovered infrastructure devices."""
+            devices = coord.data.get("devices", {}) if coord.data else {}
+            new_macs = set(devices.keys()) - known_device_macs
+            if not new_macs:
+                return
+
+            known_device_macs.update(new_macs)
+
+            new_entities = [OmadaDeviceTracker(coord, mac) for mac in new_macs]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_devices()
+        entry.async_on_unload(
+            site_coordinator.async_add_listener(_async_check_new_devices)
         )
-        entities: list[OmadaDeviceTracker] = [
-            OmadaDeviceTracker(site_coordinator, device_mac) for device_mac in devices
-        ]
-        if entities:
-            async_add_entities(entities)
 
     # --- Client trackers (network clients) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators

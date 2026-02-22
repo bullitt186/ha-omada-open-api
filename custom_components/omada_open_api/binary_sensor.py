@@ -10,6 +10,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     DeviceInfo,
     EntityCategory,
@@ -73,48 +74,77 @@ async def async_setup_entry(
     coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
-    # Sort devices by dependency order to avoid via_device warnings
-    # 1. Gateways first (no via_device)
-    # 2. Switches second (via_device to gateway or other switch)
-    # 3. Other devices last (via_device to their uplink)
-    # Build sorted list of (coordinator, device_mac) tuples
-    device_list = [
-        (coordinator, device_mac)
-        for coordinator in coordinators.values()
-        for device_mac in coordinator.data.get("devices", {})
-    ]
+    # --- Dynamic infrastructure device binary sensors ---
+    known_device_macs: set[str] = set()
 
-    # Sort by device type priority
-    device_list.sort(
-        key=lambda x: get_device_sort_key(
-            x[0].data.get("devices", {}).get(x[1], {}), x[1]
-        )
-    )
+    for coordinator in coordinators.values():
 
-    # Create binary sensors in sorted order
-    entities: list[BinarySensorEntity] = [
-        OmadaDeviceBinarySensor(
-            coordinator=coordinator,
-            description=description,
-            device_mac=device_mac,
-        )
-        for coordinator, device_mac in device_list
-        for description in DEVICE_BINARY_SENSORS
-    ]
+        @callback
+        def _async_check_new_devices(
+            coord: OmadaSiteCoordinator = coordinator,
+        ) -> None:
+            """Add binary sensors for newly discovered devices."""
+            devices = coord.data.get("devices", {}) if coord.data else {}
+            new_macs = set(devices.keys()) - known_device_macs
+            if not new_macs:
+                return
 
-    # Create client binary sensors
-    entities.extend(
-        OmadaClientBinarySensor(
-            coordinator=coordinator,
-            description=description,
-            client_mac=client_mac,
-        )
-        for coordinator in client_coordinators
-        for client_mac in coordinator.data
-        for description in CLIENT_BINARY_SENSORS
-    )
+            known_device_macs.update(new_macs)
 
-    async_add_entities(entities)
+            # Sort new devices by dependency order.
+            new_device_list = [(coord, mac) for mac in new_macs]
+            new_device_list.sort(
+                key=lambda x: get_device_sort_key(
+                    x[0].data.get("devices", {}).get(x[1], {}), x[1]
+                )
+            )
+
+            new_entities: list[BinarySensorEntity] = [
+                OmadaDeviceBinarySensor(
+                    coordinator=c,
+                    description=description,
+                    device_mac=mac,
+                )
+                for c, mac in new_device_list
+                for description in DEVICE_BINARY_SENSORS
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        # Populate with currently known devices, then listen for updates.
+        _async_check_new_devices()
+        entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
+
+    # --- Dynamic client binary sensors ---
+    known_client_macs: set[str] = set()
+
+    for client_coord in client_coordinators:
+
+        @callback
+        def _async_check_new_clients(
+            coord: OmadaClientCoordinator = client_coord,
+        ) -> None:
+            """Add binary sensors for newly discovered clients."""
+            new_macs = set(coord.data.keys()) - known_client_macs
+            if not new_macs:
+                return
+
+            known_client_macs.update(new_macs)
+
+            new_entities: list[BinarySensorEntity] = [
+                OmadaClientBinarySensor(
+                    coordinator=coord,
+                    description=description,
+                    client_mac=mac,
+                )
+                for mac in new_macs
+                for description in CLIENT_BINARY_SENSORS
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_clients()
+        entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
 
 
 class OmadaDeviceBinarySensor(

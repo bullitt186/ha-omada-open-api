@@ -10,6 +10,8 @@ import pytest
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.button import (
     OmadaClientReconnectButton,
@@ -166,7 +168,7 @@ async def test_reboot_button_press_api_error(hass: HomeAssistant) -> None:
     coordinator = _build_site_coordinator(hass, {AP_MAC: data})
     button = OmadaDeviceRebootButton(coordinator, AP_MAC)
     coordinator.api_client.reboot_device.side_effect = OmadaApiError("fail")
-    with pytest.raises(OmadaApiError):
+    with pytest.raises(HomeAssistantError):
         await button.async_press()
 
 
@@ -257,7 +259,7 @@ async def test_reconnect_button_press_api_error(hass: HomeAssistant) -> None:
     coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
     button = OmadaClientReconnectButton(coordinator, WIRELESS_MAC)
     coordinator.api_client.reconnect_client.side_effect = OmadaApiError("fail")
-    with pytest.raises(OmadaApiError):
+    with pytest.raises(HomeAssistantError):
         await button.async_press()
 
 
@@ -319,7 +321,7 @@ async def test_wlan_button_press_api_error(hass: HomeAssistant) -> None:
     coordinator = _build_site_coordinator(hass)
     button = OmadaWlanOptimizationButton(coordinator)
     coordinator.api_client.start_wlan_optimization.side_effect = OmadaApiError("fail")
-    with pytest.raises(OmadaApiError):
+    with pytest.raises(HomeAssistantError):
         await button.async_press()
 
 
@@ -388,5 +390,21 @@ async def test_locate_button_press_api_error(hass: HomeAssistant) -> None:
     coordinator = _build_site_coordinator(hass, {AP_MAC: data})
     button = OmadaDeviceLocateButton(coordinator, AP_MAC)
     coordinator.api_client.locate_device.side_effect = OmadaApiError("fail")
-    with pytest.raises(OmadaApiError):
+    with pytest.raises(HomeAssistantError):
         await button.async_press()
+
+
+async def test_reconnect_button_available_client_missing(
+    hass: HomeAssistant,
+) -> None:
+    """Test reconnect button unavailable when client missing from data."""
+    coordinator = _build_client_coordinator(hass, {})
+    button = OmadaClientReconnectButton(coordinator, WIRELESS_MAC)
+    assert button.available is False
+
+
+async def test_locate_button_device_info_missing(hass: HomeAssistant) -> None:
+    """Test locate button device_info returns None when device missing."""
+    coordinator = _build_site_coordinator(hass, {})
+    button = OmadaDeviceLocateButton(coordinator, AP_MAC)
+    assert button.device_info is None

@@ -6,6 +6,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     DeviceInfo,
     EntityCategory,
@@ -34,28 +36,69 @@ async def async_setup_entry(
 ) -> None:
     """Set up Omada button entities from a config entry."""
     rd = entry.runtime_data
-    entities: list[ButtonEntity] = []
 
-    # Device reboot buttons (one per device).
+    # --- Static entities (one per site, don't change dynamically) ---
     site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
+    static_entities: list[ButtonEntity] = [
+        OmadaWlanOptimizationButton(coordinator) for coordinator in site_coordinators
+    ]
+    if static_entities:
+        async_add_entities(static_entities)
+
+    # --- Dynamic infrastructure device buttons ---
+    known_device_macs: set[str] = set()
+
     for coordinator in site_coordinators:
-        devices = coordinator.data.get("devices", {}) if coordinator.data else {}
-        for device_mac in devices:
-            entities.append(OmadaDeviceRebootButton(coordinator, device_mac))
-            entities.append(OmadaDeviceLocateButton(coordinator, device_mac))
 
-        # One WLAN optimization button per site.
-        entities.append(OmadaWlanOptimizationButton(coordinator))
+        @callback
+        def _async_check_new_devices(
+            coord: OmadaSiteCoordinator = coordinator,
+        ) -> None:
+            """Add buttons for newly discovered devices."""
+            devices = coord.data.get("devices", {}) if coord.data else {}
+            new_macs = set(devices.keys()) - known_device_macs
+            if not new_macs:
+                return
 
-    # Client reconnect buttons (one per wireless client).
+            known_device_macs.update(new_macs)
+
+            new_entities: list[ButtonEntity] = []
+            for mac in new_macs:
+                new_entities.append(OmadaDeviceRebootButton(coord, mac))
+                new_entities.append(OmadaDeviceLocateButton(coord, mac))
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_devices()
+        entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
+
+    # --- Dynamic client buttons ---
+    known_client_macs: set[str] = set()
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
-    for coordinator in client_coordinators:  # type: ignore[assignment]
-        if coordinator.data:
-            for client_mac, client_data in coordinator.data.items():
-                if client_data.get("wireless"):
-                    entities.append(OmadaClientReconnectButton(coordinator, client_mac))  # type: ignore[arg-type]
 
-    async_add_entities(entities)
+    for client_coord in client_coordinators:
+
+        @callback
+        def _async_check_new_clients(
+            coord: OmadaClientCoordinator = client_coord,
+        ) -> None:
+            """Add reconnect buttons for newly discovered wireless clients."""
+            new_macs = set(coord.data.keys()) - known_client_macs
+            if not new_macs:
+                return
+
+            known_client_macs.update(new_macs)
+
+            new_entities: list[ButtonEntity] = [
+                OmadaClientReconnectButton(coord, mac)
+                for mac in new_macs
+                if coord.data.get(mac, {}).get("wireless")
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_clients()
+        entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
 
 
 class OmadaDeviceRebootButton(
@@ -110,9 +153,10 @@ class OmadaDeviceRebootButton(
                 self.coordinator.site_id, self._device_mac
             )
             _LOGGER.info("Reboot command sent to device %s", self._device_mac)
-        except OmadaApiError:
-            _LOGGER.exception("Failed to reboot device %s", self._device_mac)
-            raise
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to reboot device {self._device_mac}"
+            ) from err
 
 
 class OmadaClientReconnectButton(
@@ -164,9 +208,10 @@ class OmadaClientReconnectButton(
                 self.coordinator.site_id, self._client_mac
             )
             _LOGGER.info("Reconnect command sent to client %s", self._client_mac)
-        except OmadaApiError:
-            _LOGGER.exception("Failed to reconnect client %s", self._client_mac)
-            raise
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to reconnect client {self._client_mac}"
+            ) from err
 
 
 class OmadaWlanOptimizationButton(
@@ -205,12 +250,11 @@ class OmadaWlanOptimizationButton(
                 "WLAN optimization started for site %s",
                 self.coordinator.site_name,
             )
-        except OmadaApiError:
-            _LOGGER.exception(
-                "Failed to start WLAN optimization for site %s",
-                self.coordinator.site_name,
-            )
-            raise
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to start WLAN optimization for site "
+                f"{self.coordinator.site_name}"
+            ) from err
 
 
 class OmadaDeviceLocateButton(
@@ -265,6 +309,7 @@ class OmadaDeviceLocateButton(
                 self.coordinator.site_id, self._device_mac, enable=True
             )
             _LOGGER.info("Locate command sent to device %s", self._device_mac)
-        except OmadaApiError:
-            _LOGGER.exception("Failed to locate device %s", self._device_mac)
-            raise
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to locate device {self._device_mac}"
+            ) from err

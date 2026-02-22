@@ -10,6 +10,8 @@ import pytest
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from homeassistant.exceptions import HomeAssistantError
+
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.clients import process_client
 from custom_components.omada_open_api.const import DOMAIN
@@ -252,14 +254,17 @@ async def test_turn_off(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_turn_on_api_error(hass: HomeAssistant) -> None:
-    """Test turn_on handles API errors gracefully."""
+    """Test turn_on raises HomeAssistantError on API failure."""
     switch = _create_switch(
         hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
     )
     api = switch.coordinator.api_client
     api.set_port_profile_override.side_effect = OmadaApiError("Profile override failed")
 
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError),
+    ):
         await switch.async_turn_on()
 
     # PoE mode should NOT have been called since profile override failed.
@@ -268,14 +273,17 @@ async def test_turn_on_api_error(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_turn_off_poe_mode_error(hass: HomeAssistant) -> None:
-    """Test turn_off handles PoE mode API error gracefully."""
+    """Test turn_off raises HomeAssistantError on PoE mode API error."""
     switch = _create_switch(
         hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
     )
     api = switch.coordinator.api_client
     api.set_port_poe_mode.side_effect = OmadaApiError("PoE mode failed")
 
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError),
+    ):
         await switch.async_turn_off()
 
     # Profile override was called, but PoE mode failed.
@@ -285,7 +293,7 @@ async def test_turn_off_poe_mode_error(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_turn_on_poe_permissions_error(hass: HomeAssistant) -> None:
-    """Test PoE permissions error (-1007) logs a warning instead of exception."""
+    """Test PoE permissions error (-1007) raises HomeAssistantError."""
     switch = _create_switch(
         hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
     )
@@ -294,7 +302,10 @@ async def test_turn_on_poe_permissions_error(hass: HomeAssistant) -> None:
         "No permission", error_code=-1007
     )
 
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+    ):
         await switch.async_turn_on()
 
     # PoE mode should NOT be called since profile override failed with permissions.
@@ -303,14 +314,17 @@ async def test_turn_on_poe_permissions_error(hass: HomeAssistant) -> None:
 
 @pytest.mark.asyncio
 async def test_turn_off_poe_permissions_error_1005(hass: HomeAssistant) -> None:
-    """Test PoE permissions error (-1005) logs a warning instead of exception."""
+    """Test PoE permissions error (-1005) raises HomeAssistantError."""
     switch = _create_switch(
         hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
     )
     api = switch.coordinator.api_client
     api.set_port_poe_mode.side_effect = OmadaApiError("Access denied", error_code=-1005)
 
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+    ):
         await switch.async_turn_off()
 
     # Profile override was called; PoE mode failed with permissions.
@@ -478,23 +492,23 @@ async def test_block_switch_turn_on_unblocks(hass: HomeAssistant) -> None:
 
 
 async def test_block_switch_turn_off_api_error(hass: HomeAssistant) -> None:
-    """Test block switch handles API error gracefully."""
+    """Test block switch raises HomeAssistantError on API error."""
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
     switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
     coordinator.api_client.block_client.side_effect = OmadaApiError("fail")
-    # Should not raise.
-    await switch.async_turn_off()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()
 
 
 async def test_block_switch_turn_on_api_error(hass: HomeAssistant) -> None:
-    """Test unblock switch handles API error gracefully."""
+    """Test unblock switch raises HomeAssistantError on API error."""
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     coordinator = _build_client_coordinator(hass, {WIRELESS_MAC: data})
     switch = OmadaClientBlockSwitch(coordinator=coordinator, client_mac=WIRELESS_MAC)
     coordinator.api_client.unblock_client.side_effect = OmadaApiError("fail")
-    # Should not raise.
-    await switch.async_turn_on()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_on()
 
 
 async def test_block_switch_device_info(hass: HomeAssistant) -> None:
@@ -595,19 +609,20 @@ async def test_led_switch_turn_off(hass: HomeAssistant) -> None:
 
 
 async def test_led_switch_turn_on_api_error(hass: HomeAssistant) -> None:
-    """Test LED switch handles turn on error gracefully."""
+    """Test LED switch raises HomeAssistantError on turn on error."""
     switch = _create_led_switch(hass)
     switch.coordinator.api_client.set_led_setting.side_effect = OmadaApiError("fail")
-    # Should not raise.
-    await switch.async_turn_on()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_on()
     assert switch.is_on is None  # Stays None since never successfully fetched.
 
 
 async def test_led_switch_turn_off_api_error(hass: HomeAssistant) -> None:
-    """Test LED switch handles turn off error gracefully."""
+    """Test LED switch raises HomeAssistantError on turn off error."""
     switch = _create_led_switch(hass)
     switch.coordinator.api_client.set_led_setting.side_effect = OmadaApiError("fail")
-    await switch.async_turn_off()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()
     assert switch.is_on is None
 
 

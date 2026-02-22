@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from homeassistant.exceptions import HomeAssistantError
 import pytest
 
 from custom_components.omada_open_api.api import OmadaApiError
@@ -225,7 +226,7 @@ async def test_ap_ssid_switch_turn_off(mock_coordinator, mock_api_client):
 async def test_ap_ssid_switch_turn_on_permission_error(
     mock_coordinator, mock_api_client
 ):
-    """Test AP SSID switch handles permission errors gracefully."""
+    """Test AP SSID switch raises HomeAssistantError on permission error."""
     mock_api_client.update_ap_ssid_override = AsyncMock(
         side_effect=OmadaApiError("Permission denied", error_code=-1005)
     )
@@ -237,17 +238,14 @@ async def test_ap_ssid_switch_turn_on_permission_error(
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    # Should not raise exception
-    await switch.async_turn_on()
-
-    # Should not refresh coordinator on permission error
-    mock_coordinator.async_request_refresh.assert_not_called()
+    with pytest.raises(HomeAssistantError, match="Permission denied"):
+        await switch.async_turn_on()
 
 
 async def test_ap_ssid_switch_turn_off_permission_error(
     mock_coordinator, mock_api_client
 ):
-    """Test AP SSID switch handles permission errors gracefully on turn off."""
+    """Test AP SSID switch raises HomeAssistantError on permission error turn off."""
     mock_api_client.update_ap_ssid_override = AsyncMock(
         side_effect=OmadaApiError("Permission denied", error_code=-1007)
     )
@@ -259,15 +257,12 @@ async def test_ap_ssid_switch_turn_off_permission_error(
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    # Should not raise exception
-    await switch.async_turn_off()
-
-    # Should not refresh coordinator on permission error
-    mock_coordinator.async_request_refresh.assert_not_called()
+    with pytest.raises(HomeAssistantError, match="Permission denied"):
+        await switch.async_turn_off()
 
 
 async def test_ap_ssid_switch_turn_on_api_error(mock_coordinator, mock_api_client):
-    """Test AP SSID switch handles other API errors."""
+    """Test AP SSID switch raises HomeAssistantError on API error."""
     mock_api_client.update_ap_ssid_override = AsyncMock(
         side_effect=OmadaApiError("Unexpected error", error_code=-9999)
     )
@@ -279,15 +274,12 @@ async def test_ap_ssid_switch_turn_on_api_error(mock_coordinator, mock_api_clien
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    # Should not raise exception
-    await switch.async_turn_on()
-
-    # Should not refresh coordinator on error
-    mock_coordinator.async_request_refresh.assert_not_called()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_on()
 
 
 async def test_ap_ssid_switch_turn_off_api_error(mock_coordinator, mock_api_client):
-    """Test AP SSID switch handles other API errors on turn off."""
+    """Test AP SSID switch raises HomeAssistantError on API error turn off."""
     mock_api_client.update_ap_ssid_override = AsyncMock(
         side_effect=OmadaApiError("Unexpected error", error_code=-9999)
     )
@@ -299,8 +291,5 @@ async def test_ap_ssid_switch_turn_off_api_error(mock_coordinator, mock_api_clie
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    # Should not raise exception
-    await switch.async_turn_off()
-
-    # Should not refresh coordinator on error
-    mock_coordinator.async_request_refresh.assert_not_called()
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()

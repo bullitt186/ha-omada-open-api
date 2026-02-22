@@ -6,6 +6,8 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     DeviceInfo,
     EntityCategory,
@@ -34,169 +36,121 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
 ) -> None:
     """Set up Omada switch entities from a config entry."""
     rd = entry.runtime_data
-    entities: list[SwitchEntity] = []
     has_write_access: bool = rd.has_write_access
-
-    # PoE switches (only when API credentials have editing rights).
     coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
+
+    # --- Static entities (one per site, don't change dynamically) ---
     if has_write_access:
-        entities.extend(
-            OmadaPoeSwitch(coordinator=coordinator, port_key=port_key)
-            for coordinator in coordinators.values()
-            for port_key in coordinator.data.get("poe_ports", {})
-        )
-    else:
-        _LOGGER.info("Skipping PoE switches — API credentials have viewer-only access")
+        static_entities: list[SwitchEntity] = [
+            OmadaLedSwitch(coordinator) for coordinator in coordinators.values()
+        ]
+        if static_entities:
+            async_add_entities(static_entities)
 
-    # Client block/unblock switches.
-    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
-    for coordinator in client_coordinators:
-        if coordinator.data:
-            entities.extend(
-                OmadaClientBlockSwitch(coordinator, client_mac)
-                for client_mac in coordinator.data
-            )
-
-    # LED switch (one per site, only when API credentials have editing rights).
+    # --- Dynamic PoE + SSID + AP SSID switches (per-device/per-config) ---
     if has_write_access:
-        site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
-        entities.extend(
-            OmadaLedSwitch(coordinator) for coordinator in site_coordinators
-        )
+        known_poe_ports: set[str] = set()
+        known_ssid_keys: set[str] = set()
+        known_ap_ssid_keys: set[str] = set()
 
-    # SSID switches (site-wide, only when API credentials have editing rights).
-    _LOGGER.debug(
-        "SSID switch setup: has_write_access=%s, coordinator_count=%d",
-        has_write_access,
-        len(coordinators),
-    )
+        for site_id, site_coord in coordinators.items():
 
-    if has_write_access:
-        ssid_switch_count = 0
-        for site_id, coordinator in coordinators.items():  # type: ignore[assignment]
-            ssids = coordinator.data.get("ssids", [])
-            # Site devices stored with bare site_id as key in runtime_data
-            # but device identifier uses "site_{site_id}" prefix
-            runtime_data_key = site_id
+            @callback
+            def _async_check_new_device_switches(  # pylint: disable=too-many-locals
+                coord: OmadaSiteCoordinator = site_coord,
+                sid: str = site_id,
+            ) -> None:
+                """Add switches for newly discovered PoE ports and AP SSID overrides."""
+                new_entities: list[SwitchEntity] = []
 
-            _LOGGER.debug(
-                "Processing site '%s': found %d SSIDs: %s",
-                site_id,
-                len(ssids),
-                [s.get("ssidName", "Unknown") for s in ssids] if ssids else "none",
-            )
-
-            # Validate SSID data structure before creating switches
-            valid_ssids = []
-            for ssid in ssids:
-                if not ssid.get("ssidId") or not ssid.get("wlanId"):
-                    _LOGGER.warning(
-                        "Invalid SSID data for site %s: missing required fields (ssidId/wlanId): %s",
-                        site_id,
-                        ssid,
+                # PoE switches for new ports.
+                poe_ports = coord.data.get("poe_ports", {})
+                new_poe = set(poe_ports.keys()) - known_poe_ports
+                if new_poe:
+                    known_poe_ports.update(new_poe)
+                    new_entities.extend(
+                        OmadaPoeSwitch(coordinator=coord, port_key=pk) for pk in new_poe
                     )
-                    continue
-                valid_ssids.append(ssid)
 
-            if len(valid_ssids) != len(ssids):
-                _LOGGER.warning(
-                    "Site %s: filtered out %d invalid SSIDs, %d valid remaining",
-                    site_id,
-                    len(ssids) - len(valid_ssids),
-                    len(valid_ssids),
-                )
-
-            # Verify site device exists (stored with bare site_id key)
-            if runtime_data_key not in rd.site_devices:
-                _LOGGER.error(
-                    "Site device for site '%s' not found in runtime_data for SSID switches. "
-                    "Available site devices: %s",
-                    runtime_data_key,
-                    list(rd.site_devices.keys()),
-                )
-                continue
-
-            _LOGGER.debug(
-                "Site device found for site %s, creating switches for %d valid SSIDs",
-                site_id,
-                len(valid_ssids),
-            )
-
-            # Pass device identifier (with site_ prefix) to entity for device_info
-            site_device_identifier = f"site_{site_id}"
-
-            entities.extend(
-                OmadaSsidSwitch(
-                    coordinator=coordinator,  # type: ignore[arg-type]
-                    site_device_id=site_device_identifier,
-                    ssid_data=ssid,
-                )
-                for ssid in valid_ssids
-            )
-            ssid_switch_count += len(valid_ssids)
-
-        total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
-        _LOGGER.info(
-            "Created %d SSID switches from %d total SSIDs across %d site(s)",
-            ssid_switch_count,
-            total_ssids,
-            len(coordinators),
-        )
-
-        if total_ssids > 0 and ssid_switch_count == 0:
-            _LOGGER.warning(
-                "Write access is enabled and %d SSIDs were found, but no SSID switches "
-                "were created. This may indicate invalid SSID data or missing site devices.",
-                total_ssids,
-            )
-    else:
-        _LOGGER.info("Skipping SSID switches — API credentials have viewer-only access")
-
-    # Per-AP SSID switches (only when API credentials have editing rights).
-    if has_write_access:
-        ap_ssid_switch_count = 0
-        for site_id, coordinator in coordinators.items():  # type: ignore[assignment]
-            ap_overrides = coordinator.data.get("ap_ssid_overrides", {})
-            devices = coordinator.data.get("devices", {})
-
-            _LOGGER.debug(
-                "Processing per-AP SSID switches for site '%s': %d APs with overrides",
-                site_id,
-                len(ap_overrides),
-            )
-
-            for ap_mac, override_data in ap_overrides.items():
-                ap_device = devices.get(ap_mac, {})
-                ap_name = ap_device.get("name", ap_mac)
-
-                ssid_overrides = override_data.get("ssidOverrides", [])
-                _LOGGER.debug(
-                    "AP %s (%s): %d SSID overrides available",
-                    ap_name,
-                    ap_mac,
-                    len(ssid_overrides),
-                )
-
-                for ssid_override in ssid_overrides:
-                    # Only create switch if we have a valid ssidEntryId
-                    if ssid_override.get("ssidEntryId") is not None:
-                        entities.append(
-                            OmadaApSsidSwitch(
-                                coordinator=coordinator,  # type: ignore[arg-type]
-                                ap_mac=ap_mac,
-                                ap_name=ap_name,
-                                ssid_data=ssid_override,
+                # Site-wide SSID switches for new SSIDs.
+                ssids = coord.data.get("ssids", [])
+                site_device_identifier = f"site_{sid}"
+                for ssid in ssids:
+                    ssid_id = ssid.get("ssidId")
+                    wlan_id = ssid.get("wlanId")
+                    if not ssid_id or not wlan_id:
+                        continue
+                    key = f"{sid}_{ssid_id}"
+                    if key not in known_ssid_keys:
+                        if sid not in rd.site_devices:
+                            continue
+                        known_ssid_keys.add(key)
+                        new_entities.append(
+                            OmadaSsidSwitch(
+                                coordinator=coord,
+                                site_device_id=site_device_identifier,
+                                ssid_data=ssid,
                             )
                         )
-                        ap_ssid_switch_count += 1
 
+                # Per-AP SSID switches for new AP+SSID combos.
+                ap_overrides = coord.data.get("ap_ssid_overrides", {})
+                devices = coord.data.get("devices", {})
+                for ap_mac, override_data in ap_overrides.items():
+                    ap_device = devices.get(ap_mac, {})
+                    ap_name = ap_device.get("name", ap_mac)
+                    for ssid_override in override_data.get("ssidOverrides", []):
+                        entry_id = ssid_override.get("ssidEntryId")
+                        if entry_id is not None:
+                            ap_key = f"{ap_mac}_{entry_id}"
+                            if ap_key not in known_ap_ssid_keys:
+                                known_ap_ssid_keys.add(ap_key)
+                                new_entities.append(
+                                    OmadaApSsidSwitch(
+                                        coordinator=coord,
+                                        ap_mac=ap_mac,
+                                        ap_name=ap_name,
+                                        ssid_data=ssid_override,
+                                    )
+                                )
+
+                if new_entities:
+                    async_add_entities(new_entities)
+
+            _async_check_new_device_switches()
+            entry.async_on_unload(
+                site_coord.async_add_listener(_async_check_new_device_switches)
+            )
+    else:
         _LOGGER.info(
-            "Created %d per-AP SSID switches across %d site(s)",
-            ap_ssid_switch_count,
-            len(coordinators),
+            "Skipping PoE/LED/SSID switches — API credentials have viewer-only access"
         )
 
-    async_add_entities(entities)
+    # --- Dynamic client block/unblock switches ---
+    known_client_macs: set[str] = set()
+    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
+
+    for client_coord in client_coordinators:
+
+        @callback
+        def _async_check_new_clients(
+            coord: OmadaClientCoordinator = client_coord,
+        ) -> None:
+            """Add block/unblock switches for newly discovered clients."""
+            new_macs = set(coord.data.keys()) - known_client_macs
+            if not new_macs:
+                return
+
+            known_client_macs.update(new_macs)
+
+            new_entities: list[SwitchEntity] = [
+                OmadaClientBlockSwitch(coord, mac) for mac in new_macs
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_clients()
+        entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
 
 
 class OmadaPoeSwitch(
@@ -308,21 +262,16 @@ class OmadaPoeSwitch(
             )
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
-                _LOGGER.warning(
-                    "Insufficient permissions to control PoE on %s port %d. "
-                    "Ensure the Open API application has "
-                    "'Site Device Manager Modify' permission",
-                    self._switch_mac,
-                    self._port_num,
-                )
-            else:
-                _LOGGER.exception(
-                    "Failed to set PoE %s for %s port %d",
-                    "on" if enabled else "off",
-                    self._switch_mac,
-                    self._port_num,
-                )
-            return
+                raise HomeAssistantError(
+                    f"Insufficient permissions to control PoE on "
+                    f"{self._switch_mac} port {self._port_num}. "
+                    f"Ensure the Open API application has "
+                    f"'Site Device Manager Modify' permission"
+                ) from err
+            raise HomeAssistantError(
+                f"Failed to set PoE {'on' if enabled else 'off'} "
+                f"for {self._switch_mac} port {self._port_num}"
+            ) from err
 
         # Refresh coordinator data to reflect the change.
         await self.coordinator.async_request_refresh()
@@ -392,9 +341,10 @@ class OmadaClientBlockSwitch(
             await self.coordinator.api_client.unblock_client(
                 self.coordinator.site_id, self._client_mac
             )
-        except OmadaApiError:
-            _LOGGER.exception("Failed to unblock client %s", self._client_mac)
-            return
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to unblock client {self._client_mac}"
+            ) from err
         await self.coordinator.async_request_refresh()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -403,9 +353,10 @@ class OmadaClientBlockSwitch(
             await self.coordinator.api_client.block_client(
                 self.coordinator.site_id, self._client_mac
             )
-        except OmadaApiError:
-            _LOGGER.exception("Failed to block client %s", self._client_mac)
-            return
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to block client {self._client_mac}"
+            ) from err
         await self.coordinator.async_request_refresh()
 
 
@@ -462,11 +413,10 @@ class OmadaLedSwitch(
                 self.coordinator.site_id, enable=True
             )
             self._led_enabled = True
-        except OmadaApiError:
-            _LOGGER.exception(
-                "Failed to enable LED for site %s", self.coordinator.site_id
-            )
-            return
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to enable LED for site {self.coordinator.site_id}"
+            ) from err
         self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -476,11 +426,10 @@ class OmadaLedSwitch(
                 self.coordinator.site_id, enable=False
             )
             self._led_enabled = False
-        except OmadaApiError:
-            _LOGGER.exception(
-                "Failed to disable LED for site %s", self.coordinator.site_id
-            )
-            return
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to disable LED for site {self.coordinator.site_id}"
+            ) from err
         self.async_write_ha_state()
 
 
@@ -617,13 +566,13 @@ class OmadaSsidSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
-                _LOGGER.warning(
-                    "Permission denied when enabling SSID %s. "
-                    "API credentials may have viewer-only access.",
-                    self._ssid_name,
-                )
-            else:
-                _LOGGER.exception("Failed to enable SSID %s", self._ssid_name)
+                raise HomeAssistantError(
+                    f"Permission denied when enabling SSID {self._ssid_name}. "
+                    f"API credentials may have viewer-only access."
+                ) from err
+            raise HomeAssistantError(
+                f"Failed to enable SSID {self._ssid_name}"
+            ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable the SSID."""
@@ -644,13 +593,13 @@ class OmadaSsidSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
-                _LOGGER.warning(
-                    "Permission denied when disabling SSID %s. "
-                    "API credentials may have viewer-only access.",
-                    self._ssid_name,
-                )
-            else:
-                _LOGGER.exception("Failed to disable SSID %s", self._ssid_name)
+                raise HomeAssistantError(
+                    f"Permission denied when disabling SSID {self._ssid_name}. "
+                    f"API credentials may have viewer-only access."
+                ) from err
+            raise HomeAssistantError(
+                f"Failed to disable SSID {self._ssid_name}"
+            ) from err
 
 
 class OmadaApSsidSwitch(
@@ -743,18 +692,14 @@ class OmadaApSsidSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
-                _LOGGER.warning(
-                    "Permission denied when enabling SSID %s on AP %s. "
-                    "API credentials may have viewer-only access.",
-                    self._ssid_name,
-                    self._ap_name,
-                )
-            else:
-                _LOGGER.exception(
-                    "Failed to enable SSID %s on AP %s",
-                    self._ssid_name,
-                    self._ap_name,
-                )
+                raise HomeAssistantError(
+                    f"Permission denied when enabling SSID {self._ssid_name} "
+                    f"on AP {self._ap_name}. "
+                    f"API credentials may have viewer-only access."
+                ) from err
+            raise HomeAssistantError(
+                f"Failed to enable SSID {self._ssid_name} on AP {self._ap_name}"
+            ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable SSID on this AP."""
@@ -770,15 +715,11 @@ class OmadaApSsidSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
-                _LOGGER.warning(
-                    "Permission denied when disabling SSID %s on AP %s. "
-                    "API credentials may have viewer-only access.",
-                    self._ssid_name,
-                    self._ap_name,
-                )
-            else:
-                _LOGGER.exception(
-                    "Failed to disable SSID %s on AP %s",
-                    self._ssid_name,
-                    self._ap_name,
-                )
+                raise HomeAssistantError(
+                    f"Permission denied when disabling SSID {self._ssid_name} "
+                    f"on AP {self._ap_name}. "
+                    f"API credentials may have viewer-only access."
+                ) from err
+            raise HomeAssistantError(
+                f"Failed to disable SSID {self._ssid_name} on AP {self._ap_name}"
+            ) from err

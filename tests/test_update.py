@@ -5,8 +5,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.const import DOMAIN
@@ -159,13 +163,13 @@ async def test_update_install(hass: HomeAssistant) -> None:
 
 
 async def test_update_install_error(hass: HomeAssistant) -> None:
-    """Test install handles API error gracefully."""
+    """Test install raises HomeAssistantError on API error."""
     entity = _create_update_entity(hass)
     entity.coordinator.api_client.start_online_upgrade.side_effect = OmadaApiError(
         "fail"
     )
-    # Should not raise.
-    await entity.async_install(version=None, backup=False)
+    with pytest.raises(HomeAssistantError):
+        await entity.async_install(version=None, backup=False)
 
 
 async def test_update_device_info(hass: HomeAssistant) -> None:

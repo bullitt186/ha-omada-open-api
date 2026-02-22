@@ -497,3 +497,34 @@ async def test_signal_strength_unavailable_wired(hass: HomeAssistant) -> None:
         "signal_strength",
     )
     assert sensor.available is False
+
+
+async def test_client_sensor_device_info_gateway_fallback(
+    hass: HomeAssistant,
+) -> None:
+    """Test device_info uses gateway_mac when no AP or switch."""
+    gateway_client = {
+        "mac": "AA-BB-CC-00-00-01",
+        "name": "Gateway Client",
+        "hostName": "gw-client",
+        "ip": "192.168.1.50",
+        "active": True,
+        "wireless": False,
+        "gatewayMac": "GW-AA-BB-CC-DD-EE",
+        "uptime": 100,
+        "trafficDown": 1000,
+        "trafficUp": 500,
+        "activity": 100,
+    }
+    mac = "AA-BB-CC-00-00-01"
+    processed = process_client(gateway_client)
+    sensor = _create_client_sensor(
+        hass,
+        mac,
+        {mac: processed},
+        "connection_status",
+    )
+    info = sensor.device_info
+    assert info is not None
+    via = info.get("via_device")
+    assert via == (DOMAIN, "GW-AA-BB-CC-DD-EE")

@@ -19,6 +19,7 @@ from homeassistant.const import (
     UnitOfPower,
     UnitOfTemperature,
 )
+from homeassistant.core import callback
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     DeviceInfo,
     EntityCategory,
@@ -494,7 +495,7 @@ POE_BUDGET_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
 )
 
 
-async def async_setup_entry(
+async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -507,111 +508,154 @@ async def async_setup_entry(
         rd.app_traffic_coordinators
     )
 
-    # Sort devices by dependency order to avoid via_device warnings
-    # 1. Gateways first (no via_device)
-    # 2. Switches second (via_device to gateway or other switch)
-    # 3. Other devices last (via_device to their uplink)
-    # Build sorted list of (coordinator, device_mac) tuples
-    device_list = [
-        (coordinator, device_mac)
-        for coordinator in coordinators.values()
-        for device_mac in coordinator.data.get("devices", {})
-    ]
+    # --- Dynamic infrastructure device sensors ---
+    known_device_macs: set[str] = set()
+    known_poe_ports: set[str] = set()
+    known_poe_budget_switches: set[str] = set()
 
-    # Sort by device type priority
-    device_list.sort(
-        key=lambda x: get_device_sort_key(
-            x[0].data.get("devices", {}).get(x[1], {}), x[1]
+    for coordinator in coordinators.values():
+
+        @callback
+        def _async_check_new_devices(
+            coord: OmadaSiteCoordinator = coordinator,
+        ) -> None:
+            """Add sensors for newly discovered devices, PoE ports, and budgets."""
+            new_entities: list[SensorEntity] = []
+
+            # Device sensors for new infrastructure devices.
+            devices = coord.data.get("devices", {}) if coord.data else {}
+            new_device_macs = set(devices.keys()) - known_device_macs
+            if new_device_macs:
+                known_device_macs.update(new_device_macs)
+
+                # Sort new devices by dependency order.
+                new_device_list = [(coord, mac) for mac in new_device_macs]
+                new_device_list.sort(
+                    key=lambda x: get_device_sort_key(
+                        x[0].data.get("devices", {}).get(x[1], {}), x[1]
+                    )
+                )
+
+                for c, mac in new_device_list:
+                    device = devices.get(mac, {})
+                    device_type = device.get("type", "").lower()
+                    new_entities.extend(
+                        OmadaDeviceSensor(
+                            coordinator=c,
+                            description=desc,
+                            device_mac=mac,
+                        )
+                        for desc in DEVICE_SENSORS
+                        if desc.applicable_types is None
+                        or device_type in desc.applicable_types
+                    )
+                    # Per-band client count sensors for AP devices.
+                    if device_type == "ap":
+                        new_entities.extend(
+                            OmadaDeviceSensor(
+                                coordinator=c,
+                                description=desc,
+                                device_mac=mac,
+                            )
+                            for desc in AP_BAND_CLIENT_SENSORS
+                        )
+
+            # PoE budget sensors for new switches.
+            poe_budget = coord.data.get("poe_budget", {})
+            new_budget_switches = set(poe_budget.keys()) - known_poe_budget_switches
+            if new_budget_switches:
+                known_poe_budget_switches.update(new_budget_switches)
+                new_entities.extend(
+                    OmadaPoeBudgetSensor(
+                        coordinator=coord,
+                        description=desc,
+                        switch_mac=sw_mac,
+                    )
+                    for sw_mac in new_budget_switches
+                    for desc in POE_BUDGET_SENSORS
+                )
+
+            # PoE port sensors.
+            poe_ports = coord.data.get("poe_ports", {})
+            new_poe = set(poe_ports.keys()) - known_poe_ports
+            if new_poe:
+                known_poe_ports.update(new_poe)
+                new_entities.extend(
+                    OmadaPoeSensor(coordinator=coord, port_key=pk) for pk in new_poe
+                )
+
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_devices()
+        entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
+
+    # --- Dynamic client sensors ---
+    known_client_macs: set[str] = set()
+
+    for client_coord in client_coordinators:
+
+        @callback
+        def _async_check_new_clients(
+            coord: OmadaClientCoordinator = client_coord,
+        ) -> None:
+            """Add sensors for newly discovered clients."""
+            new_macs = set(coord.data.keys()) - known_client_macs
+            if not new_macs:
+                return
+
+            known_client_macs.update(new_macs)
+
+            new_entities: list[SensorEntity] = [
+                OmadaClientSensor(
+                    coordinator=coord,
+                    description=desc,
+                    client_mac=mac,
+                )
+                for mac in new_macs
+                for desc in CLIENT_SENSORS
+            ]
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_clients()
+        entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
+
+    # --- Dynamic app traffic sensors ---
+    known_app_traffic_keys: set[str] = set()
+
+    for app_coord in app_traffic_coordinators:
+
+        @callback
+        def _async_check_new_app_traffic(
+            coord: OmadaAppTrafficCoordinator = app_coord,
+        ) -> None:
+            """Add sensors for newly discovered client app traffic."""
+            new_entities: list[SensorEntity] = []
+
+            for client_mac, client_apps in coord.data.items():
+                for app_id, app_data in client_apps.items():
+                    for metric_type in ("upload", "download"):
+                        key = f"{client_mac}_{app_id}_{metric_type}"
+                        if key not in known_app_traffic_keys:
+                            known_app_traffic_keys.add(key)
+                            new_entities.append(
+                                OmadaClientAppTrafficSensor(
+                                    coordinator=coord,
+                                    client_mac=client_mac,
+                                    app_id=app_id,
+                                    app_name=app_data.get("app_name", "Unknown"),
+                                    metric_type=metric_type,
+                                )
+                            )
+
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_app_traffic()
+        entry.async_on_unload(
+            app_coord.async_add_listener(_async_check_new_app_traffic)
         )
-    )
-
-    # Create device sensors in sorted order, respecting applicable_types
-    entities: list[SensorEntity] = [
-        OmadaDeviceSensor(
-            coordinator=coordinator,
-            description=description,
-            device_mac=device_mac,
-        )
-        for coordinator, device_mac in device_list
-        for description in DEVICE_SENSORS
-        if description.applicable_types is None
-        or coordinator.data.get("devices", {})
-        .get(device_mac, {})
-        .get("type", "")
-        .lower()
-        in description.applicable_types
-    ]
-
-    # Create per-band client count sensors for AP devices
-    entities.extend(
-        OmadaDeviceSensor(
-            coordinator=coordinator,
-            description=description,
-            device_mac=device_mac,
-        )
-        for coordinator, device_mac in device_list
-        if coordinator.data.get("devices", {})
-        .get(device_mac, {})
-        .get("type", "")
-        .lower()
-        == "ap"
-        for description in AP_BAND_CLIENT_SENSORS
-    )
-
-    # Create client sensors
-    entities.extend(
-        [
-            OmadaClientSensor(
-                coordinator=coordinator,
-                description=description,
-                client_mac=client_mac,
-            )
-            for coordinator in client_coordinators
-            for client_mac in coordinator.data
-            for description in CLIENT_SENSORS
-        ]
-    )
-
-    # Create PoE budget sensors (per-switch totals)
-    entities.extend(
-        OmadaPoeBudgetSensor(
-            coordinator=coordinator,
-            description=description,
-            switch_mac=switch_mac,
-        )
-        for coordinator in coordinators.values()
-        for switch_mac in coordinator.data.get("poe_budget", {})
-        for description in POE_BUDGET_SENSORS
-    )
-
-    # Create PoE port sensors
-    entities.extend(
-        OmadaPoeSensor(
-            coordinator=coordinator,
-            port_key=port_key,
-        )
-        for coordinator in coordinators.values()
-        for port_key in coordinator.data.get("poe_ports", {})
-    )
-
-    # Create app traffic sensors
-    entities.extend(
-        [
-            OmadaClientAppTrafficSensor(
-                coordinator=coordinator,
-                client_mac=client_mac,
-                app_id=app_id,
-                app_name=app_data.get("app_name", "Unknown"),
-                metric_type=metric_type,
-            )
-            for coordinator in app_traffic_coordinators
-            for client_mac, client_apps in coordinator.data.items()
-            for app_id, app_data in client_apps.items()
-            for metric_type in ("upload", "download")
-        ]
-    )
-
-    async_add_entities(entities)
 
 
 class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):

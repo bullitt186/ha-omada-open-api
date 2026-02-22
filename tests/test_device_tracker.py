@@ -524,3 +524,29 @@ async def test_device_tracker_coordinator_failure(hass: HomeAssistant) -> None:
     tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
     tracker.coordinator.last_update_success = False
     assert tracker.available is False
+
+
+async def test_device_tracker_handle_coordinator_update(
+    hass: HomeAssistant,
+) -> None:
+    """Test _handle_coordinator_update updates device_info and writes state."""
+    data = _connected_device(SAMPLE_DEVICE_AP)
+    tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
+    tracker.async_write_ha_state = MagicMock()  # type: ignore[assignment]
+
+    tracker._handle_coordinator_update()  # noqa: SLF001
+
+    tracker.async_write_ha_state.assert_called_once()
+
+
+async def test_client_tracker_handle_coordinator_update(
+    hass: HomeAssistant,
+) -> None:
+    """Test _handle_coordinator_update writes HA state for client tracker."""
+    clients = {WIRELESS_MAC: process_client(SAMPLE_CLIENT_WIRELESS)}
+    tracker = _create_tracker(hass, WIRELESS_MAC, clients)
+    tracker.async_write_ha_state = MagicMock()  # type: ignore[assignment]
+
+    tracker._handle_coordinator_update()  # noqa: SLF001
+
+    tracker.async_write_ha_state.assert_called_once()
