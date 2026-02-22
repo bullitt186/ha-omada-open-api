@@ -70,3 +70,4 @@ config/
 .ruff_cache/
 openapi/openapi.json
 .env
+ha-developer-docs/
