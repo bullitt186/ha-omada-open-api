@@ -30,13 +30,13 @@ jobs:
       # Mirrors pre-commit: pre-commit-hooks
       - name: Check trailing whitespace
         run: |
-          git ls-files -z -- ':(exclude)*.pxd' | xargs -0 grep -Prl '\s+$' && \
+          git ls-files -z -- ':(exclude)*.pxd' ':(exclude)*.png' | xargs -0 grep -Prl '\s+$' && \
             { echo '❌ Trailing whitespace found'; exit 1; } || \
             echo '✅ No trailing whitespace'
 
       - name: Check files end with newline
         run: |
-          bad_files=$(git ls-files -z -- ':(exclude)*.pxd' | xargs -0 -I{} sh -c 'test -s "{}" && test "$(tail -c1 "{}")" && echo "{}"')
+          bad_files=$(git ls-files -z -- ':(exclude)*.pxd' ':(exclude)*.png' | xargs -0 -I{} sh -c 'test -s "{}" && test "$(tail -c1 "{}")" && echo "{}"')
           if [ -n "$bad_files" ]; then
             echo "❌ Files missing final newline:"; echo "$bad_files"; exit 1
           fi

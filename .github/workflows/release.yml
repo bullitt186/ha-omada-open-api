@@ -28,7 +28,7 @@ jobs:
       # Mirrors pre-commit: pre-commit-hooks
       - name: Check trailing whitespace
         run: |
-          git ls-files -z -- ':(exclude)*.pxd' | xargs -0 grep -Prl '\s+$' && \
+          git ls-files -z -- ':(exclude)*.pxd' ':(exclude)*.png' | xargs -0 grep -Prl '\s+$' && \
             { echo '❌ Trailing whitespace found'; exit 1; } || \
             echo '✅ No trailing whitespace'
 
