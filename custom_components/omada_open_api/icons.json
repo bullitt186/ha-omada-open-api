@@ -28,9 +28,6 @@
             "link_speed": {
                 "default": "mdi:ethernet"
             },
-            "public_ip": {
-                "default": "mdi:ip-network"
-            },
             "device_ip": {
                 "default": "mdi:ip-network"
             },
@@ -132,6 +129,9 @@
             },
             "wan_link_speed": {
                 "default": "mdi:speedometer"
+            },
+            "wan_ipv6_address": {
+                "default": "mdi:ip-network"
             },
             "daily_download": {
                 "default": "mdi:arrow-down-bold-circle"

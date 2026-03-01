@@ -120,20 +120,6 @@ async def test_device_type_sensor(hass: HomeAssistant) -> None:
     assert sensor.native_value == "Switch"
 
 
-async def test_public_ip_sensor(hass: HomeAssistant) -> None:
-    """Test public IP sensor for gateway."""
-    data = process_device(SAMPLE_DEVICE_GATEWAY)
-    sensor = _create_device_sensor(hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "public_ip")
-    assert sensor.native_value == "1.2.3.4"
-
-
-async def test_public_ip_unavailable_for_ap(hass: HomeAssistant) -> None:
-    """Test public IP unavailable for AP (no public IP)."""
-    data = process_device(SAMPLE_DEVICE_AP)
-    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "public_ip")
-    assert sensor.available is False
-
-
 # ---------------------------------------------------------------------------
 # Detail status sensor (new in Step 2)
 # ---------------------------------------------------------------------------

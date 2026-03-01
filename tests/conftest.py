@@ -364,6 +364,14 @@ SAMPLE_WAN_PORT_1 = {
     "latency": 12,
     "loss": 0.1,
     "speed": 3,
+    "wanPortIpv6Config": {
+        "enable": 1,
+        "addr": "2001:db8::1",
+        "gateway": "2001:db8::ffff",
+        "priDns": "2001:4860:4860::8888",
+        "sndDns": "2001:4860:4860::8844",
+        "internetState": 1,
+    },
 }
 
 SAMPLE_WAN_PORT_2 = {
@@ -379,12 +387,16 @@ SAMPLE_WAN_PORT_2 = {
     "latency": 0,
     "loss": 0,
     "speed": 2,
+    "wanPortIpv6Config": {
+        "enable": 0,
+        "addr": "",
+    },
 }
 
 # ---------------------------------------------------------------------------
 # Device stats sample data
 # ---------------------------------------------------------------------------
 
-SAMPLE_DEVICE_STATS_DAILY = [
+SAMPLE_DEVICE_STATS_HOURLY = [
     {"time": 1700000000, "tx": 500_000_000, "rx": 1_200_000_000},
 ]

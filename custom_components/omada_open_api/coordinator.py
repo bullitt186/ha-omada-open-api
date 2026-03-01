@@ -668,6 +668,10 @@ class OmadaDeviceStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]
     async def _async_update_data(self) -> dict[str, dict[str, Any]]:
         """Fetch daily traffic statistics for all devices.
 
+        Uses the hourly stats endpoint to sum traffic from midnight to now.
+        The daily endpoint only returns complete-day buckets and yields no
+        data for the current (incomplete) day.
+
         Returns:
             Dictionary mapping device MAC -> {"daily_tx": int, "daily_rx": int}
 
@@ -699,12 +703,12 @@ class OmadaDeviceStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]
                     site_id=site_id,
                     device_mac=mac,
                     device_type=device_type,
-                    interval="daily",
+                    interval="hourly",
                     start=start_ts,
                     end=end_ts,
                     attrs=["tx", "rx"],
                 )
-                # Sum across all returned daily entries.
+                # Sum across all returned hourly entries for today's total.
                 total_tx = sum(e.get("tx", 0) for e in entries)
                 total_rx = sum(e.get("rx", 0) for e in entries)
                 stats[mac] = {

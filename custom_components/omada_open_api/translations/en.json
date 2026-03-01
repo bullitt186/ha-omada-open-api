@@ -184,9 +184,6 @@
             "link_speed": {
                 "name": "Link speed"
             },
-            "public_ip": {
-                "name": "Public IP"
-            },
             "device_ip": {
                 "name": "IP address"
             },
@@ -288,6 +285,9 @@
             },
             "wan_link_speed": {
                 "name": "{port_name} link speed"
+            },
+            "wan_ipv6_address": {
+                "name": "{port_name} IPv6 address"
             },
             "daily_download": {
                 "name": "Daily download"

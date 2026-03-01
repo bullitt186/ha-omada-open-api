@@ -165,7 +165,6 @@ def process_device(device: dict[str, Any]) -> dict[str, Any]:
         # Network
         "ip": device.get("ip"),
         "ipv6": device.get("ipv6", []),
-        "public_ip": device.get("publicIp"),
         "uptime": parse_uptime(device.get("uptime")),
         # Hardware info
         "cpu_util": device.get("cpuUtil"),

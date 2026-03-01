@@ -64,7 +64,6 @@ def _processed_gateway() -> dict:
         "model": "ER605",
         "type": "gateway",
         "ip": "192.168.1.1",
-        "public_ip": "203.0.113.45",
         "temperature": 42,
         "status": "connected",
     }
@@ -138,40 +137,6 @@ async def test_device_ip_sensor_unavailable_when_missing(
         device_mac,
         {device_mac: device_data},
         "device_ip",
-    )
-    assert sensor.available is False
-
-
-# ---------------------------------------------------------------------------
-# Public IP Sensor Tests
-# ---------------------------------------------------------------------------
-
-
-async def test_public_ip_sensor_gateway(hass: HomeAssistant) -> None:
-    """Test public IP sensor returns WAN IP for gateway."""
-    gateway_mac = "AA-BB-CC-DD-EE-02"
-    sensor = _create_device_sensor(
-        hass,
-        gateway_mac,
-        {gateway_mac: _processed_gateway()},
-        "public_ip",
-    )
-    assert sensor.native_value == "203.0.113.45"
-    assert sensor.available is True
-
-
-async def test_public_ip_sensor_unavailable_when_missing(
-    hass: HomeAssistant,
-) -> None:
-    """Test public IP sensor unavailable when public_ip is missing."""
-    gateway_mac = "AA-BB-CC-DD-EE-02"
-    device_data = _processed_gateway()
-    device_data["public_ip"] = None
-    sensor = _create_device_sensor(
-        hass,
-        gateway_mac,
-        {gateway_mac: device_data},
-        "public_ip",
     )
     assert sensor.available is False
 

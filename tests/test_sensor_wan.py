@@ -407,3 +407,54 @@ async def test_build_wan_sensors_empty_wan_status(
     )
     entities = _build_wan_sensors(coordinator, {}, set())
     assert entities == []
+
+
+# ---------------------------------------------------------------------------
+# WAN IPv6 address sensor
+# ---------------------------------------------------------------------------
+
+
+async def test_wan_ipv6_address(hass: HomeAssistant) -> None:
+    """Test WAN IPv6 address sensor returns the IPv6 addr."""
+    sensor = _create_wan_sensor(
+        hass,
+        {GATEWAY_MAC: [SAMPLE_WAN_PORT_1]},
+        "wan_ipv6_address",
+    )
+    assert sensor.native_value == "2001:db8::1"
+    assert sensor.available is True
+
+
+async def test_wan_ipv6_address_disabled_unavailable(hass: HomeAssistant) -> None:
+    """Test WAN IPv6 address unavailable when IPv6 is disabled."""
+    sensor = _create_wan_sensor(
+        hass,
+        {GATEWAY_MAC: [SAMPLE_WAN_PORT_2]},
+        "wan_ipv6_address",
+    )
+    assert sensor.available is False
+
+
+async def test_wan_ipv6_address_no_config(hass: HomeAssistant) -> None:
+    """Test WAN IPv6 address unavailable when wanPortIpv6Config is absent."""
+    port_no_ipv6 = {
+        "portName": "WAN1",
+        "mode": 0,
+        "status": 1,
+        "internetState": 1,
+        "ip": "203.0.113.10",
+        "rxRate": 100.0,
+        "txRate": 50.0,
+        "rx": 1_000_000,
+        "tx": 500_000,
+        "latency": 10,
+        "loss": 0.0,
+        "speed": 3,
+    }
+    sensor = _create_wan_sensor(
+        hass,
+        {GATEWAY_MAC: [port_no_ipv6]},
+        "wan_ipv6_address",
+    )
+    assert sensor.available is False
+    assert sensor.native_value is None

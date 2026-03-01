@@ -212,16 +212,6 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         applicable_types=("ap", "switch"),
     ),
     OmadaSensorEntityDescription(
-        key="public_ip",
-        translation_key="public_ip",
-        name="Public IP",
-        icon="mdi:ip-network",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda device: device.get("public_ip"),
-        available_fn=lambda device: device.get("public_ip") is not None,
-        applicable_types=("gateway",),
-    ),
-    OmadaSensorEntityDescription(
         key="device_ip",
         translation_key="device_ip",
         name="IP Address",
@@ -585,6 +575,17 @@ WAN_PORT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         value_fn=lambda port: WAN_SPEED_MAP.get(port.get("speed", 0)),
         available_fn=lambda port: port.get("speed") is not None,
     ),
+    OmadaSensorEntityDescription(
+        key="wan_ipv6_address",
+        translation_key="wan_ipv6_address",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda port: port.get("wanPortIpv6Config", {}).get("addr"),
+        available_fn=lambda port: (
+            bool(port.get("wanPortIpv6Config", {}).get("addr"))
+            and port.get("wanPortIpv6Config", {}).get("enable") == 1
+        ),
+    ),
 )
 
 # Device daily traffic sensor descriptions
@@ -594,7 +595,7 @@ DEVICE_TRAFFIC_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="daily_download",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        state_class=SensorStateClass.TOTAL,
         suggested_display_precision=2,
         value_fn=lambda data: data.get("daily_rx", 0) / 1_000_000,
         available_fn=lambda data: data.get("daily_rx") is not None,
@@ -604,7 +605,7 @@ DEVICE_TRAFFIC_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="daily_upload",
         device_class=SensorDeviceClass.DATA_SIZE,
         native_unit_of_measurement=UnitOfInformation.MEGABYTES,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        state_class=SensorStateClass.TOTAL,
         suggested_display_precision=2,
         value_fn=lambda data: data.get("daily_tx", 0) / 1_000_000,
         available_fn=lambda data: data.get("daily_tx") is not None,
