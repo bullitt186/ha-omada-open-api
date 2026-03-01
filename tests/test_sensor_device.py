@@ -75,8 +75,18 @@ def _create_device_sensor(
 
 
 async def test_client_num_sensor(hass: HomeAssistant) -> None:
-    """Test client_num sensor returns count."""
+    """Test client_num sensor returns count from connected_clients list."""
     data = process_device(SAMPLE_DEVICE_AP)
+    # The sensor now uses len(connected_clients), not raw client_num.
+    data["connected_clients"] = [
+        {
+            "name": f"Client {i}",
+            "mac": f"CC:CC:CC:CC:00:{i:02X}",
+            "ip": f"10.0.0.{i}",
+            "wireless": True,
+        }
+        for i in range(12)
+    ]
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "client_num")
     assert sensor.native_value == 12
 
@@ -337,3 +347,130 @@ async def test_uptime_unavailable_when_none(hass: HomeAssistant) -> None:
     data["uptime"] = None
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "uptime")
     assert sensor.available is False
+
+
+# ---------------------------------------------------------------------------
+# Client list attributes on device sensors
+# ---------------------------------------------------------------------------
+
+_SAMPLE_CONNECTED_CLIENTS: list[dict] = [
+    {
+        "name": "Laptop",
+        "mac": "CC:00:00:00:00:01",
+        "ip": "10.0.0.1",
+        "wireless": True,
+        "radio_id": 1,
+    },
+    {
+        "name": "Phone",
+        "mac": "CC:00:00:00:00:02",
+        "ip": "10.0.0.2",
+        "wireless": True,
+        "radio_id": 0,
+    },
+    {
+        "name": "Printer",
+        "mac": "CC:00:00:00:00:03",
+        "ip": "10.0.0.3",
+        "wireless": False,
+    },
+]
+
+
+async def test_client_num_attrs(hass: HomeAssistant) -> None:
+    """Test client_num sensor has clients attribute list."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "client_num")
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 3
+    assert attrs["clients"][0]["name"] == "Laptop"
+
+
+async def test_wired_clients_sensor(hass: HomeAssistant) -> None:
+    """Test wired_clients sensor returns only wired count."""
+    data = process_device(SAMPLE_DEVICE_SWITCH)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(
+        hass, SWITCH_MAC, {SWITCH_MAC: data}, "wired_clients"
+    )
+    assert sensor.native_value == 1
+
+
+async def test_wired_clients_attrs(hass: HomeAssistant) -> None:
+    """Test wired_clients sensor has only wired clients in attribute."""
+    data = process_device(SAMPLE_DEVICE_SWITCH)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(
+        hass, SWITCH_MAC, {SWITCH_MAC: data}, "wired_clients"
+    )
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 1
+    assert attrs["clients"][0]["name"] == "Printer"
+
+
+async def test_wireless_clients_sensor(hass: HomeAssistant) -> None:
+    """Test wireless_clients sensor returns only wireless count."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "wireless_clients")
+    assert sensor.native_value == 2
+
+
+async def test_wireless_clients_attrs(hass: HomeAssistant) -> None:
+    """Test wireless_clients sensor has only wireless clients in attribute."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "wireless_clients")
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 2
+    assert {c["name"] for c in attrs["clients"]} == {"Laptop", "Phone"}
+
+
+async def test_client_num_empty_list(hass: HomeAssistant) -> None:
+    """Test client_num returns 0 when connected_clients is empty."""
+    data = process_device(SAMPLE_DEVICE_SWITCH)
+    data["connected_clients"] = []
+    sensor = _create_device_sensor(hass, SWITCH_MAC, {SWITCH_MAC: data}, "client_num")
+    assert sensor.native_value == 0
+
+
+async def test_device_sensor_no_attrs_when_fn_none(hass: HomeAssistant) -> None:
+    """Test sensors without attrs_fn return None for extra_state_attributes."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "cpu_util")
+    assert sensor.extra_state_attributes is None
+
+
+# ---------------------------------------------------------------------------
+# Per-band client list attributes
+# ---------------------------------------------------------------------------
+
+
+async def test_band_2g_client_attrs(hass: HomeAssistant) -> None:
+    """Test 2.4 GHz sensor attrs contain only radio_id=0 clients."""
+    data = _ap_data_with_bands()
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(
+        hass, AP_MAC, {AP_MAC: data}, "clients_2g", AP_BAND_CLIENT_SENSORS
+    )
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 1
+    assert attrs["clients"][0]["name"] == "Phone"
+
+
+async def test_band_5g_client_attrs(hass: HomeAssistant) -> None:
+    """Test 5 GHz sensor attrs contain only radio_id=1 clients."""
+    data = _ap_data_with_bands()
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(
+        hass, AP_MAC, {AP_MAC: data}, "clients_5g", AP_BAND_CLIENT_SENSORS
+    )
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 1
+    assert attrs["clients"][0]["name"] == "Laptop"

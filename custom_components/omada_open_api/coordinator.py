@@ -147,6 +147,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
                 # Continue without PoE info - not critical
 
+            # Fetch all active clients and map them to devices
+            all_clients = await self._fetch_site_clients()
+            self._assign_clients_to_devices(devices, all_clients)
+
             return {
                 "devices": devices,
                 "poe_budget": poe_budget,
@@ -154,6 +158,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ssids": ssids,
                 "ap_ssid_overrides": ap_ssid_overrides,
                 "wan_status": await self._fetch_wan_status(devices),
+                "all_clients": all_clients,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
             }
@@ -162,6 +167,94 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Error fetching data for site {self.site_name}: {err}"
             ) from err
+
+    async def _fetch_site_clients(
+        self,
+    ) -> list[dict[str, Any]]:
+        """Fetch all active clients for the site.
+
+        Returns a lightweight list of client dicts suitable for
+        attribution on client-counting sensors.
+
+        Returns:
+            List of client dicts with name, mac, ip, wireless, and
+            connected device MAC fields.
+
+        """
+        all_clients: list[dict[str, Any]] = []
+        try:
+            page = 1
+            while True:
+                result = await self.api_client.get_clients(
+                    self.site_id, page=page, page_size=1000
+                )
+                clients_page = result.get("data", [])
+                for client in clients_page:
+                    if not client.get("active", False):
+                        continue
+                    all_clients.append(
+                        {
+                            "name": (
+                                client.get("name")
+                                or client.get("hostName")
+                                or client.get("mac", "Unknown")
+                            ),
+                            "mac": client.get("mac", ""),
+                            "ip": client.get("ip", ""),
+                            "wireless": client.get("wireless", False),
+                            "ap_mac": client.get("apMac"),
+                            "switch_mac": client.get("switchMac"),
+                            "gateway_mac": client.get("gatewayMac"),
+                        }
+                    )
+                total = result.get("totalRows", 0)
+                if len(all_clients) >= total or len(clients_page) < 1000:
+                    break
+                page += 1
+            _LOGGER.debug(
+                "Fetched %d active clients for site %s",
+                len(all_clients),
+                self.site_name,
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning(
+                "Failed to fetch clients for site %s: %s",
+                self.site_name,
+                err,
+            )
+        return all_clients
+
+    @staticmethod
+    def _assign_clients_to_devices(
+        devices: dict[str, dict[str, Any]],
+        all_clients: list[dict[str, Any]],
+    ) -> None:
+        """Assign each client to its connected device.
+
+        Populates ``connected_clients`` list on each device dict.
+
+        Args:
+            devices: Processed devices dict keyed by MAC.
+            all_clients: Flat list of lightweight client dicts.
+
+        """
+        # Initialise empty lists.
+        for dev in devices.values():
+            dev["connected_clients"] = []
+
+        for client in all_clients:
+            # Determine which device owns this client.
+            if client.get("wireless") and client.get("ap_mac"):
+                parent = client["ap_mac"]
+            elif client.get("switch_mac"):
+                parent = client["switch_mac"]
+            elif client.get("gateway_mac"):
+                parent = client["gateway_mac"]
+            else:
+                continue
+
+            if parent in devices:
+                devices[parent]["connected_clients"].append(client)
 
     async def _merge_uplink_info(
         self,

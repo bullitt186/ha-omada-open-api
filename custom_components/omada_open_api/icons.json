@@ -4,6 +4,24 @@
             "client_num": {
                 "default": "mdi:account-multiple"
             },
+            "wired_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "wireless_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "site_total_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "site_wired_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "site_wireless_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "site_poe_consumption": {
+                "default": "mdi:flash"
+            },
             "uptime": {
                 "default": "mdi:clock-outline"
             },

@@ -160,6 +160,24 @@
             "client_num": {
                 "name": "Connected clients"
             },
+            "wired_clients": {
+                "name": "Wired clients"
+            },
+            "wireless_clients": {
+                "name": "Wireless clients"
+            },
+            "site_total_clients": {
+                "name": "Total clients"
+            },
+            "site_wired_clients": {
+                "name": "Wired clients"
+            },
+            "site_wireless_clients": {
+                "name": "Wireless clients"
+            },
+            "site_poe_consumption": {
+                "name": "PoE consumption"
+            },
             "uptime": {
                 "name": "Uptime"
             },

@@ -110,6 +110,7 @@ class OmadaSensorEntityDescription(SensorEntityDescription):
     value_fn: Callable[[dict[str, Any]], StateType]
     available_fn: Callable[[dict[str, Any]], bool] = lambda device: True
     applicable_types: tuple[str, ...] | None = None
+    attrs_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
 
 
 DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
@@ -119,8 +120,47 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         name="Connected clients",
         icon=ICON_CLIENTS,
         state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda device: device.get("client_num", 0),
-        applicable_types=("ap",),
+        value_fn=lambda device: len(device.get("connected_clients", [])),
+        attrs_fn=lambda device: {
+            "clients": [
+                {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
+                for c in device.get("connected_clients", [])
+            ]
+        },
+    ),
+    OmadaSensorEntityDescription(
+        key="wired_clients",
+        translation_key="wired_clients",
+        name="Wired clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: len(
+            [c for c in device.get("connected_clients", []) if not c.get("wireless")]
+        ),
+        attrs_fn=lambda device: {
+            "clients": [
+                {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
+                for c in device.get("connected_clients", [])
+                if not c.get("wireless")
+            ]
+        },
+    ),
+    OmadaSensorEntityDescription(
+        key="wireless_clients",
+        translation_key="wireless_clients",
+        name="Wireless clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: len(
+            [c for c in device.get("connected_clients", []) if c.get("wireless")]
+        ),
+        attrs_fn=lambda device: {
+            "clients": [
+                {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
+                for c in device.get("connected_clients", [])
+                if c.get("wireless")
+            ]
+        },
     ),
     OmadaSensorEntityDescription(
         key="uptime",
@@ -257,6 +297,32 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
+# Radio ID to band mapping for filtering clients by radio.
+_RADIO_BAND_MAP: dict[str, int] = {
+    "clients_2g": 0,
+    "clients_5g": 1,
+    "clients_5g2": 2,
+    "clients_6g": 3,
+}
+
+
+def _band_clients_attrs(
+    radio_id: int,
+) -> Callable[[dict[str, Any]], dict[str, Any] | None]:
+    """Return attrs_fn that filters connected wireless clients by radio ID."""
+
+    def _attrs(device: dict[str, Any]) -> dict[str, Any] | None:
+        return {
+            "clients": [
+                {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
+                for c in device.get("connected_clients", [])
+                if c.get("wireless") and c.get("radio_id") == radio_id
+            ]
+        }
+
+    return _attrs
+
+
 # Per-band client count sensors (AP-only, populated by coordinator)
 AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
@@ -268,6 +334,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_2g"),
         available_fn=lambda device: device.get("client_num_2g") is not None,
+        attrs_fn=_band_clients_attrs(0),
     ),
     OmadaSensorEntityDescription(
         key="clients_5g",
@@ -278,6 +345,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_5g"),
         available_fn=lambda device: device.get("client_num_5g") is not None,
+        attrs_fn=_band_clients_attrs(1),
     ),
     OmadaSensorEntityDescription(
         key="clients_5g2",
@@ -288,6 +356,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_5g2"),
         available_fn=lambda device: device.get("client_num_5g2") is not None,
+        attrs_fn=_band_clients_attrs(2),
     ),
     OmadaSensorEntityDescription(
         key="clients_6g",
@@ -298,6 +367,7 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         entity_registry_enabled_default=False,
         value_fn=lambda device: device.get("client_num_6g"),
         available_fn=lambda device: device.get("client_num_6g") is not None,
+        attrs_fn=_band_clients_attrs(3),
     ),
 )
 
@@ -649,6 +719,115 @@ def _build_wan_sensors(
     return entities
 
 
+# ---------------------------------------------------------------------------
+# Site-level aggregation sensors
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class OmadaSiteSensorEntityDescription(SensorEntityDescription):
+    """Describes an Omada site-level aggregation sensor."""
+
+    value_fn: Callable[[dict[str, Any]], StateType]
+    attrs_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+
+
+def _site_total_clients(data: dict[str, Any]) -> int:
+    """Return total active client count for the site."""
+    return len(data.get("all_clients", []))
+
+
+def _site_wired_clients(data: dict[str, Any]) -> int:
+    """Return wired client count for the site."""
+    return len([c for c in data.get("all_clients", []) if not c.get("wireless")])
+
+
+def _site_wireless_clients(data: dict[str, Any]) -> int:
+    """Return wireless client count for the site."""
+    return len([c for c in data.get("all_clients", []) if c.get("wireless")])
+
+
+def _site_poe_consumption(data: dict[str, Any]) -> float:
+    """Return total PoE consumption in watts across all switches."""
+    poe_budget = data.get("poe_budget", {})
+    return float(
+        round(
+            sum(float(sw.get("total_power_used", 0.0)) for sw in poe_budget.values()),
+            1,
+        )
+    )
+
+
+def _client_list_attrs(
+    clients: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Format a lightweight client list for Jinja2 use."""
+    return {
+        "clients": [
+            {"name": c["name"], "mac": c["mac"], "ip": c["ip"]} for c in clients
+        ]
+    }
+
+
+SITE_SENSORS: tuple[OmadaSiteSensorEntityDescription, ...] = (
+    OmadaSiteSensorEntityDescription(
+        key="site_total_clients",
+        translation_key="site_total_clients",
+        name="Total clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_site_total_clients,
+        attrs_fn=lambda data: _client_list_attrs(data.get("all_clients", [])),
+    ),
+    OmadaSiteSensorEntityDescription(
+        key="site_wired_clients",
+        translation_key="site_wired_clients",
+        name="Wired clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_site_wired_clients,
+        attrs_fn=lambda data: _client_list_attrs(
+            [c for c in data.get("all_clients", []) if not c.get("wireless")]
+        ),
+    ),
+    OmadaSiteSensorEntityDescription(
+        key="site_wireless_clients",
+        translation_key="site_wireless_clients",
+        name="Wireless clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_site_wireless_clients,
+        attrs_fn=lambda data: _client_list_attrs(
+            [c for c in data.get("all_clients", []) if c.get("wireless")]
+        ),
+    ),
+    OmadaSiteSensorEntityDescription(
+        key="site_poe_consumption",
+        translation_key="site_poe_consumption",
+        name="PoE consumption",
+        icon=ICON_POE,
+        state_class=SensorStateClass.MEASUREMENT,
+        device_class=SensorDeviceClass.POWER,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        value_fn=_site_poe_consumption,
+    ),
+)
+
+
+def _setup_site_sensors(
+    coordinators: dict[str, OmadaSiteCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Create site-level aggregation sensors for all coordinators."""
+    site_entities: list[SensorEntity] = [
+        OmadaSiteSensor(coordinator=coord, description=desc)
+        for coord in coordinators.values()
+        for desc in SITE_SENSORS
+    ]
+    if site_entities:
+        async_add_entities(site_entities)
+
+
 async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
@@ -664,6 +843,8 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
         rd.device_stats_coordinators
     )
+
+    _setup_site_sensors(coordinators, async_add_entities)
 
     # --- Dynamic infrastructure device sensors ---
     known_device_macs: set[str] = set()
@@ -927,6 +1108,53 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
             return False
 
         return self.entity_description.available_fn(device_data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes."""
+        if self.entity_description.attrs_fn is None:
+            return None
+        device_data = self.coordinator.data.get("devices", {}).get(self._device_mac)
+        if device_data is None:
+            return None
+        return self.entity_description.attrs_fn(device_data)
+
+
+class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
+    """Representation of an Omada site-level aggregation sensor."""
+
+    entity_description: OmadaSiteSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSiteSensorEntityDescription,
+    ) -> None:
+        """Initialize a site-level sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        site_id = coordinator.site_id
+        self._attr_unique_id = f"site_{site_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"site_{site_id}")},
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        return self.coordinator.last_update_success
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return additional state attributes."""
+        if self.entity_description.attrs_fn is None:
+            return None
+        return self.entity_description.attrs_fn(self.coordinator.data)
 
 
 class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
