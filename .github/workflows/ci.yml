@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PYTHON_VERSION: "3.13"
+  PYTHON_VERSION: "3.14"
 
 jobs:
   lint:
@@ -26,6 +26,51 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements_dev.txt
+
+      # Mirrors pre-commit: pre-commit-hooks
+      - name: Check trailing whitespace
+        run: |
+          git ls-files -z -- ':(exclude)*.pxd' | xargs -0 grep -Prl '\s+$' && \
+            { echo '❌ Trailing whitespace found'; exit 1; } || \
+            echo '✅ No trailing whitespace'
+
+      - name: Check files end with newline
+        run: |
+          bad_files=$(git ls-files -z -- ':(exclude)*.pxd' | xargs -0 -I{} sh -c 'test -s "{}" && test "$(tail -c1 "{}")" && echo "{}"')
+          if [ -n "$bad_files" ]; then
+            echo "❌ Files missing final newline:"; echo "$bad_files"; exit 1
+          fi
+          echo '✅ All files end with newline'
+
+      - name: Validate JSON/TOML
+        run: |
+          python3 << 'PYEOF'
+          import json, pathlib, sys, tomllib
+          errors = []
+          for p in pathlib.Path('.').rglob('*.json'):
+              try:
+                  json.loads(p.read_text())
+              except Exception as e:
+                  errors.append(f'{p}: {e}')
+          for p in pathlib.Path('.').rglob('*.toml'):
+              try:
+                  tomllib.loads(p.read_text())
+              except Exception as e:
+                  errors.append(f'{p}: {e}')
+          if errors:
+              print('Validation errors:')
+              for e in errors:
+                  print(e)
+              sys.exit(1)
+          print('All JSON/TOML valid')
+          PYEOF
+
+      - name: Check for merge conflicts
+        run: |
+          if git ls-files -z | xargs -0 grep -l '^<<<<<<< ' 2>/dev/null; then
+            echo '❌ Merge conflict markers found'; exit 1
+          fi
+          echo '✅ No merge conflict markers'
 
       # Mirrors pre-commit: ruff (lint + format)
       - name: Ruff lint

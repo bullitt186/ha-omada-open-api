@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 env:
-  PYTHON_VERSION: "3.13"
+  PYTHON_VERSION: "3.14"
 
 jobs:
   quality-gate:
@@ -24,6 +24,20 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements_dev.txt
+
+      # Mirrors pre-commit: pre-commit-hooks
+      - name: Check trailing whitespace
+        run: |
+          git ls-files -z -- ':(exclude)*.pxd' | xargs -0 grep -Prl '\s+$' && \
+            { echo '❌ Trailing whitespace found'; exit 1; } || \
+            echo '✅ No trailing whitespace'
+
+      - name: Check for merge conflicts
+        run: |
+          if git ls-files -z | xargs -0 grep -l '^<<<<<<< ' 2>/dev/null; then
+            echo '❌ Merge conflict markers found'; exit 1
+          fi
+          echo '✅ No merge conflict markers'
 
       # Full pre-commit equivalent suite
       - name: Ruff lint

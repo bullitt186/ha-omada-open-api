@@ -33,7 +33,7 @@ repos:
     hooks:
       - id: pylint
         args: [--rcfile=pyproject.toml]
-        files: ^custom_components/
+        files: ^custom_components/omada_open_api/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
@@ -41,10 +41,9 @@ repos:
       - id: mypy
         args: [--config-file=pyproject.toml]
         files: ^custom_components/
-        exclude: custom_components/omada_open_api/binary_sensor.py
         additional_dependencies:
           - types-requests
-          - homeassistant==2026.1.2
+          - homeassistant==2026.2.3
 
   - repo: local
     hooks:

@@ -1,12 +1,11 @@
 {
   "name": "Home Assistant Custom Integration - Omada",
-  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "image": "mcr.microsoft.com/devcontainers/python:3.14",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "ms-python.black-formatter",
         "charliermarsh.ruff",
         "visualstudioexptteam.vscodeintellicode"
       ],
@@ -18,7 +17,7 @@
         "python.linting.pylintEnabled": true,
         "python.formatting.provider": "none",
         "[python]": {
-          "editor.defaultFormatter": "ms-python.black-formatter",
+          "editor.defaultFormatter": "charliermarsh.ruff",
           "editor.formatOnSave": true,
           "editor.codeActionsOnSave": {
             "source.organizeImports": "explicit"

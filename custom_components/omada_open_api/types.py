@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.config_entries import ConfigEntry
 
@@ -34,4 +34,4 @@ class OmadaRuntimeData:
     prev_options: dict[str, Any] = field(default_factory=dict)
 
 
-OmadaConfigEntry: TypeAlias = ConfigEntry[OmadaRuntimeData]
+type OmadaConfigEntry = ConfigEntry[OmadaRuntimeData]

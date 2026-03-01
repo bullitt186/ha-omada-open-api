@@ -10,7 +10,7 @@
     "iot_class": "cloud_polling",
     "issue_tracker": "https://github.com/bullitt186/ha-omada-open-api/issues",
     "requirements": [
-        "aiohttp>=3.10.0"
+        "aiohttp>=3.13.0"
     ],
     "version": "1.3.0"
 }
