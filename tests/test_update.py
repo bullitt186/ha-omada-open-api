@@ -31,6 +31,7 @@ AP_MAC = SAMPLE_DEVICE_AP["mac"]
 def _build_coordinator(
     hass: HomeAssistant,
     devices: dict[str, dict[str, Any]] | None = None,
+    firmware_info: dict[str, dict[str, Any]] | None = None,
 ) -> OmadaSiteCoordinator:
     """Create a site coordinator with mock device data."""
     coordinator = OmadaSiteCoordinator(
@@ -45,6 +46,7 @@ def _build_coordinator(
             processed[mac] = process_device(raw)
     coordinator.data = {
         "devices": processed,
+        "firmware_info": firmware_info or {},
         "poe_budget": {},
         "poe_ports": {},
         "site_id": TEST_SITE_ID,
@@ -65,11 +67,12 @@ def _create_update_entity(
     hass: HomeAssistant,
     device_mac: str = AP_MAC,
     devices: dict[str, dict[str, Any]] | None = None,
+    firmware_info: dict[str, dict[str, Any]] | None = None,
 ) -> OmadaDeviceUpdateEntity:
     """Create an OmadaDeviceUpdateEntity."""
     if devices is None:
         devices = {device_mac: SAMPLE_DEVICE_AP}
-    coordinator = _build_coordinator(hass, devices)
+    coordinator = _build_coordinator(hass, devices, firmware_info)
     return OmadaDeviceUpdateEntity(coordinator=coordinator, device_mac=device_mac)
 
 
@@ -123,30 +126,43 @@ async def test_update_unavailable_coordinator_failure(hass: HomeAssistant) -> No
     assert entity.available is False
 
 
-async def test_update_latest_version_after_update(hass: HomeAssistant) -> None:
-    """Test latest_version falls back to installed_version before first poll."""
-    entity = _create_update_entity(hass)
-    # Before first poll, latest_version falls back to installed_version.
-    assert entity.latest_version == entity.installed_version
-
-    await entity.async_update()
+async def test_update_latest_version_from_coordinator(hass: HomeAssistant) -> None:
+    """Test latest_version is read from coordinator firmware_info."""
+    firmware_info = {
+        AP_MAC: {
+            "curFwVer": "1.0.0",
+            "lastFwVer": "1.1.0",
+            "fwReleaseLog": "Bug fixes",
+        }
+    }
+    entity = _create_update_entity(hass, firmware_info=firmware_info)
     assert entity.latest_version == "1.1.0"
 
 
-async def test_update_release_summary(hass: HomeAssistant) -> None:
-    """Test release_summary is populated after async_update."""
+async def test_update_latest_version_fallback(hass: HomeAssistant) -> None:
+    """Test latest_version falls back to installed when no firmware_info."""
     entity = _create_update_entity(hass)
-    await entity.async_update()
+    # No firmware_info provided, should fall back to installed_version.
+    assert entity.latest_version == entity.installed_version
+
+
+async def test_update_release_summary(hass: HomeAssistant) -> None:
+    """Test release_summary is read from coordinator firmware_info."""
+    firmware_info = {
+        AP_MAC: {
+            "curFwVer": "1.0.0",
+            "lastFwVer": "1.1.0",
+            "fwReleaseLog": "Bug fixes",
+        }
+    }
+    entity = _create_update_entity(hass, firmware_info=firmware_info)
     assert entity.release_summary == "Bug fixes"
 
 
-async def test_update_firmware_check_error(hass: HomeAssistant) -> None:
-    """Test graceful handling of firmware check errors."""
+async def test_update_release_summary_none(hass: HomeAssistant) -> None:
+    """Test release_summary is None when no firmware_info."""
     entity = _create_update_entity(hass)
-    entity.coordinator.api_client.get_firmware_info.side_effect = OmadaApiError("fail")
-    await entity.async_update()
-    # Falls back to installed version.
-    assert entity.latest_version == entity.installed_version
+    assert entity.release_summary is None
 
 
 async def test_update_install(hass: HomeAssistant) -> None:
@@ -178,3 +194,30 @@ async def test_update_device_info(hass: HomeAssistant) -> None:
     info = entity.device_info
     assert info is not None
     assert info["identifiers"] == {(DOMAIN, AP_MAC)}
+
+
+async def test_update_in_progress_upgrading(hass: HomeAssistant) -> None:
+    """Test in_progress is True when device detailStatus is 12 (Upgrading)."""
+    device = {**SAMPLE_DEVICE_AP, "detailStatus": 12}
+    entity = _create_update_entity(hass, devices={AP_MAC: device})
+    assert entity.in_progress is True
+
+
+async def test_update_in_progress_rebooting(hass: HomeAssistant) -> None:
+    """Test in_progress is True when device detailStatus is 13 (Rebooting)."""
+    device = {**SAMPLE_DEVICE_AP, "detailStatus": 13}
+    entity = _create_update_entity(hass, devices={AP_MAC: device})
+    assert entity.in_progress is True
+
+
+async def test_update_not_in_progress(hass: HomeAssistant) -> None:
+    """Test in_progress is False when device is in normal state."""
+    entity = _create_update_entity(hass)
+    assert entity.in_progress is False
+
+
+async def test_update_not_in_progress_missing_device(hass: HomeAssistant) -> None:
+    """Test in_progress is False when device is missing."""
+    entity = _create_update_entity(hass)
+    entity.coordinator.data["devices"] = {}
+    assert entity.in_progress is False

@@ -74,7 +74,9 @@ class OmadaDeviceUpdateEntity(
     """Update entity for Omada device firmware."""
 
     _attr_device_class = UpdateDeviceClass.FIRMWARE
-    _attr_supported_features = UpdateEntityFeature.INSTALL
+    _attr_supported_features = (
+        UpdateEntityFeature.INSTALL | UpdateEntityFeature.PROGRESS
+    )
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -90,10 +92,6 @@ class OmadaDeviceUpdateEntity(
         self._attr_translation_key = "firmware"
         self._attr_device_info = {"identifiers": {(DOMAIN, device_mac)}}
 
-        # Cache firmware info to avoid polling per-entity.
-        self._latest_version: str | None = None
-        self._release_notes: str | None = None
-
     @property
     def installed_version(self) -> str | None:
         """Return the current firmware version."""
@@ -105,14 +103,30 @@ class OmadaDeviceUpdateEntity(
     @property
     def latest_version(self) -> str | None:
         """Return the latest available firmware version."""
-        if self._latest_version is not None:
-            return self._latest_version
+        fw_info: dict[str, Any] = self.coordinator.data.get("firmware_info", {}).get(
+            self._device_mac, {}
+        )
+        latest = fw_info.get("lastFwVer")
+        if latest:
+            return str(latest)
         return self.installed_version
 
     @property
     def release_summary(self) -> str | None:
         """Return the release notes for the latest version."""
-        return self._release_notes
+        fw_info: dict[str, Any] = self.coordinator.data.get("firmware_info", {}).get(
+            self._device_mac, {}
+        )
+        return fw_info.get("fwReleaseLog")
+
+    @property
+    def in_progress(self) -> bool:
+        """Return True when the device is upgrading or rebooting after upgrade."""
+        device = self.coordinator.data.get("devices", {}).get(self._device_mac)
+        if device is None:
+            return False
+        # detailStatus 12 = Upgrading, 13 = Rebooting.
+        return device.get("detail_status") in (12, 13)
 
     @property
     def available(self) -> bool:
@@ -122,22 +136,6 @@ class OmadaDeviceUpdateEntity(
         return (
             self.coordinator.data.get("devices", {}).get(self._device_mac) is not None
         )
-
-    async def async_update(self) -> None:
-        """Fetch latest firmware info from the API."""
-        await super().async_update()
-        site_id: str = self.coordinator.data.get("site_id", "")
-        try:
-            info = await self.coordinator.api_client.get_firmware_info(
-                site_id, self._device_mac
-            )
-            self._latest_version = info.get("lastFwVer") or self.installed_version
-            self._release_notes = info.get("fwReleaseLog")
-        except OmadaApiError:
-            _LOGGER.debug("Could not fetch firmware info for %s", self._device_mac)
-            # Fall back to installed version if firmware check fails.
-            if self._latest_version is None:
-                self._latest_version = self.installed_version
 
     async def async_install(
         self,

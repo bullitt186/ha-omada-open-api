@@ -14,9 +14,11 @@ from .api import OmadaApiClient, OmadaApiError
 from .clients import process_client
 from .const import (
     DEFAULT_DEVICE_SCAN_INTERVAL,
+    DEFAULT_FIRMWARE_CHECK_INTERVAL,
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
     SCAN_INTERVAL,
+    UPGRADE_POLL_INTERVAL,
 )
 from .devices import process_device
 
@@ -56,6 +58,14 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api_client = api_client
         self.site_id = site_id
         self.site_name = site_name
+
+        # Firmware info cache — checked less frequently than device data.
+        self._firmware_info: dict[str, dict[str, Any]] = {}
+        self._last_firmware_check: dt.datetime | None = None
+
+        # Upgrade polling: store normal interval so we can restore it.
+        self._normal_interval = timedelta(seconds=scan_interval)
+        self._upgrade_active = False
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Omada controller.
@@ -151,8 +161,15 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_clients = await self._fetch_site_clients()
             self._assign_clients_to_devices(devices, all_clients)
 
+            # Fetch firmware info periodically (every 30 min by default).
+            await self._maybe_refresh_firmware_info(devices)
+
+            # Adjust polling rate based on upgrade state.
+            self._adjust_polling_for_upgrades(devices)
+
             return {
                 "devices": devices,
+                "firmware_info": self._firmware_info,
                 "poe_budget": poe_budget,
                 "poe_ports": poe_ports,
                 "ssids": ssids,
@@ -167,6 +184,87 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Error fetching data for site {self.site_name}: {err}"
             ) from err
+
+    def _adjust_polling_for_upgrades(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Switch to fast polling while any device is upgrading.
+
+        Restores the normal interval once all upgrades finish.
+
+        Args:
+            devices: Processed device dict keyed by MAC.
+
+        """
+        # detailStatus 12 = Upgrading, 13 = Rebooting.
+        any_upgrading = any(
+            dev.get("detail_status") in (12, 13) for dev in devices.values()
+        )
+
+        if any_upgrading and not self._upgrade_active:
+            self._upgrade_active = True
+            self.update_interval = timedelta(  # pylint: disable=attribute-defined-outside-init
+                seconds=UPGRADE_POLL_INTERVAL
+            )
+            _LOGGER.info(
+                "Device upgrade detected in site %s — polling every %ds",
+                self.site_name,
+                UPGRADE_POLL_INTERVAL,
+            )
+        elif not any_upgrading and self._upgrade_active:
+            self._upgrade_active = False
+            self.update_interval = self._normal_interval  # pylint: disable=attribute-defined-outside-init
+            # Force firmware info refresh so latest_version updates promptly.
+            self._last_firmware_check = None
+            _LOGGER.info(
+                "All upgrades finished in site %s — restoring normal polling",
+                self.site_name,
+            )
+
+    async def _maybe_refresh_firmware_info(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Refresh firmware info if the check interval has elapsed.
+
+        Calls the per-device firmware info endpoint for every device
+        and caches the results in ``self._firmware_info``.  The cache
+        is only refreshed every ``DEFAULT_FIRMWARE_CHECK_INTERVAL``
+        seconds to avoid excessive API calls.
+
+        Args:
+            devices: Processed device dict keyed by MAC.
+
+        """
+        now = dt_util.utcnow()
+        if (
+            self._last_firmware_check is not None
+            and (now - self._last_firmware_check).total_seconds()
+            < DEFAULT_FIRMWARE_CHECK_INTERVAL
+        ):
+            return
+
+        _LOGGER.debug(
+            "Refreshing firmware info for %d devices in site %s",
+            len(devices),
+            self.site_name,
+        )
+
+        for mac in devices:
+            try:
+                info = await self.api_client.get_firmware_info(self.site_id, mac)
+                self._firmware_info[mac] = info
+            except OmadaApiError as err:
+                _LOGGER.debug("Could not fetch firmware info for %s: %s", mac, err)
+                # Keep stale data if present; otherwise skip this device.
+
+        self._last_firmware_check = now
+        _LOGGER.debug(
+            "Firmware info refreshed for site %s (%d devices)",
+            self.site_name,
+            len(self._firmware_info),
+        )
 
     async def _fetch_site_clients(
         self,

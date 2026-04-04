@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from custom_components.omada_open_api.api import OmadaApiError
+from custom_components.omada_open_api.const import UPGRADE_POLL_INTERVAL
 from custom_components.omada_open_api.coordinator import (
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
@@ -20,6 +21,7 @@ from custom_components.omada_open_api.coordinator import (
 
 from .conftest import (
     SAMPLE_DEVICE_AP,
+    SAMPLE_DEVICE_SWITCH,
     SAMPLE_POE_PORT_ACTIVE,
     SAMPLE_POE_PORT_INACTIVE,
     SAMPLE_POE_PORT_NOT_SUPPORTED,
@@ -406,6 +408,235 @@ async def test_site_coordinator_no_aps_skips_band_stats(
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
     mock_api_client.get_device_client_stats.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Firmware info fetching
+# ---------------------------------------------------------------------------
+
+
+async def test_site_coordinator_fetches_firmware_info(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that firmware info is fetched on first refresh."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert "firmware_info" in coordinator.data
+
+    # Should have fetched firmware info for all 3 devices.
+    assert mock_api_client.get_firmware_info.call_count == 3
+    for mac in ("AA-BB-CC-DD-EE-01", "AA-BB-CC-DD-EE-02", "AA-BB-CC-DD-EE-03"):
+        assert mac in coordinator.data["firmware_info"]
+        assert coordinator.data["firmware_info"][mac]["lastFwVer"] == "1.1.0"
+
+
+async def test_site_coordinator_firmware_info_skips_within_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that firmware info is NOT re-fetched within the check interval."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    # First refresh — should fetch firmware info.
+    await coordinator.async_refresh()
+    first_call_count = mock_api_client.get_firmware_info.call_count
+    assert first_call_count == 3
+
+    # Second refresh (no time travel) — should NOT re-fetch.
+    await coordinator.async_refresh()
+    assert mock_api_client.get_firmware_info.call_count == first_call_count
+
+
+async def test_site_coordinator_firmware_info_refreshes_after_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that firmware info is re-fetched after the check interval elapses."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert mock_api_client.get_firmware_info.call_count == 3
+
+    # Move time forward past the 30 min interval.
+    coordinator._last_firmware_check -= timedelta(minutes=31)  # noqa: SLF001
+
+    await coordinator.async_refresh()
+    # Should have fetched firmware info again for all 3 devices.
+    assert mock_api_client.get_firmware_info.call_count == 6
+
+
+async def test_site_coordinator_firmware_info_error_per_device(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that a firmware fetch error for one device doesn't block others."""
+
+    async def _side_effect(site_id: str, mac: str) -> dict:
+        if mac == "AA-BB-CC-DD-EE-01":
+            raise OmadaApiError("timeout")
+        return {"curFwVer": "1.0.0", "lastFwVer": "2.0.0", "fwReleaseLog": "New"}
+
+    mock_api_client.get_firmware_info = AsyncMock(side_effect=_side_effect)
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    fw = coordinator.data["firmware_info"]
+    # The failing device should not be present.
+    assert "AA-BB-CC-DD-EE-01" not in fw
+    # The others should have data.
+    assert fw["AA-BB-CC-DD-EE-02"]["lastFwVer"] == "2.0.0"
+    assert fw["AA-BB-CC-DD-EE-03"]["lastFwVer"] == "2.0.0"
+
+
+# ---------------------------------------------------------------------------
+# Upgrade polling boost
+# ---------------------------------------------------------------------------
+
+
+async def test_site_coordinator_boosts_polling_during_upgrade(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that polling interval is reduced when a device is upgrading."""
+    # Start with a device that has detailStatus=12 (Upgrading).
+    upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+
+
+async def test_site_coordinator_restores_polling_after_upgrade(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that polling interval is restored once the upgrade finishes."""
+    # First refresh: device is upgrading.
+    upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+
+    # Second refresh: device is back to Connected (14).
+    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, normal_switch]
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.update_interval == timedelta(seconds=60)
+    assert coordinator._upgrade_active is False  # noqa: SLF001
+
+
+async def test_site_coordinator_firmware_cache_reset_after_upgrade(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that firmware info cache is cleared when upgrade completes."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+
+    # First refresh: device upgrading, firmware info fetched.
+    upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    first_call_count = mock_api_client.get_firmware_info.call_count
+    assert first_call_count == 2  # 2 devices
+
+    # Second refresh: still upgrading — firmware cache NOT bypassed.
+    await coordinator.async_refresh()
+    assert mock_api_client.get_firmware_info.call_count == first_call_count
+
+    # Third refresh: upgrade finished — _adjust_polling resets the cache.
+    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, normal_switch]
+    )
+    await coordinator.async_refresh()
+    # Cache was reset at end of this cycle; firmware IS re-fetched on the next one.
+    assert mock_api_client.get_firmware_info.call_count == first_call_count
+
+    # Fourth refresh: cache was cleared, so firmware info is re-fetched now.
+    await coordinator.async_refresh()
+    assert mock_api_client.get_firmware_info.call_count > first_call_count
+
+
+async def test_site_coordinator_no_boost_without_upgrade(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that normal polling is kept when no device is upgrading."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.update_interval == timedelta(seconds=60)
+    assert coordinator._upgrade_active is False  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
