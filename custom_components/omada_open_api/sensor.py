@@ -59,6 +59,11 @@ PARALLEL_UPDATES = 0
 
 _LOGGER = logging.getLogger(__name__)
 
+# Uptime sensor anti-spam: treat a drop in reported uptime >= this value as a reboot.
+_UPTIME_REBOOT_THRESHOLD_SECONDS: int = 120
+# Uptime sensor anti-spam: minimum change in computed boot timestamp to publish a new state.
+_UPTIME_MIN_DELTA_SECONDS: int = 60
+
 # Human-readable labels for device type abbreviations from the API.
 DEVICE_TYPE_LABELS: dict[str, str] = {
     "ap": "Access Point",
@@ -101,6 +106,19 @@ def _auto_scale_bytes(
         return value / 1_000, UnitOfInformation.KILOBYTES
 
     return value, UnitOfInformation.BYTES
+
+
+def _ceil_to_30s(ts: dt.datetime) -> dt.datetime:
+    """Round a timestamp up to the next 30-second boundary (ceiling).
+
+    Snapping the computed boot time to a 30-second ceiling prevents the
+    "minute flip-flop" where small timing variations cause the displayed
+    timestamp to oscillate (e.g. "09:22" <-> "09:23").
+    """
+    remainder = ts.second % 30
+    if remainder == 0:
+        return ts
+    return ts + dt.timedelta(seconds=30 - remainder)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -159,6 +177,23 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
                 {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
                 for c in device.get("connected_clients", [])
                 if c.get("wireless")
+            ]
+        },
+    ),
+    OmadaSensorEntityDescription(
+        key="guest_clients",
+        translation_key="guest_clients",
+        name="Guest clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=lambda device: len(
+            [c for c in device.get("connected_clients", []) if c.get("guest")]
+        ),
+        attrs_fn=lambda device: {
+            "clients": [
+                {"name": c["name"], "mac": c["mac"], "ip": c["ip"]}
+                for c in device.get("connected_clients", [])
+                if c.get("guest")
             ]
         },
     ),
@@ -747,6 +782,11 @@ def _site_wireless_clients(data: dict[str, Any]) -> int:
     return len([c for c in data.get("all_clients", []) if c.get("wireless")])
 
 
+def _site_guest_clients(data: dict[str, Any]) -> int:
+    """Return guest client count for the site."""
+    return len([c for c in data.get("all_clients", []) if c.get("guest")])
+
+
 def _site_poe_consumption(data: dict[str, Any]) -> float:
     """Return total PoE consumption in watts across all switches."""
     poe_budget = data.get("poe_budget", {})
@@ -802,6 +842,17 @@ SITE_SENSORS: tuple[OmadaSiteSensorEntityDescription, ...] = (
         ),
     ),
     OmadaSiteSensorEntityDescription(
+        key="site_guest_clients",
+        translation_key="site_guest_clients",
+        name="Guest clients",
+        icon=ICON_CLIENTS,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_fn=_site_guest_clients,
+        attrs_fn=lambda data: _client_list_attrs(
+            [c for c in data.get("all_clients", []) if c.get("guest")]
+        ),
+    ),
+    OmadaSiteSensorEntityDescription(
         key="site_poe_consumption",
         translation_key="site_poe_consumption",
         name="PoE consumption",
@@ -826,6 +877,44 @@ def _setup_site_sensors(
     ]
     if site_entities:
         async_add_entities(site_entities)
+
+
+def _make_device_sensor(
+    coordinator: OmadaSiteCoordinator,
+    description: OmadaSensorEntityDescription,
+    device_mac: str,
+) -> OmadaDeviceSensor:
+    """Instantiate the appropriate device sensor class for *description*."""
+    if description.key == "uptime":
+        return OmadaDeviceUptimeSensor(
+            coordinator=coordinator,
+            description=description,
+            device_mac=device_mac,
+        )
+    return OmadaDeviceSensor(
+        coordinator=coordinator,
+        description=description,
+        device_mac=device_mac,
+    )
+
+
+def _make_client_sensor(
+    coordinator: OmadaClientCoordinator,
+    description: OmadaSensorEntityDescription,
+    client_mac: str,
+) -> OmadaClientSensor:
+    """Instantiate the appropriate client sensor class for *description*."""
+    if description.key == "client_uptime":
+        return OmadaClientUptimeSensor(
+            coordinator=coordinator,
+            description=description,
+            client_mac=client_mac,
+        )
+    return OmadaClientSensor(
+        coordinator=coordinator,
+        description=description,
+        client_mac=client_mac,
+    )
 
 
 async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
@@ -879,11 +968,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                     device = devices.get(mac, {})
                     device_type = device.get("type", "").lower()
                     new_entities.extend(
-                        OmadaDeviceSensor(
-                            coordinator=c,
-                            description=desc,
-                            device_mac=mac,
-                        )
+                        _make_device_sensor(c, desc, mac)
                         for desc in DEVICE_SENSORS
                         if desc.applicable_types is None
                         or device_type in desc.applicable_types
@@ -891,11 +976,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                     # Per-band client count sensors for AP devices.
                     if device_type == "ap":
                         new_entities.extend(
-                            OmadaDeviceSensor(
-                                coordinator=c,
-                                description=desc,
-                                device_mac=mac,
-                            )
+                            _make_device_sensor(c, desc, mac)
                             for desc in AP_BAND_CLIENT_SENSORS
                         )
 
@@ -952,11 +1033,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             known_client_macs.update(new_macs)
 
             new_entities: list[SensorEntity] = [
-                OmadaClientSensor(
-                    coordinator=coord,
-                    description=desc,
-                    client_mac=mac,
-                )
+                _make_client_sensor(coord, desc, mac)
                 for mac in new_macs
                 for desc in CLIENT_SENSORS
             ]
@@ -1120,6 +1197,67 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         return self.entity_description.attrs_fn(device_data)
 
 
+class OmadaDeviceUptimeSensor(OmadaDeviceSensor):
+    """Device uptime sensor with anti-spam hysteresis.
+
+    Applies ceil-to-30s snapping and a 60-second hysteresis window to prevent
+    HA recorder / activity-log spam, and detects device reboots so the UI
+    updates promptly.
+    """
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSensorEntityDescription,
+        device_mac: str,
+    ) -> None:
+        """Initialize the uptime sensor with per-entity cached state."""
+        super().__init__(
+            coordinator=coordinator,
+            description=description,
+            device_mac=device_mac,
+        )
+        self._last_published_boot_ts: dt.datetime | None = None
+        self._last_uptime_seconds: int | None = None
+
+    @property
+    def native_value(self) -> StateType:
+        """Return a stable boot timestamp, suppressing minor jitter."""
+        device_data = self.coordinator.data.get("devices", {}).get(self._device_mac)
+        if device_data is None:
+            return None
+        uptime_seconds = device_data.get("uptime")
+        if uptime_seconds is None:
+            return None
+
+        now = dt_util.utcnow().replace(microsecond=0)
+        candidate = _ceil_to_30s(now - dt.timedelta(seconds=uptime_seconds))
+
+        last_ts = self._last_published_boot_ts
+        last_up = self._last_uptime_seconds
+        self._last_uptime_seconds = uptime_seconds
+
+        if last_ts is None:
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # Reboot detection: device uptime dropped significantly.
+        if (
+            last_up is not None
+            and uptime_seconds < last_up - _UPTIME_REBOOT_THRESHOLD_SECONDS
+        ):
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # Hysteresis: suppress updates smaller than the configured threshold.
+        if abs((candidate - last_ts).total_seconds()) >= _UPTIME_MIN_DELTA_SECONDS:
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # No significant change: return the cached value.
+        return last_ts  # type: ignore[return-value]
+
+
 class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
     """Representation of an Omada site-level aggregation sensor."""
 
@@ -1244,6 +1382,67 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+class OmadaClientUptimeSensor(OmadaClientSensor):
+    """Client uptime sensor with anti-spam hysteresis.
+
+    Mirrors ``OmadaDeviceUptimeSensor`` for client entities: applies
+    ceil-to-30s snapping and a 60-second hysteresis window to prevent HA
+    recorder / activity-log spam, and detects client reconnections.
+    """
+
+    def __init__(
+        self,
+        coordinator: OmadaClientCoordinator,
+        description: OmadaSensorEntityDescription,
+        client_mac: str,
+    ) -> None:
+        """Initialize the client uptime sensor with per-entity cached state."""
+        super().__init__(
+            coordinator=coordinator,
+            description=description,
+            client_mac=client_mac,
+        )
+        self._last_published_boot_ts: dt.datetime | None = None
+        self._last_uptime_seconds: int | None = None
+
+    @property
+    def native_value(self) -> StateType:
+        """Return a stable boot timestamp, suppressing minor jitter."""
+        client_data = self.coordinator.data.get(self._client_mac)
+        if client_data is None:
+            return None
+        uptime_seconds = client_data.get("uptime")
+        if uptime_seconds is None:
+            return None
+
+        now = dt_util.utcnow().replace(microsecond=0)
+        candidate = _ceil_to_30s(now - dt.timedelta(seconds=uptime_seconds))
+
+        last_ts = self._last_published_boot_ts
+        last_up = self._last_uptime_seconds
+        self._last_uptime_seconds = uptime_seconds
+
+        if last_ts is None:
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # Reconnect detection: client uptime dropped significantly.
+        if (
+            last_up is not None
+            and uptime_seconds < last_up - _UPTIME_REBOOT_THRESHOLD_SECONDS
+        ):
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # Hysteresis: suppress updates smaller than the configured threshold.
+        if abs((candidate - last_ts).total_seconds()) >= _UPTIME_MIN_DELTA_SECONDS:
+            self._last_published_boot_ts = candidate
+            return candidate  # type: ignore[return-value]
+
+        # No significant change: return the cached value.
+        return last_ts  # type: ignore[return-value]
 
 
 class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):

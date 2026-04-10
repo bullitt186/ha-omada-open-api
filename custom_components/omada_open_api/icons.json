@@ -10,6 +10,9 @@
             "wireless_clients": {
                 "default": "mdi:account-multiple"
             },
+            "guest_clients": {
+                "default": "mdi:account-multiple"
+            },
             "site_total_clients": {
                 "default": "mdi:account-multiple"
             },
@@ -17,6 +20,9 @@
                 "default": "mdi:account-multiple"
             },
             "site_wireless_clients": {
+                "default": "mdi:account-multiple"
+            },
+            "site_guest_clients": {
                 "default": "mdi:account-multiple"
             },
             "site_poe_consumption": {

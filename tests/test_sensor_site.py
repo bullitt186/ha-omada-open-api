@@ -16,21 +16,41 @@ from .conftest import TEST_SITE_ID, TEST_SITE_NAME
 
 # Sample client data for testing
 SAMPLE_CLIENTS: list[dict[str, Any]] = [
-    {"name": "Laptop", "mac": "CC:00:00:00:00:01", "ip": "10.0.0.1", "wireless": True},
-    {"name": "Phone", "mac": "CC:00:00:00:00:02", "ip": "10.0.0.2", "wireless": True},
+    {
+        "name": "Laptop",
+        "mac": "CC:00:00:00:00:01",
+        "ip": "10.0.0.1",
+        "wireless": True,
+        "guest": False,
+    },
+    {
+        "name": "Phone",
+        "mac": "CC:00:00:00:00:02",
+        "ip": "10.0.0.2",
+        "wireless": True,
+        "guest": True,
+    },
     {
         "name": "Printer",
         "mac": "CC:00:00:00:00:03",
         "ip": "10.0.0.3",
         "wireless": False,
+        "guest": False,
     },
     {
         "name": "Desktop",
         "mac": "CC:00:00:00:00:04",
         "ip": "10.0.0.4",
         "wireless": False,
+        "guest": False,
     },
-    {"name": "Tablet", "mac": "CC:00:00:00:00:05", "ip": "10.0.0.5", "wireless": True},
+    {
+        "name": "Tablet",
+        "mac": "CC:00:00:00:00:05",
+        "ip": "10.0.0.5",
+        "wireless": True,
+        "guest": True,
+    },
 ]
 
 SAMPLE_POE_BUDGET: dict[str, dict[str, Any]] = {
@@ -231,3 +251,42 @@ async def test_site_sensor_unavailable_coordinator_failure(
     sensor = _create_site_sensor(hass, data, "site_total_clients")
     sensor.coordinator.last_update_success = False
     assert sensor.available is False
+
+
+# ---------------------------------------------------------------------------
+# Guest clients
+# ---------------------------------------------------------------------------
+
+
+async def test_site_guest_clients(hass: HomeAssistant) -> None:
+    """Test site guest clients returns only guest count."""
+    data = _build_site_data(all_clients=SAMPLE_CLIENTS)
+    sensor = _create_site_sensor(hass, data, "site_guest_clients")
+    assert sensor.native_value == 2
+
+
+async def test_site_guest_clients_attrs(hass: HomeAssistant) -> None:
+    """Test site guest clients has only guest clients in attribute."""
+    data = _build_site_data(all_clients=SAMPLE_CLIENTS)
+    sensor = _create_site_sensor(hass, data, "site_guest_clients")
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 2
+    names = {c["name"] for c in attrs["clients"]}
+    assert names == {"Phone", "Tablet"}
+
+
+async def test_site_guest_clients_empty(hass: HomeAssistant) -> None:
+    """Test site guest clients returns 0 when no guest clients."""
+    clients = [
+        {
+            "name": "Laptop",
+            "mac": "CC:00:00:00:00:01",
+            "ip": "10.0.0.1",
+            "wireless": True,
+            "guest": False,
+        }
+    ]
+    data = _build_site_data(all_clients=clients)
+    sensor = _create_site_sensor(hass, data, "site_guest_clients")
+    assert sensor.native_value == 0

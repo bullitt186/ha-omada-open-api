@@ -639,6 +639,48 @@ async def test_site_coordinator_no_boost_without_upgrade(
     assert coordinator._upgrade_active is False  # noqa: SLF001
 
 
+async def test_start_upgrade_polling_activates_fast_polling(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test start_upgrade_polling switches to fast interval immediately."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    assert coordinator._upgrade_active is False  # noqa: SLF001
+    assert coordinator.update_interval == timedelta(seconds=60)
+
+    coordinator.start_upgrade_polling()
+
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+
+
+async def test_start_upgrade_polling_idempotent(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test start_upgrade_polling is a no-op when already active."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    coordinator.start_upgrade_polling()
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+
+    # Calling again should not error or change state.
+    coordinator.start_upgrade_polling()
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+
+
 # ---------------------------------------------------------------------------
 # OmadaClientCoordinator
 # ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ from homeassistant.components.update import (
 )
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
@@ -75,7 +76,9 @@ class OmadaDeviceUpdateEntity(
 
     _attr_device_class = UpdateDeviceClass.FIRMWARE
     _attr_supported_features = (
-        UpdateEntityFeature.INSTALL | UpdateEntityFeature.PROGRESS
+        UpdateEntityFeature.INSTALL
+        | UpdateEntityFeature.PROGRESS
+        | UpdateEntityFeature.RELEASE_NOTES
     )
     _attr_entity_category = EntityCategory.CONFIG
 
@@ -90,7 +93,15 @@ class OmadaDeviceUpdateEntity(
 
         self._attr_unique_id = f"{DOMAIN}_{device_mac}_firmware"
         self._attr_translation_key = "firmware"
-        self._attr_device_info = {"identifiers": {(DOMAIN, device_mac)}}
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info with current firmware version."""
+        device = self.coordinator.data.get("devices", {}).get(self._device_mac, {})
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._device_mac)},
+            sw_version=device.get("firmware_version"),
+        )
 
     @property
     def installed_version(self) -> str | None:
@@ -118,6 +129,17 @@ class OmadaDeviceUpdateEntity(
             self._device_mac, {}
         )
         return fw_info.get("fwReleaseLog")
+
+    async def async_release_notes(self) -> str | None:
+        """Return full release notes for the latest version."""
+        fw_info: dict[str, Any] = self.coordinator.data.get("firmware_info", {}).get(
+            self._device_mac, {}
+        )
+        notes: str | None = fw_info.get("fwReleaseLog")
+        if notes is not None:
+            # Add two trailing spaces before each newline for markdown line breaks.
+            return notes.replace("\n", "  \n")
+        return None
 
     @property
     def in_progress(self) -> bool:
@@ -153,4 +175,6 @@ class OmadaDeviceUpdateEntity(
             raise HomeAssistantError(
                 f"Failed to start firmware upgrade for {self._device_mac}"
             ) from err
+        # Activate fast polling immediately so progress is tracked.
+        self.coordinator.start_upgrade_polling()
         await self.coordinator.async_request_refresh()

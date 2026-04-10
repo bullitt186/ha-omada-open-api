@@ -360,6 +360,7 @@ _SAMPLE_CONNECTED_CLIENTS: list[dict] = [
         "ip": "10.0.0.1",
         "wireless": True,
         "radio_id": 1,
+        "guest": False,
     },
     {
         "name": "Phone",
@@ -367,12 +368,14 @@ _SAMPLE_CONNECTED_CLIENTS: list[dict] = [
         "ip": "10.0.0.2",
         "wireless": True,
         "radio_id": 0,
+        "guest": True,
     },
     {
         "name": "Printer",
         "mac": "CC:00:00:00:00:03",
         "ip": "10.0.0.3",
         "wireless": False,
+        "guest": False,
     },
 ]
 
@@ -428,6 +431,41 @@ async def test_wireless_clients_attrs(hass: HomeAssistant) -> None:
     assert attrs is not None
     assert len(attrs["clients"]) == 2
     assert {c["name"] for c in attrs["clients"]} == {"Laptop", "Phone"}
+
+
+async def test_guest_clients_sensor(hass: HomeAssistant) -> None:
+    """Test guest_clients sensor returns only guest count."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "guest_clients")
+    assert sensor.native_value == 1
+
+
+async def test_guest_clients_attrs(hass: HomeAssistant) -> None:
+    """Test guest_clients sensor has only guest clients in attribute."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = _SAMPLE_CONNECTED_CLIENTS
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "guest_clients")
+    attrs = sensor.extra_state_attributes
+    assert attrs is not None
+    assert len(attrs["clients"]) == 1
+    assert attrs["clients"][0]["name"] == "Phone"
+
+
+async def test_guest_clients_empty(hass: HomeAssistant) -> None:
+    """Test guest_clients returns 0 when no guest clients."""
+    data = process_device(SAMPLE_DEVICE_AP)
+    data["connected_clients"] = [
+        {
+            "name": "Laptop",
+            "mac": "CC:00:00:00:00:01",
+            "ip": "10.0.0.1",
+            "wireless": True,
+            "guest": False,
+        }
+    ]
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "guest_clients")
+    assert sensor.native_value == 0
 
 
 async def test_client_num_empty_list(hass: HomeAssistant) -> None:

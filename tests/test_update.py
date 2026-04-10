@@ -166,7 +166,7 @@ async def test_update_release_summary_none(hass: HomeAssistant) -> None:
 
 
 async def test_update_install(hass: HomeAssistant) -> None:
-    """Test installing firmware calls the API."""
+    """Test installing firmware calls the API and activates fast polling."""
     entity = _create_update_entity(hass)
     with patch.object(
         entity.coordinator, "async_request_refresh", new=AsyncMock()
@@ -175,6 +175,8 @@ async def test_update_install(hass: HomeAssistant) -> None:
     entity.coordinator.api_client.start_online_upgrade.assert_called_once_with(
         TEST_SITE_ID, AP_MAC
     )
+    # Fast polling should be activated immediately after install.
+    assert entity.coordinator._upgrade_active is True  # noqa: SLF001
     mock_refresh.assert_awaited_once()
 
 
@@ -189,11 +191,24 @@ async def test_update_install_error(hass: HomeAssistant) -> None:
 
 
 async def test_update_device_info(hass: HomeAssistant) -> None:
-    """Test update entity device info."""
+    """Test update entity device info includes sw_version."""
     entity = _create_update_entity(hass)
     info = entity.device_info
     assert info is not None
     assert info["identifiers"] == {(DOMAIN, AP_MAC)}
+    assert info["sw_version"] == SAMPLE_DEVICE_AP["firmwareVersion"]
+
+
+async def test_update_device_info_sw_version_updates(hass: HomeAssistant) -> None:
+    """Test sw_version updates when coordinator data changes after upgrade."""
+    entity = _create_update_entity(hass)
+    assert entity.device_info["sw_version"] == SAMPLE_DEVICE_AP["firmwareVersion"]
+
+    # Simulate firmware upgrade completing — coordinator data now has new version.
+    updated_device = {**SAMPLE_DEVICE_AP, "firmwareVersion": "99.0.0"}
+    entity.coordinator.data["devices"][AP_MAC] = process_device(updated_device)
+
+    assert entity.device_info["sw_version"] == "99.0.0"
 
 
 async def test_update_in_progress_upgrading(hass: HomeAssistant) -> None:
@@ -221,3 +236,33 @@ async def test_update_not_in_progress_missing_device(hass: HomeAssistant) -> Non
     entity = _create_update_entity(hass)
     entity.coordinator.data["devices"] = {}
     assert entity.in_progress is False
+
+
+async def test_update_release_notes_full_text(hass: HomeAssistant) -> None:
+    """Test async_release_notes returns full text from firmware_info."""
+    long_notes = (
+        "Version Info:\n"
+        "1.Minimum FW Version for Update: 1.3.1\n"
+        "2.This firmware upgrade is irreversible.\n"
+        "Bug fixed:\n"
+        "1.Fixed a memory leak issue."
+    )
+    firmware_info = {
+        AP_MAC: {
+            "curFwVer": "1.0.0",
+            "lastFwVer": "1.1.0",
+            "fwReleaseLog": long_notes,
+        }
+    }
+    entity = _create_update_entity(hass, firmware_info=firmware_info)
+    result = await entity.async_release_notes()
+    # Newlines should be converted to markdown line breaks (two trailing spaces).
+    expected = long_notes.replace("\n", "  \n")
+    assert result == expected
+
+
+async def test_update_release_notes_none(hass: HomeAssistant) -> None:
+    """Test async_release_notes returns None when no firmware_info."""
+    entity = _create_update_entity(hass)
+    result = await entity.async_release_notes()
+    assert result is None

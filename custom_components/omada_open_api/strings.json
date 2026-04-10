@@ -166,6 +166,9 @@
             "wireless_clients": {
                 "name": "Wireless clients"
             },
+            "guest_clients": {
+                "name": "Guest clients"
+            },
             "site_total_clients": {
                 "name": "Total clients"
             },
@@ -174,6 +177,9 @@
             },
             "site_wireless_clients": {
                 "name": "Wireless clients"
+            },
+            "site_guest_clients": {
+                "name": "Guest clients"
             },
             "site_poe_consumption": {
                 "name": "PoE consumption"

@@ -185,6 +185,24 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Error fetching data for site {self.site_name}: {err}"
             ) from err
 
+    def start_upgrade_polling(self) -> None:
+        """Activate fast polling after an upgrade has been initiated.
+
+        Called from ``OmadaDeviceUpdateEntity.async_install`` so that
+        fast polling starts immediately rather than waiting for the
+        next scheduled poll to detect the status change.
+        """
+        if not self._upgrade_active:
+            self._upgrade_active = True
+            self.update_interval = timedelta(  # pylint: disable=attribute-defined-outside-init
+                seconds=UPGRADE_POLL_INTERVAL
+            )
+            _LOGGER.info(
+                "Upgrade initiated in site %s — polling every %ds",
+                self.site_name,
+                UPGRADE_POLL_INTERVAL,
+            )
+
     def _adjust_polling_for_upgrades(
         self,
         devices: dict[str, dict[str, Any]],
@@ -303,6 +321,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "mac": client.get("mac", ""),
                             "ip": client.get("ip", ""),
                             "wireless": client.get("wireless", False),
+                            "guest": client.get("guest", False),
                             "ap_mac": client.get("apMac"),
                             "switch_mac": client.get("switchMac"),
                             "gateway_mac": client.get("gatewayMac"),
