@@ -982,7 +982,7 @@ Tag-based release triggered by pushing a version tag (`v*`).
 The pipeline has 3 sequential jobs:
 1. **Quality Gate** — full lint, format, typecheck, test+coverage, HACS & hassfest (same checks as CI)
 2. **Version Consistency** — verifies the git tag version matches `manifest.json` version
-3. **Create GitHub Release** — builds `omada_open_api.zip`, generates changelog from commits, publishes GitHub Release
+3. **Create GitHub Release** — builds `omada_open_api.zip`, reads `RELEASE_NOTES.md` for release body (falls back to git log if missing), publishes GitHub Release
 
 ### How to Create a Release
 
@@ -1021,30 +1021,62 @@ Example for version 1.4.0:
 # In pyproject.toml: change version = "1.3.1" to version = "1.4.0"
 ```
 
-**Step 3 — Commit the version bump:**
+**Step 3 — Write release notes (`RELEASE_NOTES.md`):**
+
+The release pipeline reads `RELEASE_NOTES.md` from the repo root for polished, user-facing release notes. This file MUST be written by the AI agent before committing.
+
+1. Run `git log --oneline` between the previous tag and HEAD to see all changes:
+   ```bash
+   PREV_TAG=$(git tag --sort=-v:refname | head -1)
+   git log "${PREV_TAG}..HEAD" --oneline --no-merges
+   ```
+2. Analyze the commits and write `RELEASE_NOTES.md` in the repo root using this format:
+   ```markdown
+   ## What's New in vX.Y.Z
+
+   ### Features
+   - Concise, user-facing description of new feature
+
+   ### Improvements
+   - Concise description of improvement or enhancement
+
+   ### Bug Fixes
+   - Concise description of what was fixed
+
+   ### Breaking Changes
+   - Description of breaking change and any migration steps required
+   ```
+   **Rules:**
+   - Only include sections that have entries (omit empty sections entirely).
+   - Write user-facing descriptions, NOT raw commit messages. Summarize and group related commits.
+   - Keep each bullet to one or two sentences.
+   - Use the actual version number in the heading (e.g., `## What's New in v1.5.0`).
+   - Do NOT include an installation footer — the pipeline appends one automatically.
+
+**Step 4 — Commit the version bump and release notes:**
 ```bash
-git add custom_components/omada_open_api/manifest.json pyproject.toml
+git add custom_components/omada_open_api/manifest.json pyproject.toml RELEASE_NOTES.md
 git commit -m "release: bump version to 1.4.0"
 ```
 The pre-commit hooks will run. The commit must pass all hooks.
 
-**Step 4 — Tag and push in a single command:**
+**Step 5 — Tag and push in a single command:**
 ```bash
 git tag v1.4.0
 git push origin main --tags
 ```
 This pushes the commit AND the tag together, which triggers both CI (for the push) and Release (for the tag).
 
-**Step 5 — Monitor the pipelines:**
+**Step 6 — Monitor the pipelines:**
 - Go to `https://github.com/bullitt186/ha-omada-open-api/actions`
 - **CI pipeline** should pass (triggered by the push to main)
 - **Release pipeline** should pass (triggered by the v* tag)
 - Release pipeline runs: Quality Gate → Version Consistency → Create GitHub Release
-- On success, a GitHub Release is created with `omada_open_api.zip` attached and an auto-generated changelog
+- On success, a GitHub Release is created with `omada_open_api.zip` attached and the `RELEASE_NOTES.md` content as the release body
 
-**Step 6 — Verify the release:**
+**Step 7 — Verify the release:**
 - Check `https://github.com/bullitt186/ha-omada-open-api/releases` for the new release
-- Verify the release notes and the attached zip file are correct
+- Verify the release notes read well and the attached zip file is correct
 
 #### Handling Pipeline Failures After Tagging
 
@@ -1077,8 +1109,8 @@ pylint --rcfile=pyproject.toml custom_components/omada_open_api/ && \
 mypy --config-file pyproject.toml custom_components/omada_open_api/ && \
 pytest tests/ --cov=custom_components.omada_open_api --cov-fail-under=$(cat .coverage-threshold) -v
 
-# Full release sequence (after version files are updated)
-git add custom_components/omada_open_api/manifest.json pyproject.toml
+# Full release sequence (after version files and RELEASE_NOTES.md are written)
+git add custom_components/omada_open_api/manifest.json pyproject.toml RELEASE_NOTES.md
 git commit -m "release: bump version to X.Y.Z"
 git tag vX.Y.Z
 git push origin main --tags

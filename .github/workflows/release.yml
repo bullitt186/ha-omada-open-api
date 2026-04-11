@@ -102,35 +102,41 @@ jobs:
           zip -r ../../omada_open_api.zip . \
             -x "__pycache__/*" "*.pyc" ".mypy_cache/*"
 
-      - name: Generate changelog from commits
-        id: changelog
+      - name: Read release notes
+        id: release_notes
         run: |
-          # Get the previous tag
-          PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
-          CURRENT_TAG="${GITHUB_REF_NAME}"
-
-          echo "Generating changelog: ${PREV_TAG}..${CURRENT_TAG}"
-
-          {
-            echo "changelog<<EOF"
-            if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$CURRENT_TAG" ]; then
-              git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges
-            else
-              git log --pretty=format:"- %s" --no-merges -20
-            fi
-            echo ""
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          if [ -f RELEASE_NOTES.md ]; then
+            echo "Found RELEASE_NOTES.md — using pre-written release notes"
+            {
+              echo "body<<EOF"
+              cat RELEASE_NOTES.md
+              echo ""
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "RELEASE_NOTES.md not found — falling back to git log"
+            PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
+            CURRENT_TAG="${GITHUB_REF_NAME}"
+            {
+              echo "body<<EOF"
+              echo "## Changes"
+              echo ""
+              if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$CURRENT_TAG" ]; then
+                git log "${PREV_TAG}..${CURRENT_TAG}" --pretty=format:"- %s" --no-merges
+              else
+                git log --pretty=format:"- %s" --no-merges -20
+              fi
+              echo ""
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: omada_open_api.zip
-          generate_release_notes: true
           body: |
-            ## Changes
-
-            ${{ steps.changelog.outputs.changelog }}
+            ${{ steps.release_notes.outputs.body }}
 
             ---
             **Installation:** Download `omada_open_api.zip`, extract to `config/custom_components/omada_open_api/`, and restart Home Assistant. Or install via HACS.
