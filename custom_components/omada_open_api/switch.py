@@ -253,7 +253,7 @@ class OmadaPoeSwitch(
         api = self.coordinator.api_client
 
         try:
-            # Profile override must be enabled first.
+            # Profile override must be enabled before changing PoE mode.
             await api.set_port_profile_override(
                 site_id, self._switch_mac, self._port_num, enable=True
             )
@@ -261,6 +261,12 @@ class OmadaPoeSwitch(
                 site_id, self._switch_mac, self._port_num, poe_enabled=enabled
             )
         except OmadaApiError as err:
+            _LOGGER.debug(
+                "PoE control failed for %s port %d: %s",
+                self._switch_mac,
+                self._port_num,
+                err,
+            )
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
                     f"Insufficient permissions to control PoE on "
@@ -270,7 +276,7 @@ class OmadaPoeSwitch(
                 ) from err
             raise HomeAssistantError(
                 f"Failed to set PoE {'on' if enabled else 'off'} "
-                f"for {self._switch_mac} port {self._port_num}"
+                f"for {self._switch_mac} port {self._port_num}: {err}"
             ) from err
 
         # Refresh coordinator data to reflect the change.

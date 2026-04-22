@@ -1336,8 +1336,11 @@ async def test_set_port_profile_override(
     )
 
     call_url = mock_put.call_args[0][0]
-    assert "/switches/AA-BB-CC-DD-EE-02/ports/1/profile-override" in call_url
-    assert mock_put.call_args[1]["json"] == {"profileOverrideEnable": True}
+    assert "/switches/AA-BB-CC-DD-EE-02/multi-ports/profile-override" in call_url
+    assert mock_put.call_args[1]["json"] == {
+        "portList": [1],
+        "profileOverrideEnable": True,
+    }
 
 
 async def test_set_port_profile_override_disable(
@@ -1368,7 +1371,10 @@ async def test_set_port_profile_override_disable(
         "site_001", "AA-BB-CC-DD-EE-02", 3, enable=False
     )
 
-    assert mock_put.call_args[1]["json"] == {"profileOverrideEnable": False}
+    assert mock_put.call_args[1]["json"] == {
+        "portList": [3],
+        "profileOverrideEnable": False,
+    }
 
 
 async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> None:
@@ -1398,8 +1404,8 @@ async def test_set_port_poe_mode_on(hass: HomeAssistant, mock_config_entry) -> N
     )
 
     call_url = mock_put.call_args[0][0]
-    assert "/switches/AA-BB-CC-DD-EE-02/ports/1/poe-mode" in call_url
-    assert mock_put.call_args[1]["json"] == {"poeMode": 1}
+    assert "/switches/AA-BB-CC-DD-EE-02/multi-ports/poe-mode" in call_url
+    assert mock_put.call_args[1]["json"] == {"portList": [1], "poeMode": 1}
 
 
 async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> None:
@@ -1428,7 +1434,7 @@ async def test_set_port_poe_mode_off(hass: HomeAssistant, mock_config_entry) -> 
         "site_001", "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
     )
 
-    assert mock_put.call_args[1]["json"] == {"poeMode": 0}
+    assert mock_put.call_args[1]["json"] == {"portList": [1], "poeMode": 0}
 
 
 async def test_reboot_device(hass: HomeAssistant, mock_config_entry) -> None:

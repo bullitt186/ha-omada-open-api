@@ -629,6 +629,9 @@ class OmadaApiClient:
     ) -> None:
         """Enable or disable profile override for a switch port.
 
+        Uses the multi-ports batch endpoint because the single-port
+        endpoint returns error -1 on many controller firmware versions.
+
         Profile override must be enabled before changing PoE mode.
 
         Args:
@@ -643,7 +646,8 @@ class OmadaApiClient:
         """
         url = (
             f"{self._api_url}/openapi/v1/{self._omada_id}"
-            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/profile-override"
+            f"/sites/{site_id}/switches/{switch_mac}"
+            f"/multi-ports/profile-override"
         )
         _LOGGER.debug(
             "Setting profile override for %s port %d to %s",
@@ -652,7 +656,12 @@ class OmadaApiClient:
             enable,
         )
         await self._authenticated_request(
-            "put", url, json_data={"profileOverrideEnable": enable}
+            "put",
+            url,
+            json_data={
+                "portList": [port],
+                "profileOverrideEnable": enable,
+            },
         )
 
     async def set_port_poe_mode(
@@ -664,6 +673,9 @@ class OmadaApiClient:
         poe_enabled: bool,
     ) -> None:
         """Set PoE mode for a switch port.
+
+        Uses the multi-ports batch endpoint because the single-port
+        endpoint returns error -1 on many controller firmware versions.
 
         Profile override must be enabled first via set_port_profile_override.
 
@@ -679,13 +691,18 @@ class OmadaApiClient:
         """
         url = (
             f"{self._api_url}/openapi/v1/{self._omada_id}"
-            f"/sites/{site_id}/switches/{switch_mac}/ports/{port}/poe-mode"
+            f"/sites/{site_id}/switches/{switch_mac}"
+            f"/multi-ports/poe-mode"
         )
         poe_mode = 1 if poe_enabled else 0
         _LOGGER.debug(
             "Setting PoE mode for %s port %d to %d", switch_mac, port, poe_mode
         )
-        await self._authenticated_request("put", url, json_data={"poeMode": poe_mode})
+        await self._authenticated_request(
+            "put",
+            url,
+            json_data={"portList": [port], "poeMode": poe_mode},
+        )
 
     async def reboot_device(self, site_id: str, device_mac: str) -> None:
         """Reboot a device (AP, switch, or gateway).
