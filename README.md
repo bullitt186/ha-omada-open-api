@@ -36,6 +36,7 @@
 - [Removing the Integration](#removing-the-integration)
 - [Troubleshooting](#troubleshooting)
 - [Services](#services)
+- [Reporting Issues](#reporting-issues)
 - [Known Limitations](#known-limitations)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -456,6 +457,33 @@ data:
 ```
 
 See the [integration documentation](ha-developer-docs/core/integration-quality-scale/rules/docs-actions.md) for more details on service usage and troubleshooting.
+
+---
+
+## Reporting Issues
+
+If you encounter a bug or have a feature request, please use our [issue templates](https://github.com/bullitt186/ha-omada-open-api/issues/new/choose) to submit a structured report. This helps us investigate and resolve problems faster.
+
+### Before Reporting a Bug
+
+Please gather the following information:
+
+1. **Enable debug logging**: Go to **Settings → Devices & Services → TP-Link Omada Open API → ⋮ (three-dot menu) → Enable debug logging**. Then reproduce the issue.
+2. **Check the logs**: Go to **Settings → System → Logs** and copy the relevant log entries (remove any tokens/secrets before posting).
+3. **Download diagnostics** (if the integration is loaded): Same **⋮ menu → Download diagnostics** — produces a JSON file with the integration's runtime state.
+4. **Note your environment**: Home Assistant version, installation type, integration version, Omada Controller version, and whether you use a cloud or local controller.
+
+### Bug Reports
+
+Use the [Bug Report template](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=bug_report.yml). All fields marked as required must be filled in — incomplete reports may be closed.
+
+### Feature Requests
+
+Use the [Feature Request template](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=feature_request.yml). Please describe the problem you're trying to solve, not just the solution you envision.
+
+### General Questions
+
+For general questions or support, please use the [Home Assistant Community forum](https://community.home-assistant.io/) rather than opening an issue.
 
 ---
 ## Known Limitations

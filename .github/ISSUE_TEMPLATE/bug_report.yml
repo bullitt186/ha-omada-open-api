@@ -1,0 +1,137 @@
+---
+name: Bug Report
+description: Report a bug with the TP-Link Omada Open API integration
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug!
+
+        Before opening a new issue, please [search existing issues](https://github.com/bullitt186/ha-omada-open-api/issues?q=is%3Aissue+label%3Abug) to see if your problem has already been reported.
+
+        Please also check the [Troubleshooting section](https://github.com/bullitt186/ha-omada-open-api#troubleshooting) in the README for common solutions.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I have enabled debug logging for the integration before reproducing the issue.
+          required: true
+        - label: I have checked the [Troubleshooting](https://github.com/bullitt186/ha-omada-open-api#troubleshooting) section in the README.
+          required: true
+        - label: I have searched [existing issues](https://github.com/bullitt186/ha-omada-open-api/issues?q=is%3Aissue+label%3Abug) and this is not a duplicate.
+          required: true
+        - label: This issue contains only one bug (open separate issues for separate bugs).
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is. What happened, and what did you expect to happen?
+      placeholder: "When I try to... I expect... but instead..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Detailed steps to reproduce the issue. Without clear steps, it will be difficult to investigate.
+      value: |
+        1.
+        2.
+        3.
+        ...
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Environment
+
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant version
+      description: "Can be found in: Settings → System → Repairs → ⋮ → System information"
+      placeholder: "2025.6.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install_type
+    attributes:
+      label: Home Assistant installation type
+      description: "Can be found in: Settings → System → Repairs → ⋮ → System information"
+      options:
+        - Home Assistant OS
+        - Home Assistant Container
+        - Home Assistant Supervised
+        - Home Assistant Core
+    validations:
+      required: true
+
+  - type: input
+    id: integration_version
+    attributes:
+      label: Integration version
+      description: "Can be found in: HACS → Integrations → TP-Link Omada Open API, or in Settings → Devices & Services → TP-Link Omada Open API"
+      placeholder: "1.5.1"
+    validations:
+      required: true
+
+  - type: input
+    id: controller_version
+    attributes:
+      label: Omada Controller version
+      description: "The version of your Omada Controller software (e.g., 5.14.30.7). Found in: Omada Controller → Settings → Controller Settings or About page."
+      placeholder: "5.14.30.7"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: controller_type
+    attributes:
+      label: Controller type
+      description: "How is your Omada controller deployed?"
+      options:
+        - Cloud (TP-Link cloud-hosted)
+        - Local (self-hosted)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug logs
+      description: |
+        Enable debug logging via **Settings → Devices & Services → TP-Link Omada Open API → ⋮ (three-dot menu) → Enable debug logging**. Reproduce the issue, then check **Settings → System → Logs** and copy the relevant log entries here.
+
+        **Important:** Remove any sensitive information (tokens, passwords, API keys) before posting.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics data
+      description: |
+        If the integration is loaded, download diagnostics via **Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Download diagnostics**.
+
+        Drag-and-drop the diagnostics JSON file here. Please review the file for any information you may want to redact before posting.
+      placeholder: "Drag-and-drop the diagnostics JSON file here"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: "Any other context, screenshots, or configuration snippets that might help."
+    validations:
+      required: false

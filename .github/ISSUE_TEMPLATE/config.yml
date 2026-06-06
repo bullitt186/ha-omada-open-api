@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: I have a question or need help
+    url: https://community.home-assistant.io/
+    about: For general questions and support, please use the Home Assistant Community forum.
+  - name: Omada Open API Documentation
+    url: https://use1-omada-northbound.tplinkcloud.com/doc.html#/home
+    about: Official Omada Open API documentation from TP-Link.
