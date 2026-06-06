@@ -81,6 +81,13 @@ def _future_token_expiry() -> str:
     return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat()
 
 
+def _make_client_error_with_cause(message: str) -> aiohttp.ClientError:
+    """Create an aiohttp.ClientError with an OSError cause for testing."""
+    err = aiohttp.ClientError(message)
+    err.__cause__ = OSError(message)
+    return err
+
+
 async def test_user_step_shows_controller_types(hass: HomeAssistant) -> None:
     """Test the user step shows controller type selection."""
     result = await hass.config_entries.flow.async_init(
@@ -204,7 +211,7 @@ async def test_connection_timeout_error(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "credentials"
-    assert "base" in result["errors"]
+    assert result["errors"]["base"] == "timeout"
 
 
 async def test_invalid_client_credentials_error_code(hass: HomeAssistant) -> None:
@@ -767,7 +774,7 @@ async def test_applications_step_no_apps_skips(hass: HomeAssistant) -> None:
 
 
 async def test_credentials_aiohttp_error(hass: HomeAssistant) -> None:
-    """Test that aiohttp.ClientError shows cannot_connect."""
+    """Test that generic aiohttp.ClientError shows cannot_connect."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
@@ -780,7 +787,7 @@ async def test_credentials_aiohttp_error(hass: HomeAssistant) -> None:
 
     with patch(
         "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=aiohttp.ClientError("connection refused"),
+        side_effect=aiohttp.ClientError("some network error"),
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -793,6 +800,93 @@ async def test_credentials_aiohttp_error(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "cannot_connect"
+
+
+async def test_credentials_timeout_error(hass: HomeAssistant) -> None:
+    """Test that TimeoutError shows timeout error."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REGION: "us"}
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=TimeoutError("Connection timed out"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test",
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "csecret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "timeout"
+
+
+async def test_credentials_dns_resolution_error(hass: HomeAssistant) -> None:
+    """Test that DNS resolution failure shows cannot_resolve_host error."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REGION: "us"}
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=_make_client_error_with_cause("Name or service not known"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test",
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "csecret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "cannot_resolve_host"
+
+
+async def test_credentials_connection_refused_error(hass: HomeAssistant) -> None:
+    """Test that connection refused shows connection_refused error."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REGION: "us"}
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=_make_client_error_with_cause("Connection refused"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test",
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "csecret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "connection_refused"
 
 
 async def test_credentials_no_sites_error(hass: HomeAssistant) -> None:
@@ -966,7 +1060,7 @@ async def test_reauth_flow_connection_error(hass: HomeAssistant) -> None:
 
     with patch(
         "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=aiohttp.ClientError("timeout"),
+        side_effect=aiohttp.ClientError("some network error"),
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -1020,6 +1114,88 @@ async def test_reauth_flow_unknown_error(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "unknown"
+
+
+async def test_reauth_flow_timeout_error(hass: HomeAssistant) -> None:
+    """Test reauthentication with timeout error shows timeout."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "reauth_timeout",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        unique_id="reauth_timeout",
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await entry.start_reauth_flow(hass)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=TimeoutError("Connection timed out"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "reauth_timeout",
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "csecret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "timeout"
+
+
+async def test_reauth_flow_dns_error(hass: HomeAssistant) -> None:
+    """Test reauthentication with DNS error shows cannot_resolve_host."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "reauth_dns",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        unique_id="reauth_dns",
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await entry.start_reauth_flow(hass)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=_make_client_error_with_cause("Name or service not known"),
+    ):
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "reauth_dns",
+                CONF_CLIENT_ID: "cid",
+                CONF_CLIENT_SECRET: "csecret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "cannot_resolve_host"
 
 
 # ---------------------------------------------------------------------------
@@ -2452,3 +2628,90 @@ async def test_reconfigure_local_invalid_url(
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
     assert result["errors"]["base"] == "invalid_url"
+
+
+async def test_reconfigure_timeout_error(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Test reconfigure handles timeout error."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://old.example.com",
+            CONF_OMADA_ID: "old_omada_id",
+            CONF_CLIENT_ID: "old_client_id",
+            CONF_CLIENT_SECRET: "old_secret",
+            CONF_ACCESS_TOKEN: "old_token",
+            CONF_REFRESH_TOKEN: "old_refresh",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_CLOUD,
+            CONF_REGION: "us",
+        },
+        entry_id="test_reconfig",
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=TimeoutError("Connection timed out"),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_CLOUD,
+                CONF_REGION: "us",
+                CONF_OMADA_ID: "omada_id",
+                CONF_CLIENT_ID: "client_id",
+                CONF_CLIENT_SECRET: "secret",
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+        assert result["errors"]["base"] == "timeout"
+
+
+async def test_reconfigure_connection_refused_error(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Test reconfigure handles connection refused error."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://old.example.com",
+            CONF_OMADA_ID: "old_omada_id",
+            CONF_CLIENT_ID: "old_client_id",
+            CONF_CLIENT_SECRET: "old_secret",
+            CONF_ACCESS_TOKEN: "old_token",
+            CONF_REFRESH_TOKEN: "old_refresh",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+        },
+        entry_id="test_reconfig",
+    )
+    entry.add_to_hass(hass)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+        side_effect=_make_client_error_with_cause("Connection refused"),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+                CONF_API_URL: "https://192.168.1.1:8043",
+                CONF_OMADA_ID: "omada_id",
+                CONF_CLIENT_ID: "client_id",
+                CONF_CLIENT_SECRET: "secret",
+            },
+        )
+
+        assert result["type"] == FlowResultType.FORM
+        assert result["step_id"] == "reconfigure"
+        assert result["errors"]["base"] == "connection_refused"

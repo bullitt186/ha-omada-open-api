@@ -445,6 +445,21 @@ async def test_block_switch_unavailable_missing(hass: HomeAssistant) -> None:
     assert switch.available is False
 
 
+async def test_block_switch_available_when_blocked(hass: HomeAssistant) -> None:
+    """Test switch remains available when client is blocked (issue #4).
+
+    When a client is blocked, the coordinator should still include it in data
+    (fetched with scope=0), so the switch stays available for unblocking.
+    """
+    raw = dict(SAMPLE_CLIENT_WIRELESS)
+    raw["blocked"] = True
+    raw["active"] = False
+    data = process_client(raw)
+    switch = _create_block_switch(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    assert switch.available is True
+    assert switch.is_on is False
+
+
 async def test_block_switch_unavailable_coordinator_failure(
     hass: HomeAssistant,
 ) -> None:

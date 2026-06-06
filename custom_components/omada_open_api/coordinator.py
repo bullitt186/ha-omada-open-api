@@ -722,9 +722,10 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         try:
-            # Fetch all clients from the site
+            # Fetch all clients (scope=0) so blocked/offline clients remain
+            # available for control (e.g. unblocking via switch entity).
             result = await self.api_client.get_clients(
-                self.site_id, page=1, page_size=1000
+                self.site_id, page=1, page_size=1000, scope=0
             )
             all_clients = result.get("data", [])
 

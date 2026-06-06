@@ -54,6 +54,37 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+def _classify_connection_error(err: aiohttp.ClientError) -> str:
+    """Classify an aiohttp connection error into a specific error key.
+
+    Returns the most specific error key for the given exception.
+    """
+    try:
+        error_message = str(err).lower()
+    except Exception:  # noqa: BLE001
+        error_message = repr(err).lower()
+
+    os_error = err.__cause__ or err.__context__
+    try:
+        os_message = str(os_error).lower() if os_error else ""
+    except Exception:  # noqa: BLE001
+        os_message = repr(os_error).lower() if os_error else ""
+
+    combined = f"{error_message} {os_message}"
+
+    if (
+        "name or service not known" in combined
+        or "getaddrinfo failed" in combined
+        or "nodename nor servname" in combined
+    ):
+        return "cannot_resolve_host"
+
+    if "connection refused" in combined or "connect call failed" in combined:
+        return "connection_refused"
+
+    return "cannot_connect"
+
+
 class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Omada Open API."""
 
@@ -220,11 +251,19 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._available_sites = sites
                     return await self.async_step_sites()
 
-            except aiohttp.ClientError:
-                _LOGGER.exception("Connection error during authentication")
-                errors["base"] = "cannot_connect"
+            except TimeoutError:
+                _LOGGER.warning("Connection timed out to %s", self._api_url)
+                errors["base"] = "timeout"
+            except aiohttp.ClientError as err:
+                error_key = _classify_connection_error(err)
+                _LOGGER.warning(
+                    "Connection error during authentication (%s): %s",
+                    error_key,
+                    err,
+                )
+                errors["base"] = error_key
             except InvalidAuthError:
-                _LOGGER.exception("Invalid authentication")
+                _LOGGER.warning("Invalid authentication for %s", self._api_url)
                 errors["base"] = "invalid_auth"
             except Exception:
                 _LOGGER.exception("Unexpected exception during authentication")
@@ -797,8 +836,18 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
                     seconds=token_data["expiresIn"]
                 )
-            except aiohttp.ClientError:
-                errors["base"] = "cannot_connect"
+            except TimeoutError:
+                _LOGGER.warning("Connection timed out to %s", self._api_url)
+                errors["base"] = "timeout"
+                return self._show_reconfigure_form(reconfigure_entry, errors)
+            except aiohttp.ClientError as err:
+                error_key = _classify_connection_error(err)
+                _LOGGER.warning(
+                    "Connection error during reconfigure (%s): %s",
+                    error_key,
+                    err,
+                )
+                errors["base"] = error_key
                 return self._show_reconfigure_form(reconfigure_entry, errors)
             except InvalidAuthError:
                 errors["base"] = "invalid_auth"
@@ -990,8 +1039,15 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     },
                 )
 
-            except aiohttp.ClientError:
-                errors["base"] = "cannot_connect"
+            except TimeoutError:
+                _LOGGER.warning("Connection timed out during reauth")
+                errors["base"] = "timeout"
+            except aiohttp.ClientError as err:
+                error_key = _classify_connection_error(err)
+                _LOGGER.warning(
+                    "Connection error during reauth (%s): %s", error_key, err
+                )
+                errors["base"] = error_key
             except InvalidAuthError:
                 errors["base"] = "invalid_auth"
             except Exception:

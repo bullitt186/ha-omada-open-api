@@ -23,6 +23,7 @@ from custom_components.omada_open_api.coordinator import (
 )
 
 from .conftest import (
+    SAMPLE_CLIENT_WIRELESS,
     SAMPLE_DEVICE_AP,
     SAMPLE_DEVICE_GATEWAY,
     SAMPLE_DEVICE_SWITCH,
@@ -959,6 +960,61 @@ async def test_client_coordinator_api_failure(
 
     await coordinator.async_refresh()
     assert coordinator.last_update_success is False
+
+
+async def test_client_coordinator_blocked_client_remains_in_data(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that blocked clients remain in coordinator data (scope=0).
+
+    This ensures the switch entity stays available when a client is blocked,
+    allowing users to unblock via the UI (GitHub issue #4).
+    """
+    blocked_client = dict(SAMPLE_CLIENT_WIRELESS)
+    blocked_client["blocked"] = True
+    blocked_client["active"] = False
+
+    mock_api_client.get_clients = AsyncMock(
+        return_value={
+            "data": [blocked_client],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=["11-22-33-44-55-AA"],
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # Blocked client should still be present in data.
+    assert "11-22-33-44-55-AA" in coordinator.data
+    assert coordinator.data["11-22-33-44-55-AA"]["blocked"] is True
+
+
+async def test_client_coordinator_uses_scope_all(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that coordinator fetches all clients (scope=0), not just online."""
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=["11-22-33-44-55-AA"],
+    )
+
+    await coordinator.async_refresh()
+
+    # Verify scope=0 was passed to get_clients.
+    mock_api_client.get_clients.assert_called_once_with(
+        TEST_SITE_ID, page=1, page_size=1000, scope=0
+    )
 
 
 # ---------------------------------------------------------------------------
