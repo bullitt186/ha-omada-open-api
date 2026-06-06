@@ -12,7 +12,10 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from custom_components.omada_open_api.api import OmadaApiError
-from custom_components.omada_open_api.const import UPGRADE_POLL_INTERVAL
+from custom_components.omada_open_api.const import (
+    UPGRADE_COOLDOWN_POLLS,
+    UPGRADE_POLL_INTERVAL,
+)
 from custom_components.omada_open_api.coordinator import (
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
@@ -21,6 +24,7 @@ from custom_components.omada_open_api.coordinator import (
 
 from .conftest import (
     SAMPLE_DEVICE_AP,
+    SAMPLE_DEVICE_GATEWAY,
     SAMPLE_DEVICE_SWITCH,
     SAMPLE_POE_PORT_ACTIVE,
     SAMPLE_POE_PORT_INACTIVE,
@@ -410,6 +414,78 @@ async def test_site_coordinator_no_aps_skips_band_stats(
     mock_api_client.get_device_client_stats.assert_not_called()
 
 
+async def test_site_coordinator_ssid_override_error_graceful(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that a SSID override fetch error for one AP doesn't block others."""
+    mock_api_client.get_ap_ssid_overrides = AsyncMock(
+        side_effect=OmadaApiError("timeout")
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    # Refresh still succeeds despite SSID override errors.
+    assert coordinator.last_update_success is True
+    # ap_ssid_overrides should be empty (all failed).
+    assert coordinator.data["ap_ssid_overrides"] == {}
+
+
+async def test_site_coordinator_inactive_client_filtered(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that inactive clients are filtered out from the client list."""
+    mock_api_client.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {"mac": "11-22-33-44-55-66", "active": True, "name": "Active"},
+                {"mac": "AA-BB-CC-DD-EE-FF", "active": False, "name": "Inactive"},
+            ],
+            "totalRows": 2,
+            "currentPage": 1,
+        }
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # Only the active client should be present.
+    clients = coordinator.data["all_clients"]
+    macs = [c["mac"] for c in clients]
+    assert "11-22-33-44-55-66" in macs
+    assert "AA-BB-CC-DD-EE-FF" not in macs
+
+
+async def test_site_coordinator_client_fetch_error_graceful(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that a client fetch error returns empty list gracefully."""
+    mock_api_client.get_clients = AsyncMock(side_effect=OmadaApiError("timeout"))
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    # Client list should be empty but not cause a failure.
+    assert coordinator.data["all_clients"] == []
+
+
 # ---------------------------------------------------------------------------
 # Firmware info fetching
 # ---------------------------------------------------------------------------
@@ -489,6 +565,37 @@ async def test_site_coordinator_firmware_info_refreshes_after_interval(
     assert mock_api_client.get_firmware_info.call_count == 6
 
 
+async def test_site_coordinator_firmware_skips_devices_without_need_upgrade(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that firmware info is only fetched for devices with needUpgrade."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+    # Only AP needs upgrade; switch and gateway don't.
+    ap_with_upgrade = {**SAMPLE_DEVICE_AP, "needUpgrade": True}
+    switch_no_upgrade = {**SAMPLE_DEVICE_SWITCH, "needUpgrade": False}
+    gateway_no_upgrade = {**SAMPLE_DEVICE_GATEWAY, "needUpgrade": False}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[ap_with_upgrade, switch_no_upgrade, gateway_no_upgrade]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    # Only 1 device needs upgrade, so only 1 firmware info fetch.
+    assert mock_api_client.get_firmware_info.call_count == 1
+    fw = coordinator.data["firmware_info"]
+    assert SAMPLE_DEVICE_AP["mac"] in fw
+    assert SAMPLE_DEVICE_SWITCH["mac"] not in fw
+    assert SAMPLE_DEVICE_GATEWAY["mac"] not in fw
+
+
 async def test_site_coordinator_firmware_info_error_per_device(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
@@ -550,7 +657,7 @@ async def test_site_coordinator_boosts_polling_during_upgrade(
 async def test_site_coordinator_restores_polling_after_upgrade(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
-    """Test that polling interval is restored once the upgrade finishes."""
+    """Test that polling interval is restored after cooldown finishes."""
     # First refresh: device is upgrading.
     upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
     mock_api_client.get_devices = AsyncMock(
@@ -568,13 +675,23 @@ async def test_site_coordinator_restores_polling_after_upgrade(
     await coordinator.async_refresh()
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
 
-    # Second refresh: device is back to Connected (14).
+    # Second refresh: device is back to Connected (14) — cooldown starts.
     normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
     mock_api_client.get_devices = AsyncMock(
         return_value=[SAMPLE_DEVICE_AP, normal_switch]
     )
 
     await coordinator.async_refresh()
+    # Still fast polling during cooldown.
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+
+    # Subsequent refreshes decrement cooldown.
+    for _i in range(UPGRADE_COOLDOWN_POLLS):
+        await coordinator.async_refresh()
+
+    # Cooldown finished — normal polling restored.
     assert coordinator.update_interval == timedelta(seconds=60)
     assert coordinator._upgrade_active is False  # noqa: SLF001
 
@@ -582,12 +699,12 @@ async def test_site_coordinator_restores_polling_after_upgrade(
 async def test_site_coordinator_firmware_cache_reset_after_upgrade(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
-    """Test that firmware info cache is cleared when upgrade completes."""
+    """Test that stale firmware info is cleared when upgrade completes."""
     mock_api_client.get_firmware_info = AsyncMock(
         return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
     )
 
-    # First refresh: device upgrading, firmware info fetched.
+    # First refresh: device upgrading, firmware info fetched (needUpgrade=True).
     upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
     mock_api_client.get_devices = AsyncMock(
         return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
@@ -602,24 +719,29 @@ async def test_site_coordinator_firmware_cache_reset_after_upgrade(
 
     await coordinator.async_refresh()
     first_call_count = mock_api_client.get_firmware_info.call_count
-    assert first_call_count == 2  # 2 devices
+    assert first_call_count == 2  # 2 devices with needUpgrade=True
 
     # Second refresh: still upgrading — firmware cache NOT bypassed.
     await coordinator.async_refresh()
     assert mock_api_client.get_firmware_info.call_count == first_call_count
 
-    # Third refresh: upgrade finished — _adjust_polling resets the cache.
-    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
+    # Third refresh: upgrade finished — needUpgrade is now False for the switch.
+    # Cooldown starts, cache reset takes effect in the same cycle.
+    normal_switch = {
+        **SAMPLE_DEVICE_SWITCH,
+        "detailStatus": 14,
+        "needUpgrade": False,
+    }
     mock_api_client.get_devices = AsyncMock(
         return_value=[SAMPLE_DEVICE_AP, normal_switch]
     )
     await coordinator.async_refresh()
-    # Cache was reset at end of this cycle; firmware IS re-fetched on the next one.
-    assert mock_api_client.get_firmware_info.call_count == first_call_count
-
-    # Fourth refresh: cache was cleared, so firmware info is re-fetched now.
-    await coordinator.async_refresh()
+    # Firmware info re-fetched in the SAME cycle due to order swap.
+    # Only the AP still needs upgrade, so only 1 new fetch.
     assert mock_api_client.get_firmware_info.call_count > first_call_count
+    # The switch's stale firmware_info should be cleared.
+    sw_mac = SAMPLE_DEVICE_SWITCH["mac"]
+    assert sw_mac not in coordinator.data["firmware_info"]
 
 
 async def test_site_coordinator_no_boost_without_upgrade(
@@ -679,6 +801,80 @@ async def test_start_upgrade_polling_idempotent(
     coordinator.start_upgrade_polling()
     assert coordinator._upgrade_active is True  # noqa: SLF001
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+
+
+async def test_upgrade_cooldown_keeps_fast_polling(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that fast polling continues during the cooldown period."""
+    upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator._upgrade_active is True  # noqa: SLF001
+
+    # Upgrade finishes — cooldown starts.
+    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, normal_switch]
+    )
+
+    await coordinator.async_refresh()
+    # Fast polling persists during cooldown.
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+
+    # Each subsequent poll decrements cooldown but keeps fast interval.
+    await coordinator.async_refresh()
+    assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS - 1  # noqa: SLF001
+
+
+async def test_upgrade_cooldown_resets_if_upgrade_resumes(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that a new upgrade during cooldown resets the cooldown counter."""
+    upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=60,
+    )
+
+    await coordinator.async_refresh()
+
+    # Upgrade finishes — cooldown starts.
+    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, normal_switch]
+    )
+    await coordinator.async_refresh()
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+
+    # Another device starts upgrading during cooldown.
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
+    )
+    await coordinator.async_refresh()
+    # Cooldown reset, upgrade active.
+    assert coordinator._upgrade_cooldown_remaining == 0  # noqa: SLF001
+    assert coordinator._upgrade_active is True  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------

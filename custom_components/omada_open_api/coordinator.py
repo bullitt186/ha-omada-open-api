@@ -18,6 +18,7 @@ from .const import (
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
     SCAN_INTERVAL,
+    UPGRADE_COOLDOWN_POLLS,
     UPGRADE_POLL_INTERVAL,
 )
 from .devices import process_device
@@ -66,6 +67,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Upgrade polling: store normal interval so we can restore it.
         self._normal_interval = timedelta(seconds=scan_interval)
         self._upgrade_active = False
+        self._upgrade_cooldown_remaining: int = 0
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from Omada controller.
@@ -161,11 +163,12 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_clients = await self._fetch_site_clients()
             self._assign_clients_to_devices(devices, all_clients)
 
+            # Adjust polling rate based on upgrade state (before firmware
+            # info so a cooldown-triggered cache reset takes effect this cycle).
+            self._adjust_polling_for_upgrades(devices)
+
             # Fetch firmware info periodically (every 30 min by default).
             await self._maybe_refresh_firmware_info(devices)
-
-            # Adjust polling rate based on upgrade state.
-            self._adjust_polling_for_upgrades(devices)
 
             return {
                 "devices": devices,
@@ -220,25 +223,43 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             dev.get("detail_status") in (12, 13) for dev in devices.values()
         )
 
-        if any_upgrading and not self._upgrade_active:
-            self._upgrade_active = True
-            self.update_interval = timedelta(  # pylint: disable=attribute-defined-outside-init
-                seconds=UPGRADE_POLL_INTERVAL
-            )
-            _LOGGER.info(
-                "Device upgrade detected in site %s — polling every %ds",
-                self.site_name,
-                UPGRADE_POLL_INTERVAL,
-            )
-        elif not any_upgrading and self._upgrade_active:
-            self._upgrade_active = False
-            self.update_interval = self._normal_interval  # pylint: disable=attribute-defined-outside-init
-            # Force firmware info refresh so latest_version updates promptly.
-            self._last_firmware_check = None
-            _LOGGER.info(
-                "All upgrades finished in site %s — restoring normal polling",
-                self.site_name,
-            )
+        if any_upgrading:
+            # Reset cooldown whenever an upgrade is actively running.
+            self._upgrade_cooldown_remaining = 0
+            if not self._upgrade_active:
+                self._upgrade_active = True
+                self.update_interval = timedelta(  # pylint: disable=attribute-defined-outside-init
+                    seconds=UPGRADE_POLL_INTERVAL
+                )
+                _LOGGER.info(
+                    "Device upgrade detected in site %s — polling every %ds",
+                    self.site_name,
+                    UPGRADE_POLL_INTERVAL,
+                )
+        elif self._upgrade_active:
+            # Upgrades stopped — use a cooldown to keep fast polling
+            # while the controller registers the new firmware version.
+            if self._upgrade_cooldown_remaining == 0:
+                # First poll after upgrade finished — start cooldown.
+                self._upgrade_cooldown_remaining = UPGRADE_COOLDOWN_POLLS
+                self._last_firmware_check = None
+                _LOGGER.info(
+                    "Upgrades finished in site %s — cooldown %d polls",
+                    self.site_name,
+                    UPGRADE_COOLDOWN_POLLS,
+                )
+            else:
+                self._upgrade_cooldown_remaining -= 1
+
+            if self._upgrade_cooldown_remaining <= 0:
+                # Cooldown complete — restore normal polling.
+                self._upgrade_active = False
+                self._upgrade_cooldown_remaining = 0
+                self.update_interval = self._normal_interval  # pylint: disable=attribute-defined-outside-init
+                _LOGGER.info(
+                    "Upgrade cooldown finished in site %s — restoring normal polling",
+                    self.site_name,
+                )
 
     async def _maybe_refresh_firmware_info(
         self,
@@ -246,10 +267,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Refresh firmware info if the check interval has elapsed.
 
-        Calls the per-device firmware info endpoint for every device
-        and caches the results in ``self._firmware_info``.  The cache
-        is only refreshed every ``DEFAULT_FIRMWARE_CHECK_INTERVAL``
-        seconds to avoid excessive API calls.
+        Only queries the firmware endpoint for devices that have
+        ``need_upgrade`` set to True.  This avoids unnecessary API
+        calls for devices already on the latest firmware.  Stale cache
+        entries for devices that no longer need an upgrade are removed.
 
         Args:
             devices: Processed device dict keyed by MAC.
@@ -263,19 +284,30 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             return
 
+        # Only fetch firmware details for devices that need an upgrade.
+        macs_needing_upgrade = [
+            mac for mac, dev in devices.items() if dev.get("need_upgrade", False)
+        ]
+
         _LOGGER.debug(
-            "Refreshing firmware info for %d devices in site %s",
+            "Refreshing firmware info for %d/%d devices in site %s",
+            len(macs_needing_upgrade),
             len(devices),
             self.site_name,
         )
 
-        for mac in devices:
+        for mac in macs_needing_upgrade:
             try:
                 info = await self.api_client.get_firmware_info(self.site_id, mac)
                 self._firmware_info[mac] = info
             except OmadaApiError as err:
                 _LOGGER.debug("Could not fetch firmware info for %s: %s", mac, err)
                 # Keep stale data if present; otherwise skip this device.
+
+        # Remove cached entries for devices no longer needing upgrade.
+        stale_macs = set(self._firmware_info) - set(macs_needing_upgrade)
+        for mac in stale_macs:
+            del self._firmware_info[mac]
 
         self._last_firmware_check = now
         _LOGGER.debug(

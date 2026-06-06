@@ -62,6 +62,7 @@ SAMPLE_DEVICE_AP = {
     "uptime": "2day(s) 5h 30m 10s",
     "sn": "SN-AP-001",
     "active": True,
+    "needUpgrade": True,
 }
 
 SAMPLE_DEVICE_SWITCH = {
@@ -80,6 +81,7 @@ SAMPLE_DEVICE_SWITCH = {
     "uptime": 90000,
     "sn": "SN-SW-001",
     "active": True,
+    "needUpgrade": True,
 }
 
 SAMPLE_DEVICE_GATEWAY = {
@@ -99,6 +101,7 @@ SAMPLE_DEVICE_GATEWAY = {
     "uptime": 360000,
     "sn": "SN-GW-001",
     "active": True,
+    "needUpgrade": True,
 }
 
 SAMPLE_UPLINK_INFO = [

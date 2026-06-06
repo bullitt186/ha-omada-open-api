@@ -14,6 +14,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
+from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiError
 from .const import DOMAIN
@@ -21,6 +22,8 @@ from .coordinator import OmadaSiteCoordinator
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
+    import datetime as dt
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -29,6 +32,9 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 PARALLEL_UPDATES = 1
+
+# Safety timeout: clear _is_installing if controller never acknowledges (seconds).
+INSTALL_FLAG_TIMEOUT = 120
 
 
 async def async_setup_entry(
@@ -90,6 +96,8 @@ class OmadaDeviceUpdateEntity(
         """Initialize the update entity."""
         super().__init__(coordinator)
         self._device_mac = device_mac
+        self._is_installing = False
+        self._install_started_at: dt.datetime | None = None
 
         self._attr_unique_id = f"{DOMAIN}_{device_mac}_firmware"
         self._attr_translation_key = "firmware"
@@ -113,7 +121,21 @@ class OmadaDeviceUpdateEntity(
 
     @property
     def latest_version(self) -> str | None:
-        """Return the latest available firmware version."""
+        """Return the latest available firmware version.
+
+        Uses the device's ``need_upgrade`` flag as the primary signal:
+        when the controller reports no upgrade is needed, return the
+        installed version so HA immediately shows "Up to date".
+        """
+        device = self.coordinator.data.get("devices", {}).get(self._device_mac)
+        if device is None:
+            return self.installed_version
+
+        if not device.get("need_upgrade", False):
+            # Controller says no upgrade available — entity is up to date.
+            return self.installed_version
+
+        # Upgrade available — return the latest version from firmware info.
         fw_info: dict[str, Any] = self.coordinator.data.get("firmware_info", {}).get(
             self._device_mac, {}
         )
@@ -141,9 +163,34 @@ class OmadaDeviceUpdateEntity(
             return notes.replace("\n", "  \n")
         return None
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Clear the installing flag once coordinator confirms upgrade status."""
+        if self._is_installing:
+            device = self.coordinator.data.get("devices", {}).get(self._device_mac)
+            if device is not None:
+                status = device.get("detail_status")
+                if status in (12, 13):
+                    # Controller confirmed upgrade — coordinator data takes over.
+                    self._is_installing = False
+                elif (
+                    self._install_started_at is not None
+                    and (dt_util.utcnow() - self._install_started_at).total_seconds()
+                    > INSTALL_FLAG_TIMEOUT
+                ):
+                    # Safety timeout — clear flag if controller never acknowledged.
+                    _LOGGER.warning(
+                        "Upgrade flag timeout for %s — clearing optimistic state",
+                        self._device_mac,
+                    )
+                    self._is_installing = False
+        super()._handle_coordinator_update()
+
     @property
     def in_progress(self) -> bool:
         """Return True when the device is upgrading or rebooting after upgrade."""
+        if self._is_installing:
+            return True
         device = self.coordinator.data.get("devices", {}).get(self._device_mac)
         if device is None:
             return False
@@ -175,6 +222,11 @@ class OmadaDeviceUpdateEntity(
             raise HomeAssistantError(
                 f"Failed to start firmware upgrade for {self._device_mac}"
             ) from err
-        # Activate fast polling immediately so progress is tracked.
+        # Immediately reflect the installing state in the UI.
+        self._is_installing = True
+        self._install_started_at = dt_util.utcnow()
+        if self.hass:
+            self.async_write_ha_state()
+        # Activate fast polling so coordinator picks up the upgrade status.
         self.coordinator.start_upgrade_polling()
         await self.coordinator.async_request_refresh()
