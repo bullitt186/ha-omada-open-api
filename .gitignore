@@ -53,6 +53,8 @@ env/
 
 # IDEs
 .vscode/
+!.vscode/mcp.json
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -71,3 +73,4 @@ config/
 openapi/openapi.json
 .env
 ha-developer-docs/
+.claude

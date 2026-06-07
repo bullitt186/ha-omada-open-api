@@ -398,8 +398,52 @@ This project uses **pre-commit** hooks (`.pre-commit-config.yaml`) that run auto
 - **Every code change MUST be accompanied by tests** that cover the new or modified code.
 - Never commit code that would reduce the overall coverage percentage.
 - Before committing, always run `pytest tests/ --cov=custom_components.omada_open_api --cov-report=term-missing` to verify coverage is maintained or improved.
-- If adding new modules or features, write tests **before or alongside** the implementation.
+- If adding new modules or features, write tests **before** the implementation — see TDD Workflow below.
 - The current coverage baseline is tracked in `.coverage-threshold` — this file is updated automatically by the pre-commit hook and should not be edited manually.
+
+## TDD Workflow (Red/Green/Refactor)
+
+All agentic development in this project MUST follow the red/green/refactor cycle. **Never write implementation code before writing tests.**
+
+### The Three Stages
+
+**RED — Write failing tests first:**
+1. Write test(s) that describe the expected behavior of the unit/feature you are about to implement.
+2. Run `pytest tests/<file> -x -v --tb=short` and **confirm the tests FAIL**.
+3. Verify the failure is for the *right* reason (e.g., `ImportError`, `AttributeError`, `AssertionError`) — not a syntax error or unrelated crash.
+4. If tests pass immediately without any implementation, the test is wrong — fix it until it fails correctly.
+5. **Do NOT commit during RED.** The pre-commit hook blocks failing commits by design. This is correct behavior — RED is a local verification step only.
+
+**GREEN — Write minimum implementation:**
+1. Write the smallest amount of implementation code that makes the failing tests pass.
+2. Do not add features, handle edge cases, or refactor at this stage. Only make the tests go green.
+3. Run `pytest tests/<file> -x -v --tb=short` and confirm **all tests pass**.
+4. If tests still fail, fix the implementation — do not modify the tests to force them to pass.
+
+**REFACTOR — Clean up:**
+1. Improve code quality: naming, structure, duplication, type hints, docstrings.
+2. Do not change observable behavior.
+3. After every refactor change, re-run `pytest tests/<file> -x -v --tb=short`. Tests must stay green.
+4. Once satisfied, run the full suite and coverage check:
+   ```bash
+   pytest tests/ --cov=custom_components.omada_open_api --cov-report=term-missing
+   ```
+5. Commit — message must include `(TDD)` suffix:
+   ```bash
+   git commit -m "feat: add X (TDD)"
+   ```
+
+### Commit Convention for TDD
+- Commits completing a TDD cycle MUST end with `(TDD)` in the message, e.g.:
+  - `feat: add gateway WAN sensor (TDD)`
+  - `fix: handle token expiry edge case (TDD)`
+  - `refactor: extract pagination helper (TDD)`
+- This makes TDD cycles traceable in the git log.
+
+### One TDD Cycle = One Unit
+- Apply TDD one unit at a time (one function, one method, one entity class, one coordinator method).
+- Complete the full RED→GREEN→REFACTOR cycle before starting the next unit.
+- This maps directly to the incremental test development rule below (1-3 tests per cycle).
 
 ## Testing Strategy & Best Practices
 
@@ -411,21 +455,23 @@ Organize tests by functionality into separate files:
 - `test_<platform>.py`: Platform-specific tests (sensors, switches, etc.)
 
 ### Incremental Test Development
-**CRITICAL**: Add tests incrementally to prevent file corruption and catch issues early:
-1. **Add 1-3 related tests** at a time, not entire test suites
-2. **Run pytest immediately** after each addition to verify tests pass
-3. **Fix any issues** before proceeding to next tests
-4. **Commit stable increments** with descriptive messages
-5. **Never batch large test additions** - file corruption risk increases significantly
+**CRITICAL**: Each increment is one TDD cycle. Add tests **before** implementation, not alongside or after:
+1. **Write 1-3 tests** describing the next unit's behavior (RED stage)
+2. **Run pytest immediately** to confirm tests FAIL for the right reason
+3. **Implement** the minimum code to make them pass (GREEN stage)
+4. **Refactor** then rerun to confirm still green
+5. **Commit** with `(TDD)` suffix before moving to the next unit
+6. **Never batch large test additions** — file corruption risk increases significantly and defeats TDD discipline
 
 Example workflow:
 ```bash
-# Add 2-3 tests
-# Run immediately
-pytest tests/test_config_flow.py -v --tb=short
-# If passing, commit
-git commit -m "test: add error handling tests for config flow"
-# Repeat
+# RED: write tests, confirm failure
+pytest tests/test_config_flow.py -x -v --tb=short  # should FAIL
+# GREEN: implement, confirm pass
+pytest tests/test_config_flow.py -x -v --tb=short  # should PASS
+# Commit
+git commit -m "feat: add error handling for config flow (TDD)"
+# Repeat for next unit
 ```
 
 ### Test Phases Pattern

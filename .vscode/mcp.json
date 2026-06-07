@@ -1,5 +1,26 @@
 {
+  "inputs": [
+    {
+      "id": "ha-local-token",
+      "type": "promptString",
+      "description": "Home Assistant Long-Lived Access Token (create at http://localhost:8123 > Profile > Long-lived access tokens)",
+      "password": true
+    }
+  ],
   "servers": {
+    "ha-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--python",
+        "3.13",
+        "ha-mcp@latest"
+      ],
+      "env": {
+        "HOMEASSISTANT_URL": "http://localhost:8123",
+        "HOMEASSISTANT_TOKEN": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIyMGEwZTA1Mjc1Y2M0NzA3ODNhZjcwMjU0OTUzZTExYyIsImlhdCI6MTc4MDc0NDY4OSwiZXhwIjoyMDk2MTA0Njg5fQ.n7QZBClOiZ3PMForqtjLtnVXMZBv0Dc-rkvIollE89Q"
+      }
+    },
     "github-mcp": {
       "type": "http",
       "url": "https://api.githubcopilot.com/mcp"

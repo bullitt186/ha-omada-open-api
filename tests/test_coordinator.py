@@ -378,6 +378,63 @@ async def test_site_coordinator_band_stats_failure_graceful(
     assert "client_num_2g" not in ap
 
 
+async def test_band_stat_absent_5g2_leaves_key_absent(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that client_num_5g2/6g are absent when API omits them (dual-band AP)."""
+    mock_api_client.get_device_client_stats = AsyncMock(
+        return_value=[
+            {
+                "mac": "AA-BB-CC-DD-EE-01",
+                "clientNum": 5,
+                "clientNum2g": 3,
+                "clientNum5g": 2,
+                # clientNum5g2 and clientNum6g deliberately absent
+            }
+        ]
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    await coordinator.async_refresh()
+    ap = coordinator.data["devices"]["AA-BB-CC-DD-EE-01"]
+    assert ap["client_num_2g"] == 3
+    assert ap["client_num_5g"] == 2
+    assert "client_num_5g2" not in ap
+    assert "client_num_6g" not in ap
+
+
+async def test_band_stat_zero_5g2_keeps_key_present(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that client_num_5g2 == 0 when API returns clientNum5g2: 0 (band exists)."""
+    mock_api_client.get_device_client_stats = AsyncMock(
+        return_value=[
+            {
+                "mac": "AA-BB-CC-DD-EE-01",
+                "clientNum": 5,
+                "clientNum2g": 3,
+                "clientNum5g": 2,
+                "clientNum5g2": 0,
+                "clientNum6g": 0,
+            }
+        ]
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    await coordinator.async_refresh()
+    ap = coordinator.data["devices"]["AA-BB-CC-DD-EE-01"]
+    assert ap["client_num_5g2"] == 0
+    assert ap["client_num_6g"] == 0
+
+
 async def test_site_coordinator_no_aps_skips_band_stats(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:

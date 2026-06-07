@@ -471,8 +471,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     devices[mac]["client_num"] = stat.get("clientNum", 0)
                     devices[mac]["client_num_2g"] = stat.get("clientNum2g", 0)
                     devices[mac]["client_num_5g"] = stat.get("clientNum5g", 0)
-                    devices[mac]["client_num_5g2"] = stat.get("clientNum5g2", 0)
-                    devices[mac]["client_num_6g"] = stat.get("clientNum6g", 0)
+                    if "clientNum5g2" in stat:
+                        devices[mac]["client_num_5g2"] = stat["clientNum5g2"]
+                    if "clientNum6g" in stat:
+                        devices[mac]["client_num_6g"] = stat["clientNum6g"]
         except OmadaApiError as err:
             _LOGGER.warning(
                 "Failed to fetch per-band client stats for site %s: %s",
