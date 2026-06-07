@@ -512,3 +512,72 @@ async def test_band_5g_client_attrs(hass: HomeAssistant) -> None:
     assert attrs is not None
     assert len(attrs["clients"]) == 1
     assert attrs["clients"][0]["name"] == "Laptop"
+
+
+# ---------------------------------------------------------------------------
+# IPv6 sensor (#17)
+# ---------------------------------------------------------------------------
+
+
+def test_ipv6_sensor_available_fn_populated() -> None:
+    """Test ipv6 available_fn returns True when list is populated."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    assert desc.available_fn({"ipv6": ["fe80::1"]}) is True
+
+
+def test_ipv6_sensor_available_fn_empty() -> None:
+    """Test ipv6 available_fn returns False when list is empty."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    assert desc.available_fn({"ipv6": []}) is False
+
+
+def test_ipv6_sensor_available_fn_missing() -> None:
+    """Test ipv6 available_fn returns False when key is absent."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    assert desc.available_fn({}) is False
+
+
+def test_ipv6_sensor_value_fn_single_address() -> None:
+    """Test ipv6 value_fn joins addresses into a comma-separated string."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    assert desc.value_fn({"ipv6": ["fe80::1"]}) == "fe80::1"
+
+
+def test_ipv6_sensor_value_fn_multiple_addresses() -> None:
+    """Test ipv6 value_fn joins multiple addresses with comma separator."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    result = desc.value_fn({"ipv6": ["fe80::1", "2001:db8::1"]})
+    assert result == "fe80::1, 2001:db8::1"
+
+
+def test_ipv6_sensor_value_fn_empty() -> None:
+    """Test ipv6 value_fn returns None when list is empty."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "ipv6")
+    assert desc.value_fn({"ipv6": []}) is None
+
+
+async def test_ipv6_sensor_available_when_populated(hass: HomeAssistant) -> None:
+    """Test ipv6 sensor entity available when device has IPv6 addresses."""
+    ap = dict(SAMPLE_DEVICE_AP)
+    ap["ipv6"] = ["fe80::1", "2001:db8::1"]
+    data = process_device(ap)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "ipv6")
+    assert sensor.available is True
+    assert sensor.native_value == "fe80::1, 2001:db8::1"
+
+
+async def test_ipv6_sensor_unavailable_when_empty(hass: HomeAssistant) -> None:
+    """Test ipv6 sensor unavailable when device has no IPv6 addresses."""
+    ap = dict(SAMPLE_DEVICE_AP)
+    ap["ipv6"] = []
+    data = process_device(ap)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "ipv6")
+    assert sensor.available is False
+
+
+async def test_ipv6_sensor_unavailable_when_field_absent(hass: HomeAssistant) -> None:
+    """Test ipv6 sensor unavailable when device API response has no ipv6 field."""
+    ap = {k: v for k, v in SAMPLE_DEVICE_AP.items() if k != "ipv6"}
+    data = process_device(ap)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "ipv6")
+    assert sensor.available is False
