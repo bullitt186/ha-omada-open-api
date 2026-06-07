@@ -1403,6 +1403,36 @@ class OmadaApiClient:
         # Single object returned — wrap in a list for consistency.
         return [raw]
 
+    async def get_switch_port_details(
+        self,
+        site_id: str,
+    ) -> list[dict[str, Any]]:
+        """Get switch port details — confirms which MACs have wired ports.
+
+        Returns an empty list if the endpoint is unavailable or returns an error,
+        making the caller resilient to missing data.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of switch port detail dicts, each containing at least a 'mac' field.
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/ports/switch-detail"
+        )
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError:
+            return []
+        raw = result.get("result", {})
+        # API may return a list directly or wrapped in data.
+        if isinstance(raw, list):
+            return raw
+        return raw.get("data", [])  # type: ignore[no-any-return]
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

@@ -2332,3 +2332,70 @@ async def test_get_device_stats(hass: HomeAssistant, mock_config_entry) -> None:
         "end": 1700086400,
         "attrs": ["tx", "rx"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Unit 2: get_switch_port_details (#12)
+# ---------------------------------------------------------------------------
+
+
+async def test_get_switch_port_details_returns_list(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_switch_port_details returns a list of dicts."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    port_details = [{"mac": "aa:bb:cc:dd:ee:ff", "port": 1, "name": "Switch1"}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": port_details},
+    }
+
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_switch_port_details(site_id="site_001")
+
+    assert isinstance(result, list)
+    assert result == port_details
+    assert result[0]["mac"] == "aa:bb:cc:dd:ee:ff"
+
+
+async def test_get_switch_port_details_returns_empty_on_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_switch_port_details returns empty list on API error."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": -1, "msg": "error"}
+
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_switch_port_details(site_id="site_001")
+
+    assert result == []
