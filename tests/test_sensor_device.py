@@ -16,6 +16,7 @@ from custom_components.omada_open_api.sensor import (
     AP_BAND_CLIENT_SENSORS,
     DEVICE_SENSORS,
     OmadaDeviceSensor,
+    OmadaSensorEntityDescription,
 )
 
 from .conftest import (
@@ -512,3 +513,32 @@ async def test_band_5g_client_attrs(hass: HomeAssistant) -> None:
     assert attrs is not None
     assert len(attrs["clients"]) == 1
     assert attrs["clients"][0]["name"] == "Laptop"
+
+
+# ---------------------------------------------------------------------------
+# Unit 1: applicable_fn field on OmadaSensorEntityDescription
+# ---------------------------------------------------------------------------
+
+
+def test_applicable_fn_field_accessible() -> None:
+    """Test that OmadaSensorEntityDescription accepts and stores applicable_fn."""
+    desc = OmadaSensorEntityDescription(
+        key="test_key",
+        translation_key="test_key",
+        value_fn=lambda d: d.get("value"),
+        applicable_fn=lambda d: d.get("has_feature", False),
+    )
+    assert desc.applicable_fn is not None
+    assert desc.applicable_fn({"has_feature": True}) is True
+    assert desc.applicable_fn({"has_feature": False}) is False
+    assert desc.applicable_fn({}) is False
+
+
+def test_applicable_fn_defaults_to_none() -> None:
+    """Test that applicable_fn defaults to None when not specified."""
+    desc = OmadaSensorEntityDescription(
+        key="test_key",
+        translation_key="test_key",
+        value_fn=lambda d: d.get("value"),
+    )
+    assert desc.applicable_fn is None

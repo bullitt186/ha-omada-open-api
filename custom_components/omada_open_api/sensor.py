@@ -130,6 +130,7 @@ class OmadaSensorEntityDescription(SensorEntityDescription):
     available_fn: Callable[[dict[str, Any]], bool] = lambda device: True
     applicable_types: tuple[str, ...] | None = None
     attrs_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    applicable_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (

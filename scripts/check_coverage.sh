@@ -5,8 +5,14 @@ set -euo pipefail
 
 THRESHOLD_FILE=".coverage-threshold"
 
+# Prefer the project venv's pytest to ensure the correct HA version is used.
+PYTEST_CMD="pytest"
+if [ -x ".venv/bin/pytest" ]; then
+    PYTEST_CMD=".venv/bin/pytest"
+fi
+
 # Run pytest with coverage and capture the total percentage.
-output=$(pytest tests/ -x -q \
+output=$($PYTEST_CMD tests/ -x -q \
     --cov=custom_components.omada_open_api \
     --cov-report=term-missing 2>&1) || {
     echo "$output"
