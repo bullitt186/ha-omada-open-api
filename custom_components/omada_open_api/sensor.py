@@ -1118,6 +1118,37 @@ def _purge_absent_band_entities(
             reg.async_remove(entity_entry.entity_id)
 
 
+_5G_BAND_KEYS: frozenset[str] = frozenset(
+    {
+        "clients_5g",
+        "radio_tx_util_5g",
+        "radio_rx_util_5g",
+        "radio_inter_util_5g",
+        "radio_busy_util_5g",
+    }
+)
+
+
+def _migrate_5g_entity_ids(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+) -> None:
+    """Rename legacy _5_ghz_1 entity IDs to _5_ghz after translations dropped the -1."""
+    reg = er.async_get(hass)
+    for entity_entry in er.async_entries_for_config_entry(reg, entry.entry_id):
+        if entity_entry.platform != DOMAIN:
+            continue
+        parts = entity_entry.unique_id.split("_", 1)
+        if len(parts) != 2 or parts[1] not in _5G_BAND_KEYS:
+            continue
+        old_id = entity_entry.entity_id
+        if not old_id.endswith("_5_ghz_1"):
+            continue
+        new_id = old_id[:-2]  # strip trailing "_1"
+        if reg.async_get(new_id) is None:
+            reg.async_update_entity(old_id, new_entity_id=new_id)
+
+
 def _check_ap_band_entities(
     coord: OmadaSiteCoordinator,
     devices: Any,
@@ -1157,6 +1188,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     )
 
     _setup_site_sensors(coordinators, async_add_entities)
+    _migrate_5g_entity_ids(hass, entry)
     _purge_absent_band_entities(hass, entry, coordinators)
 
     # --- Dynamic infrastructure device sensors ---

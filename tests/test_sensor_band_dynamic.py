@@ -383,3 +383,67 @@ async def test_present_band_entity_not_purged(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert _entity_registered(hass, AP_MAC, "clients_5g2")
+
+
+# ---------------------------------------------------------------------------
+# Entity-ID migration — _5_ghz_1 → _5_ghz when translations drop the "-1"
+# ---------------------------------------------------------------------------
+
+
+async def test_5g_entity_id_migrated_from_5_ghz_1_to_5_ghz(
+    hass: HomeAssistant,
+) -> None:
+    """Existing 5g sensor entity with legacy _5_ghz_1 entity_id is renamed at setup."""
+    entry = _build_entry(hass)
+    reg = er.async_get(hass)
+    entity_entry = reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{AP_MAC}_radio_busy_util_5g",
+        config_entry=entry,
+        suggested_object_id="schlafzimmer_channel_busy_5_ghz_1",
+    )
+    assert entity_entry.entity_id == "sensor.schlafzimmer_channel_busy_5_ghz_1"
+
+    patcher, _mock = _patch_api_client(
+        get_ap_radios=AsyncMock(
+            return_value={
+                "wp2g": {"actualChannel": "6", "busyUtil": 22},
+                "wp5g": {"actualChannel": "36", "busyUtil": 1},
+            }
+        ),
+    )
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert reg.async_get("sensor.schlafzimmer_channel_busy_5_ghz_1") is None
+    assert reg.async_get("sensor.schlafzimmer_channel_busy_5_ghz") is not None
+
+
+async def test_5g2_entity_id_not_migrated(hass: HomeAssistant) -> None:
+    """5g2 entities ending in _5_ghz_2 must not be renamed — only _5_ghz_1 is legacy."""
+    entry = _build_entry(hass)
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{AP_MAC}_radio_busy_util_5g2",
+        config_entry=entry,
+        suggested_object_id="schlafzimmer_channel_busy_5_ghz_2",
+    )
+
+    patcher, _mock = _patch_api_client(
+        get_ap_radios=AsyncMock(
+            return_value={
+                "wp2g": {"actualChannel": "6", "busyUtil": 22},
+                "wp5g": {"actualChannel": "36", "busyUtil": 1},
+                "wp5g2": {"actualChannel": "149", "busyUtil": 0},
+            }
+        ),
+    )
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert reg.async_get("sensor.schlafzimmer_channel_busy_5_ghz_2") is not None

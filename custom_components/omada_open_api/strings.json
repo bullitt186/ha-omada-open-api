@@ -227,7 +227,7 @@
                 "name": "Clients 2.4 GHz"
             },
             "clients_5g": {
-                "name": "Clients 5 GHz-1"
+                "name": "Clients 5 GHz"
             },
             "clients_5g2": {
                 "name": "Clients 5 GHz-2"
@@ -248,16 +248,16 @@
                 "name": "Channel busy 2.4 GHz"
             },
             "radio_tx_util_5g": {
-                "name": "TX utilization 5 GHz-1"
+                "name": "TX utilization 5 GHz"
             },
             "radio_rx_util_5g": {
-                "name": "RX utilization 5 GHz-1"
+                "name": "RX utilization 5 GHz"
             },
             "radio_inter_util_5g": {
-                "name": "Interference 5 GHz-1"
+                "name": "Interference 5 GHz"
             },
             "radio_busy_util_5g": {
-                "name": "Channel busy 5 GHz-1"
+                "name": "Channel busy 5 GHz"
             },
             "radio_tx_util_5g2": {
                 "name": "TX utilization 5 GHz-2"
