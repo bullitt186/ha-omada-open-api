@@ -170,6 +170,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             all_clients = await self._fetch_site_clients()
             self._assign_clients_to_devices(devices, all_clients)
 
+            # Stamp has_wired_ports flag for switches (confirmed via API) and gateways.
+            await self._stamp_wired_ports_flags(devices)
+
             # Adjust polling rate based on upgrade state (before firmware
             # info so a cooldown-triggered cache reset takes effect this cycle).
             self._adjust_polling_for_upgrades(devices)
@@ -733,6 +736,39 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Continue without WAN status - not critical
 
         return wan_status
+
+    async def _stamp_wired_ports_flags(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Stamp has_wired_ports=True on devices confirmed to have wired ports.
+
+        Calls get_switch_port_details to identify switch MACs.  Gateway
+        devices always have wired ports (WAN/LAN), so they are stamped
+        unconditionally.
+
+        Args:
+            devices: Processed devices dict keyed by MAC (mutated in-place).
+
+        """
+        # Stamp gateways unconditionally — they always have LAN/WAN ports.
+        for mac, device in devices.items():
+            if device.get("type", "").lower() == "gateway":
+                devices[mac]["has_wired_ports"] = True
+
+        # Query the API for confirmed switch port data.
+        try:
+            switch_details = await self.api_client.get_switch_port_details(self.site_id)
+            for entry in switch_details:
+                sw_mac: str | None = entry.get("mac")
+                if sw_mac and sw_mac in devices:
+                    devices[sw_mac]["has_wired_ports"] = True
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Could not fetch switch port details for site %s — skipping "
+                "has_wired_ports stamping for switches",
+                self.site_name,
+            )
 
 
 class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):

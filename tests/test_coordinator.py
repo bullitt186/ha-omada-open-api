@@ -1291,3 +1291,53 @@ async def test_app_traffic_coordinator_custom_interval(
         scan_interval=600,
     )
     assert coordinator.update_interval == timedelta(seconds=600)
+
+
+# ---------------------------------------------------------------------------
+# Unit 3: has_wired_ports flag (#12)
+# ---------------------------------------------------------------------------
+
+
+async def test_has_wired_ports_flag_set_for_switch(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that has_wired_ports is stamped True for devices returned by get_switch_port_details."""
+    switch_mac = SAMPLE_DEVICE_SWITCH["mac"]
+    mock_api_client.get_switch_port_details = AsyncMock(
+        return_value=[{"mac": switch_mac}]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    devices = coordinator.data["devices"]
+    assert devices[switch_mac]["has_wired_ports"] is True
+
+
+async def test_has_wired_ports_not_set_when_absent(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that has_wired_ports is not set when device is not in switch details."""
+    ap_mac = SAMPLE_DEVICE_AP["mac"]
+    # AP is not in switch port details
+    mock_api_client.get_switch_port_details = AsyncMock(return_value=[])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    devices = coordinator.data["devices"]
+    assert devices[ap_mac].get("has_wired_ports", False) is False
