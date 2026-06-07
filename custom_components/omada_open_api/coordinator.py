@@ -514,7 +514,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
                 for band_key, suffix in band_map.items():
                     band = radio_data.get(band_key)
-                    if band:
+                    if band and band.get("actualChannel") != "":
                         devices[ap_mac][f"radio_tx_util_{suffix}"] = band.get("txUtil")
                         devices[ap_mac][f"radio_rx_util_{suffix}"] = band.get("rxUtil")
                         devices[ap_mac][f"radio_inter_util_{suffix}"] = band.get(

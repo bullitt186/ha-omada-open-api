@@ -312,3 +312,66 @@ async def test_api_error_on_one_ap_does_not_block_others(hass: HomeAssistant) ->
 
     assert "radio_tx_util_2g" not in devices[AP_MAC]
     assert devices[AP_MAC_2]["radio_tx_util_2g"] == 45
+
+
+# ---------------------------------------------------------------------------
+# actualChannel guard — empty string means band not on hardware
+# ---------------------------------------------------------------------------
+
+
+async def test_band_with_empty_actual_channel_leaves_keys_absent(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a band with actualChannel='' is not merged (radio not on hardware)."""
+    api_client = MagicMock()
+    api_client.get_ap_radios = AsyncMock(
+        return_value={
+            "wp2g": {
+                "txUtil": 45,
+                "rxUtil": 30,
+                "interUtil": 10,
+                "busyUtil": 55,
+                "actualChannel": "6",
+            },
+            "wp5g2": {
+                "txUtil": 0,
+                "rxUtil": 0,
+                "interUtil": 0,
+                "busyUtil": 0,
+                "actualChannel": "",  # empty = band not present on hardware
+            },
+        }
+    )
+    coordinator = _make_coordinator(hass, api_client)
+    devices = _ap_devices(AP_MAC)
+
+    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+
+    # 2.4 GHz should be merged (non-empty actualChannel)
+    assert devices[AP_MAC]["radio_tx_util_2g"] == 45
+    assert devices[AP_MAC]["radio_busy_util_2g"] == 55
+    # 5 GHz-2 should NOT be merged (empty actualChannel means no second radio)
+    assert "radio_tx_util_5g2" not in devices[AP_MAC]
+    assert "radio_rx_util_5g2" not in devices[AP_MAC]
+    assert "radio_inter_util_5g2" not in devices[AP_MAC]
+    assert "radio_busy_util_5g2" not in devices[AP_MAC]
+
+
+async def test_band_without_actual_channel_key_is_merged(hass: HomeAssistant) -> None:
+    """Test that a band dict lacking the actualChannel key is still merged.
+
+    Some API responses may omit actualChannel; absence ≠ empty channel.
+    """
+    api_client = MagicMock()
+    api_client.get_ap_radios = AsyncMock(
+        return_value={
+            "wp2g": {"txUtil": 10, "rxUtil": 5, "interUtil": 2, "busyUtil": 12},
+        }
+    )
+    coordinator = _make_coordinator(hass, api_client)
+    devices = _ap_devices(AP_MAC)
+
+    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+
+    assert devices[AP_MAC]["radio_tx_util_2g"] == 10
+    assert devices[AP_MAC]["radio_busy_util_2g"] == 12
