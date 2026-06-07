@@ -1081,6 +1081,28 @@ def _make_client_sensor(
     )
 
 
+def _check_ap_band_entities(
+    coord: OmadaSiteCoordinator,
+    devices: Any,
+    known_keys: set[tuple[str, str]],
+) -> list[SensorEntity]:
+    """Return new per-band entities for APs whose band data just appeared."""
+    new_entities: list[SensorEntity] = []
+    for mac, device_data in devices.items():
+        if device_data.get("type", "").lower() != "ap":
+            continue
+        for desc in AP_BAND_CLIENT_SENSORS:
+            data_key = desc.key.replace("clients_", "client_num_")
+            if (mac, desc.key) not in known_keys and data_key in device_data:
+                known_keys.add((mac, desc.key))
+                new_entities.append(_make_device_sensor(coord, desc, mac))
+        for desc in AP_BAND_RADIO_UTIL_SENSORS:
+            if (mac, desc.key) not in known_keys and desc.key in device_data:
+                known_keys.add((mac, desc.key))
+                new_entities.append(_make_device_sensor(coord, desc, mac))
+    return new_entities
+
+
 async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
@@ -1101,6 +1123,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
 
     # --- Dynamic infrastructure device sensors ---
     known_device_macs: set[str] = set()
+    known_ap_band_entity_keys: set[tuple[str, str]] = set()  # (mac, desc.key)
     known_poe_ports: set[str] = set()
     known_poe_budget_switches: set[str] = set()
     known_wan_port_keys: set[str] = set()
@@ -1137,17 +1160,11 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                         if desc.applicable_types is None
                         or device_type in desc.applicable_types
                     )
-                    # Per-band client count sensors for AP devices.
-                    if device_type == "ap":
-                        new_entities.extend(
-                            _make_device_sensor(c, desc, mac)
-                            for desc in AP_BAND_CLIENT_SENSORS
-                        )
-                        # Per-band radio utilization sensors for AP devices.
-                        new_entities.extend(
-                            _make_device_sensor(c, desc, mac)
-                            for desc in AP_BAND_RADIO_UTIL_SENSORS
-                        )
+
+            # Per-band sensors — run for all APs on every coordinator update.
+            new_entities.extend(
+                _check_ap_band_entities(coord, devices, known_ap_band_entity_keys)
+            )
 
             # PoE budget sensors for new switches.
             poe_budget = coord.data.get("poe_budget", {})
