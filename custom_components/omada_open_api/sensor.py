@@ -331,6 +331,14 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         available_fn=lambda device: device.get("temperature") is not None,
         applicable_types=("gateway",),
     ),
+    OmadaSensorEntityDescription(
+        key="public_ip",
+        translation_key="public_ip",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda device: device.get("public_ip"),
+        available_fn=lambda device: bool(device.get("public_ip")),
+        applicable_types=("gateway",),
+    ),
 )
 
 # Radio ID to band mapping for filtering clients by radio.

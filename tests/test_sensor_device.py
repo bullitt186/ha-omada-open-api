@@ -512,3 +512,29 @@ async def test_band_5g_client_attrs(hass: HomeAssistant) -> None:
     assert attrs is not None
     assert len(attrs["clients"]) == 1
     assert attrs["clients"][0]["name"] == "Laptop"
+
+
+# ---------------------------------------------------------------------------
+# public_ip sensor (gateway-only)
+# ---------------------------------------------------------------------------
+
+
+def test_public_ip_sensor_value() -> None:
+    """Test public_ip sensor description value_fn returns correct value."""
+    device = {"public_ip": "203.0.113.5", "device_type": "gateway"}
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.value_fn(device) == "203.0.113.5"
+
+
+def test_public_ip_sensor_available_fn_true() -> None:
+    """Test public_ip sensor is available when public_ip is set."""
+    device = {"public_ip": "203.0.113.5"}
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.available_fn(device) is True
+
+
+def test_public_ip_sensor_available_fn_false() -> None:
+    """Test public_ip sensor is unavailable when public_ip is None/missing."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.available_fn({"public_ip": None}) is False
+    assert desc.available_fn({}) is False
