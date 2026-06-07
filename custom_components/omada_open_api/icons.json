@@ -55,6 +55,9 @@
             "device_ip": {
                 "default": "mdi:ip-network"
             },
+            "public_ip": {
+                "default": "mdi:ip-network-outline"
+            },
             "ipv6": {
                 "default": "mdi:ip-network"
             },
