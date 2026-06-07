@@ -542,3 +542,30 @@ def test_applicable_fn_defaults_to_none() -> None:
         value_fn=lambda d: d.get("value"),
     )
     assert desc.applicable_fn is None
+
+
+# ---------------------------------------------------------------------------
+# Unit 5: wired_clients sensor gated by applicable_fn (#12)
+# ---------------------------------------------------------------------------
+
+
+def test_wired_clients_not_applicable_for_ap() -> None:
+    """Test wired_clients applicable_fn returns False for AP without has_wired_ports."""
+    ap_data = process_device(SAMPLE_DEVICE_AP)
+    ap_data.pop("has_wired_ports", None)  # No wired ports on AP
+
+    wired_desc = next(d for d in DEVICE_SENSORS if d.key == "wired_clients")
+
+    # Sensor should NOT be applicable when has_wired_ports is absent
+    assert wired_desc.applicable_fn is not None
+    assert wired_desc.applicable_fn(ap_data) is False
+
+
+def test_wired_clients_applicable_for_switch_with_flag() -> None:
+    """Test wired_clients applicable_fn returns True for switch with has_wired_ports."""
+    switch_data = process_device(SAMPLE_DEVICE_SWITCH)
+    switch_data["has_wired_ports"] = True
+
+    wired_desc = next(d for d in DEVICE_SENSORS if d.key == "wired_clients")
+    assert wired_desc.applicable_fn is not None
+    assert wired_desc.applicable_fn(switch_data) is True
