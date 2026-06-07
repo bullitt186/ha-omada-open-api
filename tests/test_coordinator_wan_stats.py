@@ -298,3 +298,128 @@ async def test_device_stats_coordinator_skips_unknown_device_type(
     assert len(data) == 1
     assert "AA-BB-CC-DD-EE-02" in data
     assert "AA-BB-CC-DD-EE-99" not in data
+
+
+# ---------------------------------------------------------------------------
+# Issue #13 — switch stats return port-nested tx/rx, not top-level
+# ---------------------------------------------------------------------------
+
+
+async def test_device_stats_coordinator_switch_nonzero(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Switch stat entries have tx/rx nested inside a ports array (OswStatDTO).
+
+    The v2 stat endpoint for type=switch returns per-port traffic in an
+    'ports' array rather than flat top-level tx/rx fields.  The coordinator
+    must sum port-level traffic to produce a nonzero daily total.
+    """
+    # Simulate real OswStatDTO response: two hourly entries, each with ports
+    mock_api_client.get_device_stats = AsyncMock(
+        return_value=[
+            {
+                "time": 1700000000,
+                "cpu": 5,
+                "mem": 30,
+                "ports": [
+                    {"port": 1, "tx": 300_000_000, "rx": 600_000_000},
+                    {"port": 2, "tx": 200_000_000, "rx": 400_000_000},
+                ],
+            },
+            {
+                "time": 1700003600,
+                "cpu": 4,
+                "mem": 28,
+                "ports": [
+                    {"port": 1, "tx": 100_000_000, "rx": 200_000_000},
+                    {"port": 2, "tx": 50_000_000, "rx": 100_000_000},
+                ],
+            },
+        ]
+    )
+
+    site_coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    site_coordinator.data = {
+        "devices": {
+            "AA-BB-CC-DD-EE-02": process_device(SAMPLE_DEVICE_SWITCH),
+        },
+        "poe_ports": {},
+        "poe_budget": {},
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+        "wan_status": {},
+    }
+
+    stats_coordinator = OmadaDeviceStatsCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_coordinator=site_coordinator,
+    )
+
+    await stats_coordinator.async_refresh()
+    assert stats_coordinator.last_update_success is True
+
+    data = stats_coordinator.data
+    assert "AA-BB-CC-DD-EE-02" in data
+    # Expected: sum of all port tx across all entries = (300+200+100+50) = 650M
+    assert data["AA-BB-CC-DD-EE-02"]["daily_tx"] == 650_000_000
+    # Expected: sum of all port rx across all entries = (600+400+200+100) = 1300M
+    assert data["AA-BB-CC-DD-EE-02"]["daily_rx"] == 1_300_000_000
+
+
+async def test_device_stats_coordinator_gateway_nonzero(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Gateway stat entries have tx/rx nested inside a ports array.
+
+    Like switch stats, gateway v2 stat responses use a ports array per entry.
+    The coordinator must sum port-level traffic for gateways as well.
+    """
+    mock_api_client.get_device_stats = AsyncMock(
+        return_value=[
+            {
+                "time": 1700000000,
+                "cpu": 10,
+                "mem": 55,
+                "ports": [
+                    {"port": 1, "tx": 500_000_000, "rx": 1_000_000_000},
+                ],
+            },
+        ]
+    )
+
+    site_coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    site_coordinator.data = {
+        "devices": {
+            "AA-BB-CC-DD-EE-03": process_device(SAMPLE_DEVICE_GATEWAY),
+        },
+        "poe_ports": {},
+        "poe_budget": {},
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+        "wan_status": {},
+    }
+
+    stats_coordinator = OmadaDeviceStatsCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_coordinator=site_coordinator,
+    )
+
+    await stats_coordinator.async_refresh()
+    assert stats_coordinator.last_update_success is True
+
+    data = stats_coordinator.data
+    assert "AA-BB-CC-DD-EE-03" in data
+    assert data["AA-BB-CC-DD-EE-03"]["daily_tx"] == 500_000_000
+    assert data["AA-BB-CC-DD-EE-03"]["daily_rx"] == 1_000_000_000

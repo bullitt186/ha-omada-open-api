@@ -112,6 +112,11 @@ async def test_setup_entry_no_new_devices_on_second_callback(
     # No additional entities should have been added.
     assert len(added_entities) == 1
 
+    # Run unload callbacks to cancel the coordinator's refresh-interval timer
+    # and avoid a lingering handle in the HA test harness's verify_cleanup check.
+    for cb in unload_callbacks:
+        cb()
+
 
 async def test_update_unique_id(hass: HomeAssistant) -> None:
     """Test update entity unique ID format."""
