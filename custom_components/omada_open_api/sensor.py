@@ -406,6 +406,170 @@ AP_BAND_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
+# Per-band radio utilization sensors (AP-only, populated by coordinator every 5 min)
+AP_BAND_RADIO_UTIL_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="radio_tx_util_2g",
+        translation_key="radio_tx_util_2g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_tx_util_2g"),
+        available_fn=lambda d: d.get("radio_tx_util_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_rx_util_2g",
+        translation_key="radio_rx_util_2g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_rx_util_2g"),
+        available_fn=lambda d: d.get("radio_rx_util_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_inter_util_2g",
+        translation_key="radio_inter_util_2g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_inter_util_2g"),
+        available_fn=lambda d: d.get("radio_inter_util_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_busy_util_2g",
+        translation_key="radio_busy_util_2g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_busy_util_2g"),
+        available_fn=lambda d: d.get("radio_busy_util_2g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_tx_util_5g",
+        translation_key="radio_tx_util_5g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_tx_util_5g"),
+        available_fn=lambda d: d.get("radio_tx_util_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_rx_util_5g",
+        translation_key="radio_rx_util_5g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_rx_util_5g"),
+        available_fn=lambda d: d.get("radio_rx_util_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_inter_util_5g",
+        translation_key="radio_inter_util_5g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_inter_util_5g"),
+        available_fn=lambda d: d.get("radio_inter_util_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_busy_util_5g",
+        translation_key="radio_busy_util_5g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_busy_util_5g"),
+        available_fn=lambda d: d.get("radio_busy_util_5g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_tx_util_5g2",
+        translation_key="radio_tx_util_5g2",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_tx_util_5g2"),
+        available_fn=lambda d: d.get("radio_tx_util_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_rx_util_5g2",
+        translation_key="radio_rx_util_5g2",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_rx_util_5g2"),
+        available_fn=lambda d: d.get("radio_rx_util_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_inter_util_5g2",
+        translation_key="radio_inter_util_5g2",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_inter_util_5g2"),
+        available_fn=lambda d: d.get("radio_inter_util_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_busy_util_5g2",
+        translation_key="radio_busy_util_5g2",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_busy_util_5g2"),
+        available_fn=lambda d: d.get("radio_busy_util_5g2") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_tx_util_6g",
+        translation_key="radio_tx_util_6g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_tx_util_6g"),
+        available_fn=lambda d: d.get("radio_tx_util_6g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_rx_util_6g",
+        translation_key="radio_rx_util_6g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_rx_util_6g"),
+        available_fn=lambda d: d.get("radio_rx_util_6g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_inter_util_6g",
+        translation_key="radio_inter_util_6g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_inter_util_6g"),
+        available_fn=lambda d: d.get("radio_inter_util_6g") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="radio_busy_util_6g",
+        translation_key="radio_busy_util_6g",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda d: d.get("radio_busy_util_6g"),
+        available_fn=lambda d: d.get("radio_busy_util_6g") is not None,
+    ),
+)
+
 # Client sensor descriptions
 CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
@@ -978,6 +1142,11 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                         new_entities.extend(
                             _make_device_sensor(c, desc, mac)
                             for desc in AP_BAND_CLIENT_SENSORS
+                        )
+                        # Per-band radio utilization sensors for AP devices.
+                        new_entities.extend(
+                            _make_device_sensor(c, desc, mac)
+                            for desc in AP_BAND_RADIO_UTIL_SENSORS
                         )
 
             # PoE budget sensors for new switches.
