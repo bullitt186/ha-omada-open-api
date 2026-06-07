@@ -596,3 +596,29 @@ def test_wireless_clients_applicable_for_ap_with_flag() -> None:
     wireless_desc = next(d for d in DEVICE_SENSORS if d.key == "wireless_clients")
     assert wireless_desc.applicable_fn is not None
     assert wireless_desc.applicable_fn(ap_data) is True
+
+
+# ---------------------------------------------------------------------------
+# public_ip sensor (gateway-only)
+# ---------------------------------------------------------------------------
+
+
+def test_public_ip_sensor_value() -> None:
+    """Test public_ip sensor description value_fn returns correct value."""
+    device = {"public_ip": "203.0.113.5", "device_type": "gateway"}
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.value_fn(device) == "203.0.113.5"
+
+
+def test_public_ip_sensor_available_fn_true() -> None:
+    """Test public_ip sensor is available when public_ip is set."""
+    device = {"public_ip": "203.0.113.5"}
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.available_fn(device) is True
+
+
+def test_public_ip_sensor_available_fn_false() -> None:
+    """Test public_ip sensor is unavailable when public_ip is None/missing."""
+    desc = next(d for d in DEVICE_SENSORS if d.key == "public_ip")
+    assert desc.available_fn({"public_ip": None}) is False
+    assert desc.available_fn({}) is False

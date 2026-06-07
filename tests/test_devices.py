@@ -126,3 +126,10 @@ def test_process_device_minimal() -> None:
     assert result["type"] == "unknown"
     assert result["client_num"] == 0
     assert result["need_upgrade"] is False
+
+
+def test_process_device_maps_public_ip() -> None:
+    """Test that process_device maps publicIp to public_ip."""
+    raw = {"mac": "aa:bb:cc:dd:ee:ff", "publicIp": "203.0.113.5", "type": 3}
+    result = process_device(raw)
+    assert result["public_ip"] == "203.0.113.5"

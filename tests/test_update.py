@@ -112,6 +112,10 @@ async def test_setup_entry_no_new_devices_on_second_callback(
     # No additional entities should have been added.
     assert len(added_entities) == 1
 
+    # Cancel the coordinator polling interval to avoid lingering timers.
+    for cb in unload_callbacks:
+        cb()
+
 
 async def test_update_unique_id(hass: HomeAssistant) -> None:
     """Test update entity unique ID format."""

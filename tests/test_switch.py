@@ -557,6 +557,7 @@ def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
     }
     coordinator.api_client.get_led_setting = AsyncMock(return_value={"enable": True})
     coordinator.api_client.set_led_setting = AsyncMock(return_value={})
+    coordinator.async_request_refresh = AsyncMock()
     return OmadaLedSwitch(coordinator)
 
 

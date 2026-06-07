@@ -214,6 +214,9 @@
             "device_ip": {
                 "name": "IP address"
             },
+            "public_ip": {
+                "name": "Public IP"
+            },
             "temperature": {
                 "name": "Temperature"
             },
