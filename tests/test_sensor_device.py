@@ -569,3 +569,30 @@ def test_wired_clients_applicable_for_switch_with_flag() -> None:
     wired_desc = next(d for d in DEVICE_SENSORS if d.key == "wired_clients")
     assert wired_desc.applicable_fn is not None
     assert wired_desc.applicable_fn(switch_data) is True
+
+
+# ---------------------------------------------------------------------------
+# Unit 6: wireless_clients sensor gated by applicable_fn (#14)
+# ---------------------------------------------------------------------------
+
+
+def test_wireless_clients_not_applicable_for_switch() -> None:
+    """Test wireless_clients applicable_fn returns False for switch without has_wireless_radio."""
+    switch_data = process_device(SAMPLE_DEVICE_SWITCH)
+    switch_data.pop("has_wireless_radio", None)  # No wireless radio on switch
+
+    wireless_desc = next(d for d in DEVICE_SENSORS if d.key == "wireless_clients")
+
+    # Sensor should NOT be applicable when has_wireless_radio is absent
+    assert wireless_desc.applicable_fn is not None
+    assert wireless_desc.applicable_fn(switch_data) is False
+
+
+def test_wireless_clients_applicable_for_ap_with_flag() -> None:
+    """Test wireless_clients applicable_fn returns True for AP with has_wireless_radio."""
+    ap_data = process_device(SAMPLE_DEVICE_AP)
+    ap_data["has_wireless_radio"] = True
+
+    wireless_desc = next(d for d in DEVICE_SENSORS if d.key == "wireless_clients")
+    assert wireless_desc.applicable_fn is not None
+    assert wireless_desc.applicable_fn(ap_data) is True

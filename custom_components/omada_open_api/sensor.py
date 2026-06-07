@@ -182,6 +182,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
                 if c.get("wireless")
             ]
         },
+        applicable_fn=lambda d: d.get("has_wireless_radio", False),
     ),
     OmadaSensorEntityDescription(
         key="guest_clients",
