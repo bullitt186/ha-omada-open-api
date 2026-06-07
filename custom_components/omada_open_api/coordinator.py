@@ -15,6 +15,7 @@ from .clients import process_client
 from .const import (
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
+    DEFAULT_RADIO_UTIL_INTERVAL,
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
     SCAN_INTERVAL,
@@ -64,6 +65,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._firmware_info: dict[str, dict[str, Any]] = {}
         self._last_firmware_check: dt.datetime | None = None
 
+        # Radio utilization cache — fetched every DEFAULT_RADIO_UTIL_INTERVAL seconds.
+        self._last_radio_util_check: dt.datetime | None = None
+
         # Upgrade polling: store normal interval so we can restore it.
         self._normal_interval = timedelta(seconds=scan_interval)
         self._upgrade_active = False
@@ -106,6 +110,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Fetch per-band client stats for AP devices
             await self._merge_band_client_stats(devices)
+
+            # Fetch per-band radio utilization for AP devices (cached)
+            await self._merge_ap_radio_utilization(devices)
 
             # Fetch gateway temperature data
             await self._merge_gateway_temperature(devices)
@@ -473,6 +480,58 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
             # Continue without per-band stats - not critical
+
+    async def _merge_ap_radio_utilization(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Fetch and merge per-band radio utilization for AP devices.
+
+        Results are cached for DEFAULT_RADIO_UTIL_INTERVAL seconds to avoid
+        one API call per AP on every coordinator update.
+
+        Args:
+            devices: Processed devices dict keyed by MAC.
+
+        """
+        now = dt_util.utcnow()
+        if (
+            self._last_radio_util_check is not None
+            and (now - self._last_radio_util_check).total_seconds()
+            < DEFAULT_RADIO_UTIL_INTERVAL
+        ):
+            return
+
+        ap_macs = [
+            mac for mac, dev in devices.items() if dev.get("type", "").lower() == "ap"
+        ]
+        if not ap_macs:
+            return
+
+        band_map = {"wp2g": "2g", "wp5g": "5g", "wp5g2": "5g2", "wp6g": "6g"}
+        for ap_mac in ap_macs:
+            try:
+                radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
+                for band_key, suffix in band_map.items():
+                    band = radio_data.get(band_key)
+                    if band:
+                        devices[ap_mac][f"radio_tx_util_{suffix}"] = band.get("txUtil")
+                        devices[ap_mac][f"radio_rx_util_{suffix}"] = band.get("rxUtil")
+                        devices[ap_mac][f"radio_inter_util_{suffix}"] = band.get(
+                            "interUtil"
+                        )
+                        devices[ap_mac][f"radio_busy_util_{suffix}"] = band.get(
+                            "busyUtil"
+                        )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch radio info for AP %s in site %s: %s",
+                    ap_mac,
+                    self.site_name,
+                    err,
+                )
+
+        self._last_radio_util_check = now
 
     async def _merge_gateway_temperature(
         self,

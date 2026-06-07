@@ -94,6 +94,7 @@ def _patch_api_client(**overrides):
     mock_instance.get_device_stats = AsyncMock(return_value=[])
     mock_instance.get_firmware_info = AsyncMock(return_value={})
     mock_instance.start_online_upgrade = AsyncMock(return_value={})
+    mock_instance.get_ap_radios = AsyncMock(return_value={})
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
