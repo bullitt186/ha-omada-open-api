@@ -133,3 +133,22 @@ def test_process_device_maps_public_ip() -> None:
     raw = {"mac": "aa:bb:cc:dd:ee:ff", "publicIp": "203.0.113.5", "type": 3}
     result = process_device(raw)
     assert result["public_ip"] == "203.0.113.5"
+
+
+def test_process_device_maps_ipv6() -> None:
+    """Test process_device passes through ipv6 addresses from API response."""
+    result = process_device({"ipv6": ["fe80::1"], "mac": "aa:bb:cc:dd:ee:ff"})
+    assert result["ipv6"] == ["fe80::1"]
+
+
+def test_process_device_ipv6_defaults_empty() -> None:
+    """Test process_device defaults ipv6 to empty list when field absent."""
+    result = process_device({"mac": "aa:bb:cc:dd:ee:ff"})
+    assert result["ipv6"] == []
+
+
+def test_process_device_ipv6_multiple_addresses() -> None:
+    """Test process_device preserves multiple ipv6 addresses."""
+    addrs = ["fe80::1", "2001:db8::1"]
+    result = process_device({"ipv6": addrs, "mac": "aa:bb:cc:dd:ee:ff"})
+    assert result["ipv6"] == addrs
