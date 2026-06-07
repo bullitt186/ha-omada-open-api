@@ -76,6 +76,54 @@
             "clients_6g": {
                 "default": "mdi:account-multiple"
             },
+            "radio_tx_util_2g": {
+                "default": "mdi:upload-network"
+            },
+            "radio_rx_util_2g": {
+                "default": "mdi:download-network"
+            },
+            "radio_inter_util_2g": {
+                "default": "mdi:wifi-alert"
+            },
+            "radio_busy_util_2g": {
+                "default": "mdi:wifi-strength-4"
+            },
+            "radio_tx_util_5g": {
+                "default": "mdi:upload-network"
+            },
+            "radio_rx_util_5g": {
+                "default": "mdi:download-network"
+            },
+            "radio_inter_util_5g": {
+                "default": "mdi:wifi-alert"
+            },
+            "radio_busy_util_5g": {
+                "default": "mdi:wifi-strength-4"
+            },
+            "radio_tx_util_5g2": {
+                "default": "mdi:upload-network"
+            },
+            "radio_rx_util_5g2": {
+                "default": "mdi:download-network"
+            },
+            "radio_inter_util_5g2": {
+                "default": "mdi:wifi-alert"
+            },
+            "radio_busy_util_5g2": {
+                "default": "mdi:wifi-strength-4"
+            },
+            "radio_tx_util_6g": {
+                "default": "mdi:upload-network"
+            },
+            "radio_rx_util_6g": {
+                "default": "mdi:download-network"
+            },
+            "radio_inter_util_6g": {
+                "default": "mdi:wifi-alert"
+            },
+            "radio_busy_util_6g": {
+                "default": "mdi:wifi-strength-4"
+            },
             "connection_status": {
                 "default": "mdi:network"
             },

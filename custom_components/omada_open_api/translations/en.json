@@ -235,6 +235,54 @@
             "clients_6g": {
                 "name": "Clients 6 GHz"
             },
+            "radio_tx_util_2g": {
+                "name": "TX utilization 2.4 GHz"
+            },
+            "radio_rx_util_2g": {
+                "name": "RX utilization 2.4 GHz"
+            },
+            "radio_inter_util_2g": {
+                "name": "Interference 2.4 GHz"
+            },
+            "radio_busy_util_2g": {
+                "name": "Channel busy 2.4 GHz"
+            },
+            "radio_tx_util_5g": {
+                "name": "TX utilization 5 GHz-1"
+            },
+            "radio_rx_util_5g": {
+                "name": "RX utilization 5 GHz-1"
+            },
+            "radio_inter_util_5g": {
+                "name": "Interference 5 GHz-1"
+            },
+            "radio_busy_util_5g": {
+                "name": "Channel busy 5 GHz-1"
+            },
+            "radio_tx_util_5g2": {
+                "name": "TX utilization 5 GHz-2"
+            },
+            "radio_rx_util_5g2": {
+                "name": "RX utilization 5 GHz-2"
+            },
+            "radio_inter_util_5g2": {
+                "name": "Interference 5 GHz-2"
+            },
+            "radio_busy_util_5g2": {
+                "name": "Channel busy 5 GHz-2"
+            },
+            "radio_tx_util_6g": {
+                "name": "TX utilization 6 GHz"
+            },
+            "radio_rx_util_6g": {
+                "name": "RX utilization 6 GHz"
+            },
+            "radio_inter_util_6g": {
+                "name": "Interference 6 GHz"
+            },
+            "radio_busy_util_6g": {
+                "name": "Channel busy 6 GHz"
+            },
             "connection_status": {
                 "name": "Connection status"
             },
