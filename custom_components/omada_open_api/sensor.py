@@ -130,6 +130,7 @@ class OmadaSensorEntityDescription(SensorEntityDescription):
     available_fn: Callable[[dict[str, Any]], bool] = lambda device: True
     applicable_types: tuple[str, ...] | None = None
     attrs_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
+    applicable_fn: Callable[[dict[str, Any]], bool] | None = None
 
 
 DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
@@ -163,6 +164,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
                 if not c.get("wireless")
             ]
         },
+        applicable_fn=lambda d: d.get("has_wired_ports", False),
     ),
     OmadaSensorEntityDescription(
         key="wireless_clients",
@@ -180,6 +182,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
                 if c.get("wireless")
             ]
         },
+        applicable_fn=lambda d: d.get("has_wireless_radio", False),
     ),
     OmadaSensorEntityDescription(
         key="guest_clients",
@@ -1227,8 +1230,11 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                     new_entities.extend(
                         _make_device_sensor(c, desc, mac)
                         for desc in DEVICE_SENSORS
-                        if desc.applicable_types is None
-                        or device_type in desc.applicable_types
+                        if (
+                            desc.applicable_types is None
+                            or device_type in desc.applicable_types
+                        )
+                        and (desc.applicable_fn is None or desc.applicable_fn(device))
                     )
 
             # Per-band sensors — run for all APs on every coordinator update.
