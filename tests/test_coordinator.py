@@ -1341,3 +1341,58 @@ async def test_has_wired_ports_not_set_when_absent(
 
     devices = coordinator.data["devices"]
     assert devices[ap_mac].get("has_wired_ports", False) is False
+
+
+# ---------------------------------------------------------------------------
+# Unit 4: has_wireless_radio flag (#14)
+# ---------------------------------------------------------------------------
+
+
+async def test_has_wireless_radio_flag_set_for_ap(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that has_wireless_radio is stamped True for AP devices after band stats merge."""
+    ap_mac = SAMPLE_DEVICE_AP["mac"]
+    mock_api_client.get_device_client_stats = AsyncMock(
+        return_value=[
+            {
+                "mac": ap_mac,
+                "clientNum": 5,
+                "clientNum2g": 3,
+                "clientNum5g": 2,
+            }
+        ]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    devices = coordinator.data["devices"]
+    assert devices[ap_mac]["has_wireless_radio"] is True
+
+
+async def test_has_wireless_radio_not_set_for_switch(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that has_wireless_radio is not set for a switch device."""
+    switch_mac = SAMPLE_DEVICE_SWITCH["mac"]
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    devices = coordinator.data["devices"]
+    assert devices[switch_mac].get("has_wireless_radio", False) is False
