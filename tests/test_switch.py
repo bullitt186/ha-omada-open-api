@@ -541,7 +541,12 @@ async def test_block_switch_device_info(hass: HomeAssistant) -> None:
 
 
 def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
-    """Create an OmadaLedSwitch entity."""
+    """Create an OmadaLedSwitch entity.
+
+    Patches async_request_refresh to a no-op AsyncMock so that calls to
+    async_update() do not leave a lingering debounce timer in the event
+    loop (which would fail the HA test harness's verify_cleanup fixture).
+    """
     coordinator = OmadaSiteCoordinator(
         hass=hass,
         api_client=MagicMock(),
@@ -557,7 +562,11 @@ def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
     }
     coordinator.api_client.get_led_setting = AsyncMock(return_value={"enable": True})
     coordinator.api_client.set_led_setting = AsyncMock(return_value={})
-    coordinator.async_request_refresh = AsyncMock()
+    # Prevent the coordinator from scheduling a debounced background refresh
+    # when async_update() is called — the underlying api_client is a bare
+    # MagicMock (not fully async-mocked) so a refresh attempt would raise
+    # TypeError and leave an unresolved debounce timer in the event loop.
+    coordinator.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
     return OmadaLedSwitch(coordinator)
 
 

@@ -1053,9 +1053,22 @@ class OmadaDeviceStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]
                     end=end_ts,
                     attrs=["tx", "rx"],
                 )
-                # Sum across all returned hourly entries for today's total.
-                total_tx = sum(e.get("tx", 0) for e in entries)
-                total_rx = sum(e.get("rx", 0) for e in entries)
+                # For switch and gateway the API returns OswStatDTO-style
+                # entries where tx/rx are nested per-port inside a 'ports'
+                # array rather than at the top level of each entry.  Fall
+                # back to top-level tx/rx only when no ports array is present
+                # (future-proofing for device types that use flat stats).
+                total_tx = 0
+                total_rx = 0
+                for entry in entries:
+                    ports = entry.get("ports")
+                    if ports:
+                        # Sum across all ports in this time-bucket.
+                        total_tx += sum(p.get("tx", 0) for p in ports)
+                        total_rx += sum(p.get("rx", 0) for p in ports)
+                    else:
+                        total_tx += entry.get("tx", 0)
+                        total_rx += entry.get("rx", 0)
                 stats[mac] = {
                     "daily_tx": total_tx,
                     "daily_rx": total_rx,
