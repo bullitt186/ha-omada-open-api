@@ -22,6 +22,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     DeviceInfo,
     EntityCategory,
@@ -1081,6 +1082,42 @@ def _make_client_sensor(
     )
 
 
+def _purge_absent_band_entities(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> None:
+    """Remove entity registry entries for band sensors whose band is absent on hardware."""
+    reg = er.async_get(hass)
+    all_band_keys = {desc.key for desc in AP_BAND_CLIENT_SENSORS} | {
+        desc.key for desc in AP_BAND_RADIO_UTIL_SENSORS
+    }
+
+    present_keys: set[tuple[str, str]] = set()
+    for coord in coordinators.values():
+        devices = coord.data.get("devices", {}) if coord.data else {}
+        for mac, device_data in devices.items():
+            if device_data.get("type", "").lower() != "ap":
+                continue
+            for desc in AP_BAND_CLIENT_SENSORS:
+                data_key = desc.key.replace("clients_", "client_num_")
+                if data_key in device_data:
+                    present_keys.add((mac, desc.key))
+            for desc in AP_BAND_RADIO_UTIL_SENSORS:
+                if desc.key in device_data:
+                    present_keys.add((mac, desc.key))
+
+    for entity_entry in er.async_entries_for_config_entry(reg, entry.entry_id):
+        if entity_entry.platform != DOMAIN:
+            continue
+        parts = entity_entry.unique_id.split("_", 1)
+        if len(parts) != 2:
+            continue
+        mac, key = parts
+        if key in all_band_keys and (mac, key) not in present_keys:
+            reg.async_remove(entity_entry.entity_id)
+
+
 def _check_ap_band_entities(
     coord: OmadaSiteCoordinator,
     devices: Any,
@@ -1120,6 +1157,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     )
 
     _setup_site_sensors(coordinators, async_add_entities)
+    _purge_absent_band_entities(hass, entry, coordinators)
 
     # --- Dynamic infrastructure device sensors ---
     known_device_macs: set[str] = set()

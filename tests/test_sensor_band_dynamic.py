@@ -291,3 +291,95 @@ async def test_clients_5g2_added_dynamically_on_subsequent_update(
     await hass.async_block_till_done()
 
     assert _entity_registered(hass, AP_MAC, "clients_5g2")
+
+
+# ---------------------------------------------------------------------------
+# Purge — orphaned band entities removed at setup when band absent
+# ---------------------------------------------------------------------------
+
+
+async def test_orphaned_clients_5g2_purged_at_setup(hass: HomeAssistant) -> None:
+    """Pre-existing clients_5g2 registry entry must be removed when band absent."""
+    entry = _build_entry(hass)
+    # Simulate a stale entity left over from before the dynamic-creation fix.
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{AP_MAC}_clients_5g2",
+        config_entry=entry,
+    )
+    assert _entity_registered(hass, AP_MAC, "clients_5g2")
+
+    patcher, _mock = _patch_api_client(
+        get_device_client_stats=AsyncMock(
+            return_value=[
+                {"mac": AP_MAC, "clientNum": 5, "clientNum2g": 3, "clientNum5g": 2}
+                # clientNum5g2 absent — dual-band AP
+            ]
+        ),
+    )
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not _entity_registered(hass, AP_MAC, "clients_5g2")
+
+
+async def test_orphaned_radio_util_5g2_purged_at_setup(hass: HomeAssistant) -> None:
+    """Pre-existing radio_busy_util_5g2 registry entry must be removed when band absent."""
+    entry = _build_entry(hass)
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{AP_MAC}_radio_busy_util_5g2",
+        config_entry=entry,
+    )
+    assert _entity_registered(hass, AP_MAC, "radio_busy_util_5g2")
+
+    patcher, _mock = _patch_api_client(
+        get_ap_radios=AsyncMock(
+            return_value={
+                "wp2g": {"actualChannel": "6", "busyUtil": 22},
+                "wp5g": {"actualChannel": "36", "busyUtil": 1},
+                # wp5g2 absent
+            }
+        ),
+    )
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert not _entity_registered(hass, AP_MAC, "radio_busy_util_5g2")
+
+
+async def test_present_band_entity_not_purged(hass: HomeAssistant) -> None:
+    """A band entity whose band IS present must not be removed at setup."""
+    entry = _build_entry(hass)
+    reg = er.async_get(hass)
+    reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{AP_MAC}_clients_5g2",
+        config_entry=entry,
+    )
+
+    patcher, _mock = _patch_api_client(
+        get_device_client_stats=AsyncMock(
+            return_value=[
+                {
+                    "mac": AP_MAC,
+                    "clientNum": 5,
+                    "clientNum2g": 3,
+                    "clientNum5g": 2,
+                    "clientNum5g2": 0,
+                }
+            ]
+        ),
+    )
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert _entity_registered(hass, AP_MAC, "clients_5g2")
