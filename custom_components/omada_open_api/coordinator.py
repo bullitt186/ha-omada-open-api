@@ -403,6 +403,17 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         for client in all_clients:
             # Determine which device owns this client.
+            # Priority: AP (wireless) → switch → gateway.
+            #
+            # Gateway wired_clients semantics (issue #15):
+            #   A wired client plugged directly into a gateway LAN port will
+            #   have gateway_mac set and switch_mac absent, so it lands in the
+            #   gateway bucket.  A client that reaches the network through a
+            #   downstream switch will have switch_mac set instead and is
+            #   therefore counted on the switch, NOT the gateway.  The gateway
+            #   wired_clients sensor therefore correctly reflects only
+            #   direct-LAN connections and shows 0 when all wired clients
+            #   are behind a switch — this is expected, not a bug.
             if client.get("wireless") and client.get("ap_mac"):
                 parent = client["ap_mac"]
             elif client.get("switch_mac"):

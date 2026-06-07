@@ -582,7 +582,8 @@ async def test_led_switch_is_on_initial(hass: HomeAssistant) -> None:
 async def test_led_switch_is_on_after_update(hass: HomeAssistant) -> None:
     """Test LED switch is_on reflects API after update."""
     switch = _create_led_switch(hass)
-    await switch.async_update()
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_update()
     assert switch.is_on is True
 
 
@@ -645,7 +646,8 @@ async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
     """Test LED switch handles update error gracefully."""
     switch = _create_led_switch(hass)
     switch.coordinator.api_client.get_led_setting.side_effect = OmadaApiError("fail")
-    await switch.async_update()
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_update()
     assert switch.is_on is None
 
 

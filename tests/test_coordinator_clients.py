@@ -117,6 +117,70 @@ def test_assign_clients_unknown_device() -> None:
     assert total == 0
 
 
+def test_gateway_wired_clients_counts_direct_lan_clients() -> None:
+    """Test that a wired client plugged directly into a gateway LAN port is counted.
+
+    When a client has gateway_mac set but no switch_mac, it is directly
+    connected to the gateway (not through a downstream switch).  The
+    gateway's wired_clients sensor should count these direct-LAN clients.
+
+    Clients routed through a downstream switch have switch_mac set instead
+    and are therefore assigned to the switch, NOT the gateway.  That is
+    correct and intentional — the gateway wired_clients sensor reflects
+    only direct-gateway connections.
+    """
+    devices = _make_devices()
+    clients = [
+        {
+            "name": "Direct LAN Client",
+            "mac": "CC:00:00:00:00:D1",
+            "ip": "10.0.0.10",
+            "wireless": False,
+            "ap_mac": None,
+            "switch_mac": None,
+            "gateway_mac": "GW-MAC-01",
+        },
+    ]
+
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+
+    # Direct-gateway wired client must land in the gateway bucket.
+    assert len(devices["GW-MAC-01"]["connected_clients"]) == 1
+    assert devices["GW-MAC-01"]["connected_clients"][0]["name"] == "Direct LAN Client"
+
+    # Switch and AP must be untouched.
+    assert len(devices["SW-MAC-01"]["connected_clients"]) == 0
+    assert len(devices["AP-MAC-01"]["connected_clients"]) == 0
+
+
+def test_wired_client_via_switch_not_assigned_to_gateway() -> None:
+    """Test that a wired client behind a switch is NOT counted on the gateway.
+
+    This documents the semantics of the gateway wired_clients sensor: it
+    shows 0 when all wired clients are connected via a downstream switch.
+    That is correct behaviour — the clients belong to the switch, not the
+    gateway.
+    """
+    devices = _make_devices()
+    clients = [
+        {
+            "name": "Switch-Connected Client",
+            "mac": "CC:00:00:00:00:D2",
+            "ip": "10.0.0.11",
+            "wireless": False,
+            "ap_mac": None,
+            "switch_mac": "SW-MAC-01",
+            "gateway_mac": "GW-MAC-01",
+        },
+    ]
+
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+
+    # Client is behind a switch — must go to the switch, not the gateway.
+    assert len(devices["SW-MAC-01"]["connected_clients"]) == 1
+    assert len(devices["GW-MAC-01"]["connected_clients"]) == 0
+
+
 def test_assign_clients_wireless_prefers_ap() -> None:
     """Test wireless client with ap_mac goes to AP, not switch."""
     devices = _make_devices()

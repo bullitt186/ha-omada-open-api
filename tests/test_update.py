@@ -87,6 +87,7 @@ def _create_update_entity(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("expected_lingering_timers", [True])
 async def test_setup_entry_no_new_devices_on_second_callback(
     hass: HomeAssistant,
 ) -> None:
