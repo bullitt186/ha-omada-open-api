@@ -342,6 +342,28 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         available_fn=lambda device: bool(device.get("public_ip")),
         applicable_types=("gateway",),
     ),
+    OmadaSensorEntityDescription(
+        key="rx_activity",
+        translation_key="rx_activity",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("rx_rate_mbps"),
+        available_fn=lambda d: d.get("rx_rate_mbps") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="tx_activity",
+        translation_key="tx_activity",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABYTES_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.get("tx_rate_mbps"),
+        available_fn=lambda d: d.get("tx_rate_mbps") is not None,
+    ),
 )
 
 # Radio ID to band mapping for filtering clients by radio.
