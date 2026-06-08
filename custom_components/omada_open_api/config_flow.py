@@ -32,6 +32,7 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
@@ -45,6 +46,7 @@ from .const import (
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
+    DEFAULT_DISCONNECT_TIMEOUT,
     DEFAULT_TIMEOUT,
     DOMAIN,
     MAX_SCAN_INTERVAL,
@@ -1196,7 +1198,38 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 "client_selection",
                 "application_selection",
                 "update_intervals",
+                "tracker_settings",
             ],
+        )
+
+    async def async_step_tracker_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle device tracker settings (disconnect timeout)."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self.config_entry.options,
+                    CONF_DISCONNECT_TIMEOUT: user_input[CONF_DISCONNECT_TIMEOUT],
+                },
+            )
+
+        current_timeout = self.config_entry.options.get(
+            CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
+        )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(CONF_DISCONNECT_TIMEOUT, default=current_timeout): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=60)
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="tracker_settings",
+            data_schema=data_schema,
         )
 
     async def async_step_update_intervals(

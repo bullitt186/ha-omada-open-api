@@ -140,7 +140,8 @@
                 "menu_options": {
                     "client_selection": "Modify Client Tracking",
                     "application_selection": "Modify Application Tracking",
-                    "update_intervals": "Update Intervals"
+                    "update_intervals": "Update Intervals",
+                    "tracker_settings": "Device Tracker Settings"
                 }
             },
             "client_selection": {
@@ -168,6 +169,16 @@
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",
                     "app_scan_interval": "Application traffic polling interval (seconds)"
+                }
+            },
+            "tracker_settings": {
+                "title": "Device Tracker Settings",
+                "description": "Configure presence detection behavior for client device trackers.\n\nThe disconnect timeout adds a grace period before a client is marked as away. This prevents false 'away' events caused by brief Wi-Fi disconnections.\n\nRange: 0–60 minutes. Default: 0 (immediate, current behavior).",
+                "data": {
+                    "disconnect_timeout": "Client disconnect timeout (minutes)"
+                },
+                "data_description": {
+                    "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network."
                 }
             }
         }
