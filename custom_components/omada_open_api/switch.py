@@ -114,6 +114,23 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
                                     )
                                 )
 
+                # Per-AP radio band switches.
+                ap_radio_config = coord.data.get("ap_radio_config", {})
+                for ap_mac, radio_config in ap_radio_config.items():
+                    for band, setting_key in _BAND_TO_SETTING_KEY.items():
+                        if setting_key in radio_config:
+                            radio_key = f"{ap_mac}_radio_{band}"
+                            if radio_key not in known_ap_ssid_keys:
+                                known_ap_ssid_keys.add(radio_key)
+                                new_entities.append(
+                                    OmadaApRadioSwitch(
+                                        coordinator=coord,
+                                        ap_mac=ap_mac,
+                                        band=band,
+                                        radio_setting_key=setting_key,
+                                    )
+                                )
+
                 if new_entities:
                     async_add_entities(new_entities)
 
@@ -728,4 +745,117 @@ class OmadaApSsidSwitch(
                 ) from err
             raise HomeAssistantError(
                 f"Failed to disable SSID {self._ssid_name} on AP {self._ap_name}"
+            ) from err
+
+
+# Band identifier to radioSetting key mapping
+_BAND_TO_SETTING_KEY: dict[str, str] = {
+    "2g": "radioSetting2g",
+    "5g": "radioSetting5g",
+    "5g1": "radioSetting5g1",
+    "5g2": "radioSetting5g2",
+    "6g": "radioSetting6g",
+}
+
+# Human-readable band labels used in translation placeholders
+_BAND_LABELS: dict[str, str] = {
+    "2g": "2.4 GHz",
+    "5g": "5 GHz",
+    "5g1": "5 GHz-1",
+    "5g2": "5 GHz-2",
+    "6g": "6 GHz",
+}
+
+
+class OmadaApRadioSwitch(
+    OmadaEntity[OmadaSiteCoordinator],
+    SwitchEntity,
+):
+    """Switch entity to enable/disable a Wi-Fi radio band on an AP."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        ap_mac: str,
+        band: str,
+        radio_setting_key: str,
+    ) -> None:
+        """Initialize the AP radio switch.
+
+        Args:
+            coordinator: Site coordinator providing radio config data
+            ap_mac: MAC address of the AP (AA-BB-CC-DD-EE-FF format)
+            band: Band identifier ("2g", "5g", "5g1", "5g2", "6g")
+            radio_setting_key: API key for this band (e.g. "radioSetting2g")
+
+        """
+        super().__init__(coordinator)
+        self._ap_mac = ap_mac
+        self._band = band
+        self._radio_setting_key = radio_setting_key
+
+        self._attr_unique_id = f"{ap_mac}_radio_{band}"
+        self._attr_translation_key = f"radio_{band}"
+
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, ap_mac)},
+        )
+
+    def _get_radio_setting(self) -> dict[str, Any] | None:
+        """Return the radio setting dict for this band, or None if unavailable."""
+        if not self.coordinator.data:
+            return None
+        ap_config = self.coordinator.data.get("ap_radio_config", {}).get(self._ap_mac)
+        if ap_config is None:
+            return None
+        return ap_config.get(self._radio_setting_key)  # type: ignore[no-any-return]
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when the radio band is enabled."""
+        setting = self._get_radio_setting()
+        if setting is None:
+            return False
+        return bool(setting.get("radioEnable", False))
+
+    @property
+    def available(self) -> bool:
+        """Return True when radio config data is present and coordinator healthy."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_radio_setting() is not None
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable this radio band on the AP."""
+        try:
+            await self.coordinator.api_client.set_ap_radio_enabled(
+                self.coordinator.site_id,
+                self._ap_mac,
+                band=self._band,
+                enabled=True,
+            )
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to enable {_BAND_LABELS.get(self._band, self._band)} "
+                f"radio on AP {self._ap_mac}"
+            ) from err
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable this radio band on the AP."""
+        try:
+            await self.coordinator.api_client.set_ap_radio_enabled(
+                self.coordinator.site_id,
+                self._ap_mac,
+                band=self._band,
+                enabled=False,
+            )
+            await self.coordinator.async_request_refresh()
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to disable {_BAND_LABELS.get(self._band, self._band)} "
+                f"radio on AP {self._ap_mac}"
             ) from err

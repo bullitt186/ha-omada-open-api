@@ -403,6 +403,21 @@
             },
             "ap_ssid": {
                 "name": "{ssid_name} SSID"
+            },
+            "radio_2g": {
+                "name": "2.4 GHz radio"
+            },
+            "radio_5g": {
+                "name": "5 GHz radio"
+            },
+            "radio_5g1": {
+                "name": "5 GHz-1 radio"
+            },
+            "radio_5g2": {
+                "name": "5 GHz-2 radio"
+            },
+            "radio_6g": {
+                "name": "6 GHz radio"
             }
         },
         "button": {

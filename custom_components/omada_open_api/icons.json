@@ -250,6 +250,36 @@
                 "state": {
                     "off": "mdi:wifi-off"
                 }
+            },
+            "radio_2g": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            },
+            "radio_5g": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            },
+            "radio_5g1": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            },
+            "radio_5g2": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
+            },
+            "radio_6g": {
+                "default": "mdi:wifi",
+                "state": {
+                    "off": "mdi:wifi-off"
+                }
             }
         },
         "button": {
