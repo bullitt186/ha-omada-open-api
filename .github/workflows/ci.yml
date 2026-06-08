@@ -120,6 +120,7 @@ jobs:
             --cov=custom_components.omada_open_api \
             --cov-report=term-missing \
             --cov-fail-under=$(cat .coverage-threshold) \
+            -n auto \
             -v
 
   validate:

@@ -12,7 +12,7 @@
       "settings": {
         "files.eol": "\n",
         "editor.tabSize": 4,
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
         "python.linting.enabled": true,
         "python.linting.pylintEnabled": true,
         "python.formatting.provider": "none",
@@ -30,7 +30,7 @@
       }
     }
   },
-  "postCreateCommand": "pip3 install --upgrade pip && pip3 install -r requirements_dev.txt && pip3 install uv && uv python install 3.13",
+  "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv .venv && .venv/bin/pip install -r requirements_dev.txt && pre-commit install",
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {}

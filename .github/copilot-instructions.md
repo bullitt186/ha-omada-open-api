@@ -202,22 +202,36 @@ Home Assistant enforces strict [PEP 8](https://peps.python.org/pep-0008/) and [P
 - **Mypy**: Static type checking
 - **Pytest**: Unit and integration testing
 
-**Commands:**
+**Preferred: use `make` targets** — these encode the correct flags and are kept in sync with CI:
+
 ```bash
-# Format code with ruff
+make test        # Fast: pytest -x -q --tb=short (fail-fast, quiet)
+make test-all    # Full suite with coverage + HTML report (-n auto)
+make lint        # ruff + pylint
+make typecheck   # mypy strict
+make coverage    # Full suite + open htmlcov/index.html
+make watch       # TDD file-watcher: reruns tests on save (pytest-watch)
+make deploy      # rsync to HA host + reload via API
+make check       # Full quality gate: lint + typecheck + test-all (mirrors CI)
+make install     # Create .venv and install all dev dependencies
+```
+
+Raw commands (use when `make` is not available):
+```bash
 ruff format custom_components/
-
-# Lint code with ruff
 ruff check custom_components/
+mypy --config-file pyproject.toml custom_components/omada_open_api/
+pylint --rcfile=pyproject.toml custom_components/omada_open_api/
+pytest tests/ -n auto -v
+```
 
-# Type check with mypy
-mypy custom_components/omada_open_api/
+**TDD watch mode:** Run `make watch` in a separate terminal during active development. `pytest-watch` monitors `tests/` and `custom_components/` and instantly reruns failing tests on save — no manual pytest invocations needed during the red→green loop.
 
-# Run pylint
-pylint custom_components/omada_open_api/
-
-# Run tests
-pytest tests/ -v
+**Multi-branch merge tip:** During sequential `git merge --continue` operations, the pre-commit coverage hook runs the full suite on each merge commit. To skip it on intermediate merges and run once at the end:
+```bash
+SKIP=pytest-coverage git merge --continue   # fast, skips suite
+# ... resolve conflicts, continue merges ...
+make test-all                                # run full suite once when done
 ```
 
 ### Code Formatting Rules
@@ -377,9 +391,58 @@ async def test_sensor(hass: HomeAssistant) -> None:
 
 ## Development Workflow
 1. Use branches for feature development
-2. Test locally before committing
-3. Ensure all tests pass
+2. Test locally before committing (`make test`)
+3. Ensure all tests pass (`make check`)
 4. Follow semantic commit messages
+5. After merging, deploy and verify on live HA (`make deploy`)
+
+### Deploying and Verifying on Live Home Assistant
+
+After implementing and merging a fix:
+
+1. **Deploy to the HA host:**
+   ```bash
+   make deploy
+   # or: HA_HOST=homeassistant.stahmer.lan bash scripts/deploy.sh
+   ```
+   The script rsyncs `custom_components/omada_open_api/` to the HA host and calls the HA REST API to reload all config entries. `HASS_TOKEN` is read from the `HASS_TOKEN` env var set in `.claude/settings.json`.
+
+2. **Verify entities via MCP** (available in Claude Code sessions):
+   - Use `mcp__home-assistant__ha_get_state` or `mcp__home-assistant__ha_search_entities` with `domain=sensor` to inspect entity states.
+   - The `ha-mcp` server (project-scoped in `.claude/settings.json`) connects to `localhost:8123` — valid when HA is running inside the devcontainer or on the same machine.
+   - For queries from macOS (outside devcontainer), use the global `home-assistant` MCP which connects to `homeassistant.stahmer.lan`.
+
+3. **Check HA logs for errors:**
+   ```bash
+   mcp__home-assistant__ha_get_logs
+   ```
+
+### Debugging Live API Responses
+
+When the OpenAPI spec (`openapi/openapi.json`) doesn't match the actual API response, use the inspector script to see the real payload:
+
+```bash
+# Set credentials (or put in .env at repo root)
+export OMADA_API_URL="https://use1-omada-northbound.tplinkcloud.com"
+export OMADA_ID="<omadacId>"
+export OMADA_CLIENT_ID="<client_id>"
+export OMADA_CLIENT_SECRET="<client_secret>"
+
+# Inspect device list
+python scripts/omada_api_inspect.py sites/{siteId}/devices
+
+# Inspect switch traffic stats (the actual response shape)
+python scripts/omada_api_inspect.py sites/{siteId}/statistics/devices \
+    --param device_mac=AA-BB-CC-DD-EE-FF \
+    --param device_type=switch \
+    --param interval=hourly
+
+# Pass an already-valid token to skip the auth step
+export OMADA_ACCESS_TOKEN="<token>"
+python scripts/omada_api_inspect.py sites/{siteId}/devices
+```
+
+The script handles pagination automatically and pretty-prints the full JSON response.
 
 ### Pre-Commit Checks
 This project uses **pre-commit** hooks (`.pre-commit-config.yaml`) that run automatically on every `git commit`. A commit is **blocked** if any hook fails. The hooks run in this order:

@@ -13,6 +13,7 @@ fi
 
 # Run pytest with coverage and capture the total percentage.
 output=$($PYTEST_CMD tests/ -x -q \
+    -n auto \
     --cov=custom_components.omada_open_api \
     --cov-report=term-missing 2>&1) || {
     echo "$output"
