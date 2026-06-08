@@ -141,7 +141,9 @@
                     "client_selection": "Modify Client Tracking",
                     "application_selection": "Modify Application Tracking",
                     "update_intervals": "Update Intervals",
-                    "tracker_settings": "Device Tracker Settings"
+                    "tracker_settings": "Device Tracker Settings",
+                    "device_entity_settings": "Device Entity Settings",
+                    "client_entity_settings": "Client Entity Settings"
                 }
             },
             "client_selection": {
@@ -179,6 +181,26 @@
                 },
                 "data_description": {
                     "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network."
+                }
+            },
+            "device_entity_settings": {
+                "title": "Device Entity Settings",
+                "description": "Enable or disable categories of device-level entities. Disabled categories are not created (they will not appear in the entity registry).\n\nAll settings default to enabled.",
+                "data": {
+                    "enable_device_bandwidth_sensors": "Daily bandwidth sensors (download/upload totals)",
+                    "enable_device_client_count_sensors": "Client count sensors per device",
+                    "enable_device_diagnostic_sensors": "Diagnostic sensors (CPU, memory, uptime, IP, firmware)",
+                    "enable_device_radio_utilization_sensors": "Radio utilization sensors (TX/RX/interference per band)"
+                }
+            },
+            "client_entity_settings": {
+                "title": "Client Entity Settings",
+                "description": "Enable or disable categories of client-level entities. Disabled categories are not created.\n\nAll settings default to enabled.",
+                "data": {
+                    "enable_client_bandwidth_sensors": "Bandwidth sensors (downloaded, uploaded, RX/TX activity rate)",
+                    "enable_client_signal_sensors": "Signal sensors (RSSI, SNR, signal strength)",
+                    "enable_client_block_switch": "Network access (block/unblock) switch",
+                    "enable_client_reconnect_button": "Reconnect button"
                 }
             }
         }

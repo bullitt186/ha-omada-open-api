@@ -20,6 +20,16 @@ CONF_SSID_FILTER = "ssid_filter"
 CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"
 DEFAULT_DISCONNECT_TIMEOUT = 0  # minutes; 0 = immediate (current behavior)
 
+# Entity type toggles — all default True to preserve existing behavior
+CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS = "enable_device_bandwidth_sensors"
+CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS = "enable_device_client_count_sensors"
+CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS = "enable_device_diagnostic_sensors"
+CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS = "enable_device_radio_utilization_sensors"
+CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS = "enable_client_bandwidth_sensors"
+CONF_ENABLE_CLIENT_SIGNAL_SENSORS = "enable_client_signal_sensors"
+CONF_ENABLE_CLIENT_BLOCK_SWITCH = "enable_client_block_switch"
+CONF_ENABLE_CLIENT_RECONNECT_BUTTON = "enable_client_reconnect_button"
+
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"
 CONTROLLER_TYPE_LOCAL = "local"
