@@ -38,6 +38,7 @@ from .const import (
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
+    CONF_SSID_FILTER,
     CONF_TOKEN_EXPIRES_AT,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_LOCAL,
@@ -85,6 +86,41 @@ def _classify_connection_error(err: aiohttp.ClientError) -> str:
     return "cannot_connect"
 
 
+def extract_ssids_from_clients(clients: list[dict[str, Any]]) -> list[str]:
+    """Extract unique, sorted SSIDs from a list of client dicts.
+
+    Args:
+        clients: List of client dicts from the API (each may have an "ssid" field).
+
+    Returns:
+        Sorted list of unique SSID names found in the client list.
+
+    """
+    return sorted({c["ssid"] for c in clients if c.get("wireless") and c.get("ssid")})
+
+
+def filter_clients_by_ssids(
+    clients: list[dict[str, Any]], ssid_filter: list[str]
+) -> list[dict[str, Any]]:
+    """Filter clients to those matching the selected SSIDs.
+
+    Wired clients are always included regardless of the SSID filter.
+    When ssid_filter is empty, all clients are returned.
+
+    Args:
+        clients: Full list of client dicts.
+        ssid_filter: List of SSID names to include. Empty = no filtering.
+
+    Returns:
+        Filtered list of clients.
+
+    """
+    if not ssid_filter:
+        return clients
+    filter_set = set(ssid_filter)
+    return [c for c in clients if not c.get("wireless") or c.get("ssid") in filter_set]
+
+
 class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Omada Open API."""
 
@@ -114,6 +150,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         self._available_clients: list[dict[str, Any]] = []
         self._selected_client_macs: list[str] = []
         self._available_applications: list[dict[str, Any]] = []
+        self._ssid_filter: list[str] = []
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -302,8 +339,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._selected_site_ids = user_input[CONF_SELECTED_SITES]
 
-            # Proceed to client selection
-            return await self.async_step_clients()
+            # Proceed to SSID filter (which then proceeds to client selection)
+            return await self.async_step_ssid_filter()
 
         # Create site selection options
         site_options = [
@@ -349,6 +386,62 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             return title
         return "Omada Controller"
 
+    async def async_step_ssid_filter(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle optional SSID filter step before client selection.
+
+        Shows available SSIDs extracted from the client list.
+        User can select SSIDs to pre-filter the client list, or leave
+        the field empty to show all clients.
+        """
+        if user_input is not None:
+            self._ssid_filter = user_input.get(CONF_SSID_FILTER, [])
+            return await self.async_step_clients()
+
+        # Fetch clients to extract SSIDs
+        all_clients: list[dict[str, Any]] = []
+        try:
+            for site_id in self._selected_site_ids:
+                clients_data = await self._get_clients(site_id)
+                all_clients.extend(clients_data)
+            self._available_clients = all_clients
+        except Exception:
+            _LOGGER.exception("Failed to fetch clients for SSID extraction")
+            # Skip SSID filter step on error
+            return await self.async_step_clients()
+
+        available_ssids = extract_ssids_from_clients(all_clients)
+
+        if not available_ssids:
+            # No wireless clients — skip SSID filter step
+            return await self.async_step_clients()
+
+        ssid_options = [
+            SelectOptionDict(value=ssid, label=ssid) for ssid in available_ssids
+        ]
+
+        data_schema = vol.Schema(
+            {
+                vol.Optional(CONF_SSID_FILTER, default=[]): SelectSelector(
+                    SelectSelectorConfig(
+                        options=ssid_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="ssid_filter",
+            data_schema=data_schema,
+            description_placeholders={
+                "ssid_count": str(len(available_ssids)),
+                "client_count": str(len(all_clients)),
+            },
+        )
+
     async def async_step_clients(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -361,17 +454,18 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             # Proceed to application selection
             return await self.async_step_applications()
 
-        # Fetch all clients from all selected sites
-        try:
-            all_clients = []
-            for site_id in self._selected_site_ids:
-                clients_data = await self._get_clients(site_id)
-                all_clients.extend(clients_data)
+        # Fetch all clients only if not already loaded (e.g. by ssid_filter step)
+        if not self._available_clients:
+            try:
+                all_clients = []
+                for site_id in self._selected_site_ids:
+                    clients_data = await self._get_clients(site_id)
+                    all_clients.extend(clients_data)
 
-            self._available_clients = all_clients
-        except Exception:
-            _LOGGER.exception("Failed to fetch clients")
-            errors["base"] = "cannot_connect"
+                self._available_clients = all_clients
+            except Exception:
+                _LOGGER.exception("Failed to fetch clients")
+                errors["base"] = "cannot_connect"
 
         if not self._available_clients:
             # No clients available, skip client selection
@@ -396,9 +490,14 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 },
             )
 
+        # Apply SSID filter to the displayed client list
+        display_clients = filter_clients_by_ssids(
+            self._available_clients, self._ssid_filter
+        )
+
         # Create client selection options
         client_options = []
-        for client in self._available_clients[:200]:  # Limit to 200 to avoid UI issues
+        for client in display_clients[:200]:  # Limit to 200 to avoid UI issues
             name = client.get("name") or client.get("hostName") or "Unknown"
             mac = client.get("mac", "")
             ip = client.get("ip", "N/A")
@@ -428,7 +527,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "client_count": str(len(self._available_clients)),
+                "client_count": str(len(display_clients)),
             },
         )
 
@@ -1085,6 +1184,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         self._selected_site_ids: list[str] = []
         self._available_clients: list[dict[str, Any]] = []
         self._available_applications: list[dict[str, Any]] = []
+        self._ssid_filter: list[str] = []
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1159,16 +1259,21 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
-
-            # Return merged options — HA sets entry.options from data param
-            return self.async_create_entry(
-                title="",
-                data={
-                    **self.config_entry.options,
-                    CONF_SELECTED_CLIENTS: selected_client_macs,
-                },
-            )
+            # If SSID filter was submitted, re-show with filtered list
+            new_ssid_filter = user_input.get(CONF_SSID_FILTER, [])
+            if new_ssid_filter != self._ssid_filter and self._available_clients:
+                self._ssid_filter = new_ssid_filter
+                # Fall through to re-show the form with filtered clients
+            else:
+                selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
+                # Return merged options — HA sets entry.options from data param
+                return self.async_create_entry(
+                    title="",
+                    data={
+                        **self.config_entry.options,
+                        CONF_SELECTED_CLIENTS: selected_client_macs,
+                    },
+                )
 
         # Get credentials from config entry
         self._api_url = self.config_entry.data[CONF_API_URL]
@@ -1176,17 +1281,18 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
         self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
 
-        # Fetch all clients from all selected sites
-        try:
-            all_clients = []
-            for site_id in self._selected_site_ids:
-                clients_data = await self._get_clients(site_id)
-                all_clients.extend(clients_data)
+        # Fetch all clients only if not already loaded
+        if not self._available_clients:
+            try:
+                all_clients = []
+                for site_id in self._selected_site_ids:
+                    clients_data = await self._get_clients(site_id)
+                    all_clients.extend(clients_data)
 
-            self._available_clients = all_clients
-        except Exception:
-            _LOGGER.exception("Failed to fetch clients")
-            errors["base"] = "cannot_connect"
+                self._available_clients = all_clients
+            except Exception:
+                _LOGGER.exception("Failed to fetch clients")
+                errors["base"] = "cannot_connect"
 
         if not self._available_clients and not errors:
             # No clients available, return with empty selection
@@ -1195,9 +1301,20 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # Get currently selected clients
         current_selection = self.config_entry.options.get(CONF_SELECTED_CLIENTS, [])
 
+        # Extract available SSIDs for the filter
+        available_ssids = extract_ssids_from_clients(self._available_clients)
+        ssid_options = [
+            SelectOptionDict(value=ssid, label=ssid) for ssid in available_ssids
+        ]
+
+        # Apply SSID filter to the displayed client list
+        display_clients = filter_clients_by_ssids(
+            self._available_clients, self._ssid_filter
+        )
+
         # Create client selection options
         client_options = []
-        for client in self._available_clients[:200]:  # Limit to 200
+        for client in display_clients[:200]:  # Limit to 200
             name = client.get("name") or client.get("hostName") or "Unknown"
             mac = client.get("mac", "")
             ip = client.get("ip", "N/A")
@@ -1210,26 +1327,35 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 )
             )
 
-        data_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_SELECTED_CLIENTS, default=current_selection
-                ): SelectSelector(
+        schema_fields: dict[Any, Any] = {}
+        if ssid_options:
+            schema_fields[vol.Optional(CONF_SSID_FILTER, default=self._ssid_filter)] = (
+                SelectSelector(
                     SelectSelectorConfig(
-                        options=client_options,
+                        options=ssid_options,
                         multiple=True,
                         mode=SelectSelectorMode.DROPDOWN,
                     )
-                ),
-            }
+                )
+            )
+        schema_fields[
+            vol.Optional(CONF_SELECTED_CLIENTS, default=current_selection)
+        ] = SelectSelector(
+            SelectSelectorConfig(
+                options=client_options,
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
+            )
         )
+
+        data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
             step_id="client_selection",
             data_schema=data_schema,
             errors=errors,
             description_placeholders={
-                "client_count": str(len(self._available_clients)),
+                "client_count": str(len(display_clients)),
                 "selected_count": str(len(current_selection)),
             },
         )
