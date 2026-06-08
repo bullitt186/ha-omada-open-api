@@ -1403,6 +1403,28 @@ class OmadaApiClient:
         # Single object returned — wrap in a list for consistency.
         return [raw]
 
+    async def get_wlan_optimization_status(self, site_id: str) -> dict[str, Any]:
+        """Get WLAN/RF planning optimization status for a site.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            Dictionary with status (0-3), beforeIndex, afterIndex fields.
+            status: 0=completed/applied, 1=no result, 2=running, 3=canceling
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/radio-frequency-planning/result"
+        )
+        _LOGGER.debug("Fetching WLAN optimization status for site %s", site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
     async def get_switch_port_details(
         self,
         site_id: str,

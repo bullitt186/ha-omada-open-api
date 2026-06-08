@@ -23,6 +23,9 @@ from .entity import OmadaEntity
 
 PARALLEL_UPDATES = 0
 
+# WLAN optimization status: 2 = actively running RF planning
+_WLAN_OPT_STATUS_RUNNING = 2
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -153,6 +156,15 @@ async def async_setup_entry(
         # Populate with currently known devices, then listen for updates.
         _async_check_new_devices()
         entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
+
+        # Site-level WLAN optimization binary sensor (one per site coordinator).
+        async_add_entities(
+            [
+                OmadaWlanOptimizationBinarySensor(
+                    coordinator=coordinator, site_id=coordinator.site_id
+                )
+            ]
+        )
 
     # --- Dynamic client binary sensors ---
     known_client_macs: set[str] = set()
@@ -307,6 +319,58 @@ class OmadaClientBinarySensor(
             return False
 
         return self.entity_description.available_fn(client_data)
+
+
+class OmadaWlanOptimizationBinarySensor(
+    OmadaEntity[OmadaSiteCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor for WLAN optimization running state at the site level."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "wlan_optimization_running"
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        site_id: str,
+    ) -> None:
+        """Initialize the WLAN optimization binary sensor.
+
+        Args:
+            coordinator: Site coordinator providing optimization data
+            site_id: Site ID (used for unique_id and device linkage)
+
+        """
+        super().__init__(coordinator)
+        self._site_id = site_id
+        self._attr_unique_id = f"{site_id}_wlan_optimization_running"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, site_id)},
+        )
+
+    def _get_optimization_data(self) -> dict[str, Any] | None:
+        """Return wlan_optimization data, or None if unavailable."""
+        if not self.coordinator.data:
+            return None
+        return self.coordinator.data.get("wlan_optimization")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when optimization is actively running (status == 2)."""
+        data = self._get_optimization_data()
+        if data is None:
+            return False
+        return data.get("status") == _WLAN_OPT_STATUS_RUNNING
+
+    @property
+    def available(self) -> bool:
+        """Return True when optimization data is present and coordinator healthy."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_optimization_data() is not None
 
 
 class OmadaWanBinarySensor(

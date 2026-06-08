@@ -191,6 +191,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "all_clients": all_clients,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
+                "wlan_optimization": await self._fetch_wlan_optimization(),
             }
 
         except OmadaApiError as err:
@@ -749,6 +750,23 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Continue without WAN status - not critical
 
         return wan_status
+
+    async def _fetch_wlan_optimization(self) -> dict[str, Any] | None:
+        """Fetch WLAN optimization status for the site.
+
+        Returns:
+            Dict with status, beforeIndex, afterIndex — or None on failure.
+
+        """
+        try:
+            return await self.api_client.get_wlan_optimization_status(self.site_id)
+        except OmadaApiError as err:
+            _LOGGER.debug(
+                "Failed to fetch WLAN optimization status for site %s: %s",
+                self.site_name,
+                err,
+            )
+            return None
 
     async def _stamp_wired_ports_flags(
         self,

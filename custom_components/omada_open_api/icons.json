@@ -227,6 +227,9 @@
             },
             "wan_internet": {
                 "default": "mdi:web"
+            },
+            "wlan_optimization_running": {
+                "default": "mdi:wifi-cog"
             }
         },
         "switch": {

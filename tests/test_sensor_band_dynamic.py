@@ -89,6 +89,10 @@ def _patch_api_client(**overrides) -> tuple:
     mock.get_firmware_info = AsyncMock(return_value={})
     mock.start_online_upgrade = AsyncMock(return_value={})
     mock.get_ap_radios = AsyncMock(return_value={})
+    mock.get_switch_port_details = AsyncMock(return_value=[])
+    mock.get_wlan_optimization_status = AsyncMock(
+        return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
+    )
     mock.api_url = TEST_API_URL  # used as configuration_url in device_info
     for key, value in overrides.items():
         setattr(mock, key, value)
