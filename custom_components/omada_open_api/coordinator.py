@@ -905,6 +905,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         site_name: str,
         selected_client_macs: list[str],
         scan_interval: int = SCAN_INTERVAL,
+        disconnect_timeout: int = 0,
     ) -> None:
         """Initialize the client coordinator.
 
@@ -915,6 +916,8 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_name: Human-readable site name
             selected_client_macs: List of MAC addresses to track
             scan_interval: Update interval in seconds
+            disconnect_timeout: Grace period in minutes before marking client
+                as disconnected after it disappears from the API (0 = immediate)
 
         """
         super().__init__(
@@ -927,6 +930,11 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.site_id = site_id
         self.site_name = site_name
         self.selected_client_macs = set(selected_client_macs)
+        self.disconnect_timeout = disconnect_timeout  # minutes
+
+        # Last-seen timestamps for each tracked client (used for grace period).
+        # Public so device_tracker.py can read without pylint protected-access.
+        self.last_seen: dict[str, dt.datetime] = {}
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch client data from API.
@@ -951,10 +959,15 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             # Filter to only the selected clients and index by MAC
             clients_by_mac: dict[str, Any] = {}
+            now = dt_util.utcnow()
             for client in all_clients:
                 mac = client.get("mac")
                 if mac and mac in self.selected_client_macs:
-                    clients_by_mac[mac] = process_client(client)
+                    processed = process_client(client)
+                    clients_by_mac[mac] = processed
+                    # Stamp last_seen for active clients
+                    if processed.get("active"):
+                        self.last_seen[mac] = now
 
             _LOGGER.debug(
                 "Fetched %d/%d selected clients from site %s",

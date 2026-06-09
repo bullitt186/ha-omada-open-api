@@ -17,6 +17,8 @@ CONF_SELECTED_SITES = "selected_sites"
 CONF_SELECTED_CLIENTS = "selected_clients"
 CONF_SELECTED_APPLICATIONS = "selected_applications"
 CONF_SSID_FILTER = "ssid_filter"
+CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"
+DEFAULT_DISCONNECT_TIMEOUT = 0  # minutes; 0 = immediate (current behavior)
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"

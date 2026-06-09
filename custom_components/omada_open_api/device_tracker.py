@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -243,11 +244,23 @@ class OmadaClientTracker(
 
     @property
     def is_connected(self) -> bool:
-        """Return true if the client is connected to the network."""
+        """Return true if the client is connected or within the grace period."""
         client = self.coordinator.data.get(self._client_mac)
-        if client is None:
-            return False
-        return bool(client.get("active", False))
+
+        # Client present and active → connected
+        if client is not None and client.get("active"):
+            return True
+
+        # Check grace period if disconnect_timeout > 0
+        timeout_minutes: int = getattr(self.coordinator, "disconnect_timeout", 0)
+        if timeout_minutes > 0:
+            last_seen = self.coordinator.last_seen.get(self._client_mac)
+            if last_seen is not None:
+                elapsed = (dt.datetime.now(dt.UTC) - last_seen).total_seconds()
+                if elapsed < timeout_minutes * 60:
+                    return True
+
+        return False
 
     @property
     def ip_address(self) -> str | None:

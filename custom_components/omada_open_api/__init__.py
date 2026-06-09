@@ -30,6 +30,7 @@ from .const import (
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -41,6 +42,7 @@ from .const import (
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
+    DEFAULT_DISCONNECT_TIMEOUT,
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
 )
@@ -336,6 +338,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             site_name = site_info.get("name", site_id)
 
             # Create client coordinator for this site
+            disconnect_timeout = entry.options.get(
+                CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
+            )
             client_coordinator = OmadaClientCoordinator(
                 hass=hass,
                 api_client=api_client,
@@ -343,6 +348,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 site_name=site_name,
                 selected_client_macs=selected_client_macs,
                 scan_interval=client_interval,
+                disconnect_timeout=disconnect_timeout,
             )
 
             # Perform initial data fetch
