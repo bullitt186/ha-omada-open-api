@@ -55,6 +55,16 @@
                     "selected_sites": "Select one or more Omada sites to monitor devices and clients"
                 }
             },
+            "ssid_filter": {
+                "title": "Filter Clients by SSID (Optional)",
+                "description": "Found {ssid_count} SSID(s) and {client_count} client(s).\n\nOptionally select one or more SSIDs to pre-filter the client list. Wired clients are always shown. Leave empty to show all clients.",
+                "data": {
+                    "ssid_filter": "Filter by SSID (optional)"
+                },
+                "data_description": {
+                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown"
+                }
+            },
             "clients": {
                 "title": "Select Clients to Track (Optional)",
                 "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
@@ -137,7 +147,11 @@
                 "title": "Modify Client Tracking",
                 "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
                 "data": {
+                    "ssid_filter": "Filter by SSID (optional)",
                     "selected_clients": "Clients to Track"
+                },
+                "data_description": {
+                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown"
                 }
             },
             "application_selection": {
