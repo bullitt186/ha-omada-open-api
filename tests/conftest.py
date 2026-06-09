@@ -257,6 +257,8 @@ def mock_api_client() -> MagicMock:
     client.get_gateway_wan_status = AsyncMock(return_value=[])
     client.get_device_stats = AsyncMock(return_value=[])
     client.get_switch_port_details = AsyncMock(return_value=[])
+    client.get_ap_radio_config = AsyncMock(return_value={})
+    client.set_ap_radio_enabled = AsyncMock()
     client.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )

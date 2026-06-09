@@ -191,6 +191,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "all_clients": all_clients,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
+                "ap_radio_config": await self._fetch_ap_radio_config(devices),
                 "wlan_optimization": await self._fetch_wlan_optimization(),
             }
 
@@ -750,6 +751,35 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Continue without WAN status - not critical
 
         return wan_status
+
+    async def _fetch_ap_radio_config(
+        self, devices: dict[str, dict[str, Any]]
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch radio configuration for all online AP devices.
+
+        Args:
+            devices: Processed devices dict keyed by MAC.
+
+        Returns:
+            Dictionary keyed by AP MAC with radio config data.
+
+        """
+        ap_radio_config: dict[str, dict[str, Any]] = {}
+        for mac, device in devices.items():
+            if device.get("type", "").lower() != "ap":
+                continue
+            try:
+                config = await self.api_client.get_ap_radio_config(self.site_id, mac)
+                if config:
+                    ap_radio_config[mac] = config
+            except OmadaApiError as err:
+                _LOGGER.debug(
+                    "Failed to fetch radio config for AP %s in site %s: %s",
+                    mac,
+                    self.site_name,
+                    err,
+                )
+        return ap_radio_config
 
     async def _fetch_wlan_optimization(self) -> dict[str, Any] | None:
         """Fetch WLAN optimization status for the site.

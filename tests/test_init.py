@@ -116,6 +116,8 @@ def _patch_api_client(**overrides):
     mock_instance.start_online_upgrade = AsyncMock(return_value={})
     mock_instance.get_ap_radios = AsyncMock(return_value={})
     mock_instance.get_switch_port_details = AsyncMock(return_value=[])
+    mock_instance.get_ap_radio_config = AsyncMock(return_value={})
+    mock_instance.set_ap_radio_enabled = AsyncMock()
     mock_instance.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )

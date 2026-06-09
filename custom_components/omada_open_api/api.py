@@ -1403,6 +1403,58 @@ class OmadaApiClient:
         # Single object returned — wrap in a list for consistency.
         return [raw]
 
+    async def get_ap_radio_config(self, site_id: str, ap_mac: str) -> dict[str, Any]:
+        """Get radio configuration for an AP.
+
+        Args:
+            site_id: Site ID containing the AP
+            ap_mac: MAC address of the AP
+
+        Returns:
+            Dictionary with radioSetting2g/5g/5g1/5g2/6g keys, each containing
+            radioEnable and other radio configuration fields.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/radio-config"
+        )
+        _LOGGER.debug("Fetching radio config for AP %s", ap_mac)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def set_ap_radio_enabled(
+        self, site_id: str, ap_mac: str, *, band: str, enabled: bool
+    ) -> None:
+        """Enable or disable a radio band on an AP.
+
+        Args:
+            site_id: Site ID containing the AP
+            ap_mac: MAC address of the AP
+            band: Band identifier ("2g", "5g", "5g1", "5g2", "6g")
+            enabled: True to enable the radio, False to disable
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/radio-config"
+        )
+        band_key = f"radioSetting{band}"
+        payload = {band_key: {"radioEnable": enabled}}
+        _LOGGER.debug(
+            "%s radio band %s on AP %s",
+            "Enabling" if enabled else "Disabling",
+            band,
+            ap_mac,
+        )
+        await self._authenticated_request("patch", url, json_data=payload)
+
     async def get_wlan_optimization_status(self, site_id: str) -> dict[str, Any]:
         """Get WLAN/RF planning optimization status for a site.
 
