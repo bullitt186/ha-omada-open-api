@@ -68,6 +68,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Radio utilization cache — fetched every DEFAULT_RADIO_UTIL_INTERVAL seconds.
         self._last_radio_util_check: dt.datetime | None = None
 
+        # Traffic byte counters from previous poll — used to compute rate deltas.
+        # Keyed by device MAC, value is {"rx": int, "tx": int, "ts": datetime}
+        self._prev_traffic: dict[str, dict[str, Any]] = {}
+
         # Upgrade polling: store normal interval so we can restore it.
         self._normal_interval = timedelta(seconds=scan_interval)
         self._upgrade_active = False
@@ -529,6 +533,13 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         band_map = {"wp2g": "2g", "wp5g": "5g", "wp5g2": "5g2", "wp6g": "6g"}
+        traffic_band_keys = [
+            "radioTraffic2g",
+            "radioTraffic5g",
+            "radioTraffic5g2",
+            "radioTraffic6g",
+        ]
+
         for ap_mac in ap_macs:
             try:
                 radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
@@ -543,6 +554,16 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         devices[ap_mac][f"radio_busy_util_{suffix}"] = band.get(
                             "busyUtil"
                         )
+
+                # Compute traffic delta rates from cumulative radio counters.
+                total_rx = sum(
+                    (radio_data.get(k) or {}).get("rx", 0) for k in traffic_band_keys
+                )
+                total_tx = sum(
+                    (radio_data.get(k) or {}).get("tx", 0) for k in traffic_band_keys
+                )
+                self._compute_and_store_rate(devices, ap_mac, total_rx, total_tx, now)
+
             except OmadaApiError as err:
                 _LOGGER.warning(
                     "Failed to fetch radio info for AP %s in site %s: %s",
@@ -552,6 +573,47 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         self._last_radio_util_check = now
+
+    def _compute_and_store_rate(
+        self,
+        devices: dict[str, dict[str, Any]],
+        mac: str,
+        total_rx: int,
+        total_tx: int,
+        now: dt.datetime,
+    ) -> None:
+        """Compute RX/TX rates from cumulative byte counters and store in device data.
+
+        On first call (no prior data) rates are not set.
+        On counter rollback (device reboot) rates are reset to 0.
+
+        Args:
+            devices: Processed devices dict (mutated in-place).
+            mac: Device MAC address.
+            total_rx: Cumulative RX bytes at this poll.
+            total_tx: Cumulative TX bytes at this poll.
+            now: Current timestamp.
+
+        """
+        prev = self._prev_traffic.get(mac)
+        if prev is not None:
+            elapsed = (now - prev["ts"]).total_seconds()
+            if elapsed > 0:
+                delta_rx = total_rx - prev["rx"]
+                delta_tx = total_tx - prev["tx"]
+                if delta_rx < 0 or delta_tx < 0:
+                    # Counter rollback — device rebooted.
+                    devices[mac]["rx_rate_mbps"] = 0.0
+                    devices[mac]["tx_rate_mbps"] = 0.0
+                else:
+                    devices[mac]["rx_rate_mbps"] = round(
+                        delta_rx / elapsed / 1_000_000, 4
+                    )
+                    devices[mac]["tx_rate_mbps"] = round(
+                        delta_tx / elapsed / 1_000_000, 4
+                    )
+        # Store current counters for next poll.
+        self._prev_traffic[mac] = {"rx": total_rx, "tx": total_tx, "ts": now}
 
     async def _merge_gateway_temperature(
         self,
