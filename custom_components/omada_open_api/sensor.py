@@ -30,6 +30,8 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     DOMAIN,
     ICON_CLIENTS,
     ICON_CPU,
@@ -59,6 +61,25 @@ from .entity import OmadaEntity
 PARALLEL_UPDATES = 0
 
 _LOGGER = logging.getLogger(__name__)
+
+# Sensor keys that belong to the "diagnostic" toggle category.
+_DEVICE_DIAGNOSTIC_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        "uptime",
+        "cpu_util",
+        "mem_util",
+        "detail_status",
+        "device_ip",
+        "public_ip",
+        "temperature",
+        "ipv6",
+        "tag",
+        "uplink_device",
+        "uplink_port",
+        "link_speed",
+        "device_type",
+    }
+)
 
 # Uptime sensor anti-spam: treat a drop in reported uptime >= this value as a reboot.
 _UPTIME_REBOOT_THRESHOLD_SECONDS: int = 120
@@ -1216,6 +1237,11 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = (
         rd.app_traffic_coordinators
     )
+
+    # Entity type toggles — all default True (preserve existing behavior)
+    opts = entry.options
+    _enable_device_bandwidth = opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True)
+    _enable_device_diagnostic = opts.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True)
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
         rd.device_stats_coordinators
     )
@@ -1265,6 +1291,10 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                             or device_type in desc.applicable_types
                         )
                         and (desc.applicable_fn is None or desc.applicable_fn(device))
+                        and (
+                            _enable_device_diagnostic
+                            or desc.key not in _DEVICE_DIAGNOSTIC_SENSOR_KEYS
+                        )
                     )
 
             # Per-band sensors — run for all APs on every coordinator update.
@@ -1371,10 +1401,13 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             app_coord.async_add_listener(_async_check_new_app_traffic)
         )
 
-    # --- Dynamic device daily traffic sensors ---
+    # --- Dynamic device daily traffic sensors (skipped when bandwidth toggle is off) ---
     known_traffic_device_macs: set[str] = set()
 
-    for stats_coord in device_stats_coordinators:
+    if not _enable_device_bandwidth:
+        _LOGGER.debug("Device bandwidth sensors disabled via options toggle")
+
+    for stats_coord in device_stats_coordinators if _enable_device_bandwidth else []:
 
         @callback
         def _async_check_new_traffic_devices(

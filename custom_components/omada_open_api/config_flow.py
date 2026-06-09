@@ -33,6 +33,14 @@ from .const import (
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
+    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+    CONF_ENABLE_CLIENT_RECONNECT_BUTTON,
+    CONF_ENABLE_CLIENT_SIGNAL_SENSORS,
+    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
+    CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
@@ -1199,6 +1207,8 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 "application_selection",
                 "update_intervals",
                 "tracker_settings",
+                "device_entity_settings",
+                "client_entity_settings",
             ],
         )
 
@@ -1229,6 +1239,112 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="tracker_settings",
+            data_schema=data_schema,
+        )
+
+    async def async_step_device_entity_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle device entity category toggles."""
+        opts = self.config_entry.options
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **opts,
+                    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS: user_input.get(
+                        CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True
+                    ),
+                    CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: user_input.get(
+                        CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS, True
+                    ),
+                    CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: user_input.get(
+                        CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True
+                    ),
+                    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: user_input.get(
+                        CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, True
+                    ),
+                },
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+                    default=opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
+                    default=opts.get(CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
+                    default=opts.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+                    default=opts.get(
+                        CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, True
+                    ),
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="device_entity_settings",
+            data_schema=data_schema,
+        )
+
+    async def async_step_client_entity_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle client entity category toggles."""
+        opts = self.config_entry.options
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **opts,
+                    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS: user_input.get(
+                        CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True
+                    ),
+                    CONF_ENABLE_CLIENT_SIGNAL_SENSORS: user_input.get(
+                        CONF_ENABLE_CLIENT_SIGNAL_SENSORS, True
+                    ),
+                    CONF_ENABLE_CLIENT_BLOCK_SWITCH: user_input.get(
+                        CONF_ENABLE_CLIENT_BLOCK_SWITCH, True
+                    ),
+                    CONF_ENABLE_CLIENT_RECONNECT_BUTTON: user_input.get(
+                        CONF_ENABLE_CLIENT_RECONNECT_BUTTON, True
+                    ),
+                },
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
+                    default=opts.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_CLIENT_SIGNAL_SENSORS,
+                    default=opts.get(CONF_ENABLE_CLIENT_SIGNAL_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+                    default=opts.get(CONF_ENABLE_CLIENT_BLOCK_SWITCH, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_CLIENT_RECONNECT_BUTTON,
+                    default=opts.get(CONF_ENABLE_CLIENT_RECONNECT_BUTTON, True),
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="client_entity_settings",
             data_schema=data_schema,
         )
 
