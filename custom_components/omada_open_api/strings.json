@@ -386,6 +386,13 @@
             },
             "wan_internet": {
                 "name": "{port_name} internet"
+            },
+            "wlan_optimization_running": {
+                "name": "WLAN optimization running",
+                "state": {
+                    "off": "Idle",
+                    "on": "Running"
+                }
             }
         },
         "switch": {
