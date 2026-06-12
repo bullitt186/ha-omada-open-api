@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # Development environment — Python, tests, linting
   devcontainer:
@@ -36,3 +34,5 @@ services:
 
 volumes:
   ha-config:
+    external: true
+    name: devcontainer_ha-config
