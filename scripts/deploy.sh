@@ -1,31 +1,49 @@
 #!/usr/bin/env bash
-# Deploy the integration to the HA host and reload all config entries via API.
+# Deploy the integration to the devcontainer HA instance and reload all config entries.
 #
-# Usage:
+# This script is ONLY for use inside the devcontainer (or when HA is running locally).
+# It NEVER writes to any remote host.
+#
+# Usage (inside devcontainer):
 #   bash scripts/deploy.sh
-#   HA_HOST=homeassistant.stahmer.lan HA_TOKEN=<token> bash scripts/deploy.sh
 #
-# Environment variables (in priority order):
-#   HA_HOST   — hostname or IP of the HA instance (default: homeassistant.stahmer.lan)
-#   HA_TOKEN  — long-lived access token (falls back to $HASS_TOKEN from .claude/settings.json)
+# Environment variables:
+#   HA_URL    — HA base URL (default: http://localhost:8123)
+#   HA_TOKEN  — long-lived access token (falls back to $HASS_TOKEN)
+#   HA_CONFIG — path to HA config dir (default: /config)
 set -euo pipefail
 
-HA_HOST="${HA_HOST:-homeassistant.stahmer.lan}"
+HA_URL="${HA_URL:-http://localhost:8123}"
 HA_TOKEN="${HA_TOKEN:-${HASS_TOKEN:-}}"
-REMOTE_USER="${REMOTE_USER:-bullitt}"
-REMOTE_PATH="/config/custom_components/omada_open_api"
+HA_CONFIG="${HA_CONFIG:-/config}"
 ENTRY_DOMAIN="omada_open_api"
+DEST="${HA_CONFIG}/custom_components/omada_open_api"
 
-echo "🚀 Deploying omada_open_api → ${REMOTE_USER}@${HA_HOST}:${REMOTE_PATH}"
+# Safety check: refuse to run if HA_URL points to anything other than localhost/127.0.0.1
+# or the docker-compose service hostname 'homeassistant'.
+if echo "$HA_URL" | grep -qvE '^https?://(localhost|127\.0\.0\.1|homeassistant)(:[0-9]+)?'; then
+  echo "❌ ERROR: HA_URL='$HA_URL' does not point to a local HA instance."
+  echo "   This script only deploys to the local devcontainer HA instance."
+  echo "   Do NOT use this script to deploy to a remote/production HA host."
+  exit 1
+fi
 
-# Copy integration files to HA host
-rsync -az --delete \
-  --exclude '__pycache__' \
-  --exclude '*.pyc' \
-  custom_components/omada_open_api/ \
-  "${REMOTE_USER}@${HA_HOST}:${REMOTE_PATH}/"
+# Safety check: /config must exist (we're inside the devcontainer)
+if [ ! -d "$HA_CONFIG" ]; then
+  echo "❌ ERROR: HA config directory '$HA_CONFIG' not found."
+  echo "   Run this script inside the devcontainer where HA is running locally."
+  exit 1
+fi
 
-echo "✅ Files synced."
+echo "🚀 Deploying omada_open_api → ${DEST}"
+
+# Copy integration files using local cp (no SSH, no rsync to remote)
+rm -rf "${DEST}"
+cp -r custom_components/omada_open_api "${DEST}"
+find "${DEST}" -name "*.pyc" -delete
+find "${DEST}" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+
+echo "✅ Files copied to ${DEST}"
 
 if [ -z "$HA_TOKEN" ]; then
   echo "⚠️  HA_TOKEN / HASS_TOKEN not set — skipping API reload."
@@ -33,11 +51,10 @@ if [ -z "$HA_TOKEN" ]; then
   exit 0
 fi
 
-HA_API="http://${HA_HOST}:8123/api"
+HA_API="${HA_URL}/api"
 
 echo "🔄 Reloading config entries for domain '${ENTRY_DOMAIN}'..."
 
-# Fetch all entry IDs for this integration domain
 ENTRIES=$(curl -sf \
   -H "Authorization: Bearer ${HA_TOKEN}" \
   -H "Content-Type: application/json" \
@@ -62,4 +79,4 @@ for entry_id in $ENTRIES; do
 done
 
 echo ""
-echo "🎉 Deploy complete. Verify entities at http://${HA_HOST}:8123"
+echo "🎉 Deploy complete. Verify entities at ${HA_URL}"

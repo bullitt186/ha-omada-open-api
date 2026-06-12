@@ -1,6 +1,8 @@
 {
   "name": "Home Assistant Custom Integration - Omada",
-  "image": "mcr.microsoft.com/devcontainers/python:3.14",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devcontainer",
+  "workspaceFolder": "/workspaces/ha-omada-open-api",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -34,5 +36,12 @@
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {}
+  },
+  "forwardPorts": [8123],
+  "portsAttributes": {
+    "8123": {
+      "label": "Home Assistant",
+      "onAutoForward": "openBrowserOnce"
+    }
   }
 }

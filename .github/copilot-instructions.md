@@ -211,7 +211,7 @@ make lint        # ruff + pylint
 make typecheck   # mypy strict
 make coverage    # Full suite + open htmlcov/index.html
 make watch       # TDD file-watcher: reruns tests on save (pytest-watch)
-make deploy      # rsync to HA host + reload via API
+make deploy      # copy to /config + reload via localhost:8123 API (devcontainer only)
 make check       # Full quality gate: lint + typecheck + test-all (mirrors CI)
 make install     # Create .venv and install all dev dependencies
 ```
@@ -394,25 +394,32 @@ async def test_sensor(hass: HomeAssistant) -> None:
 2. Test locally before committing (`make test`)
 3. Ensure all tests pass (`make check`)
 4. Follow semantic commit messages
-5. After merging, deploy and verify on live HA (`make deploy`)
+5. After merging, deploy and verify inside the devcontainer (`make deploy`)
 
-### Deploying and Verifying on Live Home Assistant
+### Deploying and Verifying (devcontainer only)
+
+**IMPORTANT:** All development, deployment, and testing MUST happen inside the devcontainer.
+`make deploy` copies files to `/config` and reloads via `localhost:8123`.
+It NEVER writes to any remote host. Never run deploy targeting `homeassistant.stahmer.lan`
+or any external HA instance.
 
 After implementing and merging a fix:
 
-1. **Deploy to the HA host:**
+1. **Start the devcontainer** (if not already running):
+   - In VS Code: reopen in devcontainer
+   - In terminal: `make devcontainer` (starts HA on localhost:8123)
+
+2. **Deploy to the local devcontainer HA:**
    ```bash
    make deploy
-   # or: HA_HOST=homeassistant.stahmer.lan bash scripts/deploy.sh
    ```
-   The script rsyncs `custom_components/omada_open_api/` to the HA host and calls the HA REST API to reload all config entries. `HASS_TOKEN` is read from the `HASS_TOKEN` env var set in `.claude/settings.json`.
+   The script copies `custom_components/omada_open_api/` to `/config/custom_components/` and calls the HA REST API at `localhost:8123` to reload. `HASS_TOKEN` is read from `.claude/settings.json`.
 
-2. **Verify entities via MCP** (available in Claude Code sessions):
-   - Use `mcp__home-assistant__ha_get_state` or `mcp__home-assistant__ha_search_entities` with `domain=sensor` to inspect entity states.
-   - The `ha-mcp` server (project-scoped in `.claude/settings.json`) connects to `localhost:8123` — valid when HA is running inside the devcontainer or on the same machine.
-   - For queries from macOS (outside devcontainer), use the global `home-assistant` MCP which connects to `homeassistant.stahmer.lan`.
+3. **Verify entities via MCP** (project-scoped `ha-mcp` in `.claude/settings.json`):
+   - Use `mcp__home-assistant__ha_get_state` or `mcp__home-assistant__ha_search_entities`
+   - The `ha-mcp` server connects to `localhost:8123` inside the devcontainer
 
-3. **Check HA logs for errors:**
+4. **Check HA logs for errors:**
    ```bash
    mcp__home-assistant__ha_get_logs
    ```

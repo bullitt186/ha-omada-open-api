@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # Development environment — Python, tests, linting
+  devcontainer:
+    image: mcr.microsoft.com/devcontainers/python:3.14
+    volumes:
+      - ..:/workspaces/ha-omada-open-api:cached
+      - ha-config:/config
+    working_dir: /workspaces/ha-omada-open-api
+    command: sleep infinity
+    environment:
+      - HASS_TOKEN=${HASS_TOKEN:-}
+      - HASS_SERVER=http://homeassistant:8123
+    depends_on:
+      - homeassistant
+
+  # Local Home Assistant instance for manual testing
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    volumes:
+      - ha-config:/config
+      # Mount the integration directly so it's always in sync
+      - ../custom_components/omada_open_api:/config/custom_components/omada_open_api:ro
+    ports:
+      - "8123:8123"
+    environment:
+      - TZ=Europe/Berlin
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8123/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+volumes:
+  ha-config:
