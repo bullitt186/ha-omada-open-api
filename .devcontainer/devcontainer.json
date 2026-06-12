@@ -1,8 +1,6 @@
 {
   "name": "Home Assistant Custom Integration - Omada",
-  "dockerComposeFile": "docker-compose.yml",
-  "service": "devcontainer",
-  "workspaceFolder": "/workspaces/ha-omada-open-api",
+  "image": "mcr.microsoft.com/devcontainers/python:3.14",
   "customizations": {
     "vscode": {
       "extensions": [
@@ -32,7 +30,7 @@
       }
     }
   },
-  "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv .venv && .venv/bin/pip install -r requirements_dev.txt && pre-commit install",
+  "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv --clear .venv && .venv/bin/pip install -r requirements_dev.txt && pre-commit install",
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {}
