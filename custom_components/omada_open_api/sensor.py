@@ -371,6 +371,8 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Rates are computed from AP radio traffic counters — AP devices only.
+        applicable_types=("ap",),
         value_fn=lambda d: d.get("rx_rate_mbps"),
         available_fn=lambda d: d.get("rx_rate_mbps") is not None,
     ),
@@ -382,6 +384,7 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         suggested_display_precision=2,
         entity_category=EntityCategory.DIAGNOSTIC,
+        applicable_types=("ap",),
         value_fn=lambda d: d.get("tx_rate_mbps"),
         available_fn=lambda d: d.get("tx_rate_mbps") is not None,
     ),

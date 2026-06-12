@@ -51,10 +51,13 @@ def _make_device_sensor(
 
 
 async def test_rx_activity_sensor_exists_in_device_sensors(hass: HomeAssistant) -> None:
-    """DEVICE_SENSORS includes rx_activity and tx_activity descriptors."""
-    keys = [d.key for d in DEVICE_SENSORS]
-    assert "rx_activity" in keys
-    assert "tx_activity" in keys
+    """DEVICE_SENSORS includes rx_activity and tx_activity, AP-only."""
+    descs = {d.key: d for d in DEVICE_SENSORS}
+    assert "rx_activity" in descs
+    assert "tx_activity" in descs
+    # Must only be created for APs (rate data comes from AP radio counters)
+    assert descs["rx_activity"].applicable_types == ("ap",)
+    assert descs["tx_activity"].applicable_types == ("ap",)
 
 
 async def test_rx_activity_returns_value(hass: HomeAssistant) -> None:
