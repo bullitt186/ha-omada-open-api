@@ -151,9 +151,14 @@ class OmadaApiClient:
 
                     if response.status != 200:
                         response_text = await response.text()
-                        _LOGGER.error(
-                            "HTTP error %s: %s", response.status, response_text
-                        )
+                        if response.status == 404:
+                            # 404 means the endpoint is not supported by this
+                            # controller firmware — not an error, log at DEBUG.
+                            _LOGGER.debug("HTTP 404 (endpoint not supported): %s", url)
+                        else:
+                            _LOGGER.error(
+                                "HTTP error %s: %s", response.status, response_text
+                            )
                         raise OmadaApiError(f"HTTP {response.status}: {response_text}")
 
                     result = await response.json()
