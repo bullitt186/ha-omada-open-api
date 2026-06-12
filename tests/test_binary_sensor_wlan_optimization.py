@@ -12,6 +12,7 @@ from custom_components.omada_open_api.api import OmadaApiClient, OmadaApiError
 from custom_components.omada_open_api.binary_sensor import (
     OmadaWlanOptimizationBinarySensor,
 )
+from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
 
 from .conftest import TEST_SITE_ID, TEST_SITE_NAME
@@ -133,6 +134,16 @@ async def test_wlan_optimization_unique_id(hass: HomeAssistant) -> None:
     coord = _make_coordinator(hass, wlan_optimization={"status": STATUS_COMPLETED})
     sensor = OmadaWlanOptimizationBinarySensor(coordinator=coord, site_id=TEST_SITE_ID)
     assert sensor.unique_id == f"{TEST_SITE_ID}_wlan_optimization_running"
+
+
+async def test_wlan_optimization_device_info_links_to_site_device(
+    hass: HomeAssistant,
+) -> None:
+    """Binary sensor device_info identifier matches the site device (site_{site_id})."""
+    coord = _make_coordinator(hass, wlan_optimization={"status": STATUS_COMPLETED})
+    sensor = OmadaWlanOptimizationBinarySensor(coordinator=coord, site_id=TEST_SITE_ID)
+    identifiers = sensor.device_info["identifiers"]  # type: ignore[index]
+    assert (DOMAIN, f"site_{TEST_SITE_ID}") in identifiers
 
 
 async def test_wlan_optimization_entity_category_diagnostic(

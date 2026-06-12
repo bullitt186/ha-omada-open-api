@@ -145,8 +145,15 @@ async def test_coordinator_computes_ap_rx_rate_on_second_poll(
         "radioTraffic2g": {"rx": 88_000_000, "tx": 22_000_000},
         "radioTraffic5g": {"rx": 22_000_000, "tx": 5_500_000},
     }
+    # _merge_ap_activity_rates calls get_ap_radios every poll.
+    # _merge_ap_radio_utilization also calls it on the first poll (cache cold).
+    # So poll 1 = 2 calls, poll 2 = 1 call (util cache warm, activity always runs).
     mock_api.get_ap_radios = AsyncMock(
-        side_effect=[first_radio_data, second_radio_data]
+        side_effect=[
+            first_radio_data,  # poll 1: util fetch
+            first_radio_data,  # poll 1: activity fetch (same data, no delta yet)
+            second_radio_data,  # poll 2: activity fetch (delta computed)
+        ]
     )
 
     coord = OmadaSiteCoordinator(
@@ -156,19 +163,15 @@ async def test_coordinator_computes_ap_rx_rate_on_second_poll(
         site_name=TEST_SITE_NAME,
     )
 
-    # First poll — no rate (no previous data)
+    # First poll — no rate (no previous data yet)
     data1 = await coord._async_update_data()  # noqa: SLF001
-    # After first poll, rates should be None (no delta yet)
     assert data1["devices"][AP_MAC].get("rx_rate_mbps") is None
 
-    # Force the radio util cache to expire so second poll fetches fresh data
-    coord._last_radio_util_check = None  # noqa: SLF001
-
-    # Second poll — rates should reflect delta
+    # Second poll — rates computed immediately, no cache reset needed
     data2 = await coord._async_update_data()  # noqa: SLF001
     rx_rate = data2["devices"][AP_MAC].get("rx_rate_mbps")
     assert rx_rate is not None
-    assert rx_rate >= 0.0  # Must be non-negative
+    assert rx_rate >= 0.0
 
 
 async def test_coordinator_resets_rate_on_counter_rollback(
@@ -208,13 +211,12 @@ async def test_coordinator_resets_rate_on_counter_rollback(
     )
     mock_api.get_gateway_info = AsyncMock(return_value={})
 
-    # First poll: high counters
-    # Second poll: counters reset (device rebooted)
+    # Poll 1: util fetch (high) + activity fetch (high) — no rate yet
+    # Poll 2: activity fetch (reset counters) — rate should be 0
+    high = {"radioTraffic2g": {"rx": 1_000_000_000, "tx": 500_000_000}}
+    low = {"radioTraffic2g": {"rx": 1_000_000, "tx": 500_000}}
     mock_api.get_ap_radios = AsyncMock(
-        side_effect=[
-            {"radioTraffic2g": {"rx": 1_000_000_000, "tx": 500_000_000}},
-            {"radioTraffic2g": {"rx": 1_000_000, "tx": 500_000}},  # reset
-        ]
+        side_effect=[high, high, low]  # poll1: util+activity, poll2: activity
     )
 
     coord = OmadaSiteCoordinator(
@@ -225,7 +227,6 @@ async def test_coordinator_resets_rate_on_counter_rollback(
     )
 
     await coord._async_update_data()  # noqa: SLF001  # first poll
-    coord._last_radio_util_check = None  # noqa: SLF001  # force cache expiry
     data2 = await coord._async_update_data()  # noqa: SLF001  # second poll with rollback
 
     rx_rate = data2["devices"][AP_MAC].get("rx_rate_mbps", 0.0)

@@ -115,8 +115,13 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Fetch per-band client stats for AP devices
             await self._merge_band_client_stats(devices)
 
-            # Fetch per-band radio utilization for AP devices (cached)
+            # Fetch per-band radio utilization for AP devices (cached, every 5 min)
             await self._merge_ap_radio_utilization(devices)
+
+            # Compute AP activity rates from traffic counters every poll cycle.
+            # Done separately from the utilization cache so rates update every 60s
+            # rather than waiting the full 5-minute utilization interval.
+            await self._merge_ap_activity_rates(devices)
 
             # Fetch gateway temperature data
             await self._merge_gateway_temperature(devices)
@@ -533,12 +538,6 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         band_map = {"wp2g": "2g", "wp5g": "5g", "wp5g2": "5g2", "wp6g": "6g"}
-        traffic_band_keys = [
-            "radioTraffic2g",
-            "radioTraffic5g",
-            "radioTraffic5g2",
-            "radioTraffic6g",
-        ]
 
         for ap_mac in ap_macs:
             try:
@@ -555,15 +554,6 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "busyUtil"
                         )
 
-                # Compute traffic delta rates from cumulative radio counters.
-                total_rx = sum(
-                    (radio_data.get(k) or {}).get("rx", 0) for k in traffic_band_keys
-                )
-                total_tx = sum(
-                    (radio_data.get(k) or {}).get("tx", 0) for k in traffic_band_keys
-                )
-                self._compute_and_store_rate(devices, ap_mac, total_rx, total_tx, now)
-
             except OmadaApiError as err:
                 _LOGGER.warning(
                     "Failed to fetch radio info for AP %s in site %s: %s",
@@ -573,6 +563,48 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
 
         self._last_radio_util_check = now
+
+    async def _merge_ap_activity_rates(
+        self,
+        devices: dict[str, dict[str, Any]],
+    ) -> None:
+        """Fetch cumulative traffic counters for APs and compute MB/s rates.
+
+        Runs on every coordinator poll (not cached) so rates update each cycle
+        rather than waiting for the 5-minute radio utilization cache to expire.
+
+        Args:
+            devices: Processed devices dict keyed by MAC.
+
+        """
+        traffic_band_keys = [
+            "radioTraffic2g",
+            "radioTraffic5g",
+            "radioTraffic5g2",
+            "radioTraffic6g",
+        ]
+        now = dt_util.utcnow()
+
+        ap_macs = [
+            mac for mac, dev in devices.items() if dev.get("type", "").lower() == "ap"
+        ]
+        for ap_mac in ap_macs:
+            try:
+                radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
+                total_rx = sum(
+                    (radio_data.get(k) or {}).get("rx", 0) for k in traffic_band_keys
+                )
+                total_tx = sum(
+                    (radio_data.get(k) or {}).get("tx", 0) for k in traffic_band_keys
+                )
+                self._compute_and_store_rate(devices, ap_mac, total_rx, total_tx, now)
+            except OmadaApiError as err:
+                _LOGGER.debug(
+                    "Failed to fetch traffic counters for AP %s in site %s: %s",
+                    ap_mac,
+                    self.site_name,
+                    err,
+                )
 
     def _compute_and_store_rate(
         self,

@@ -347,8 +347,9 @@ class OmadaWlanOptimizationBinarySensor(
         super().__init__(coordinator)
         self._site_id = site_id
         self._attr_unique_id = f"{site_id}_wlan_optimization_running"
+        # Link to the site-level device (registered as "site_{site_id}")
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, site_id)},
+            identifiers={(DOMAIN, f"site_{site_id}")},
         )
 
     def _get_optimization_data(self) -> dict[str, Any] | None:
