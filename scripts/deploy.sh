@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Deploy the integration to the devcontainer HA instance and reload all config entries.
+# Deploy the integration to the devcontainer HA instance and restart HA so the
+# new code is actually picked up.
+#
+# A config-entry *reload* is NOT enough: HA reuses the already-imported Python
+# module from sys.modules and re-runs setup on it — it does not re-read the
+# .py files from disk. Only a full HA restart re-imports the module, so a
+# reload-only deploy can silently keep running the old code while looking
+# like it succeeded.
 #
 # This script is ONLY for use inside the devcontainer (or when HA is running locally).
 # It NEVER writes to any remote host.
@@ -16,7 +23,6 @@ set -euo pipefail
 HA_URL="${HA_URL:-http://localhost:8123}"
 HA_TOKEN="${HA_TOKEN:-${HASS_TOKEN:-}}"
 HA_CONFIG="${HA_CONFIG:-/config}"
-ENTRY_DOMAIN="omada_open_api"
 DEST="${HA_CONFIG}/custom_components/omada_open_api"
 
 # Safety check: refuse to run if HA_URL points to anything other than localhost/127.0.0.1
@@ -46,37 +52,31 @@ find "${DEST}" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 echo "✅ Files copied to ${DEST}"
 
 if [ -z "$HA_TOKEN" ]; then
-  echo "⚠️  HA_TOKEN / HASS_TOKEN not set — skipping API reload."
+  echo "⚠️  HA_TOKEN / HASS_TOKEN not set — skipping restart."
   echo "   Set HASS_TOKEN in .claude/settings.json or export HA_TOKEN=<token>"
   exit 0
 fi
 
 HA_API="${HA_URL}/api"
 
-echo "🔄 Reloading config entries for domain '${ENTRY_DOMAIN}'..."
+echo "🔄 Restarting Home Assistant so the new code is re-imported..."
 
-ENTRIES=$(curl -sf \
+curl -sf -X POST \
   -H "Authorization: Bearer ${HA_TOKEN}" \
   -H "Content-Type: application/json" \
-  "${HA_API}/config/config_entries/entry?domain=${ENTRY_DOMAIN}" \
-  | python3 -c "
-import json, sys
-entries = json.load(sys.stdin)
-for e in entries:
-    print(e['entry_id'])
-")
+  -d '{}' \
+  "${HA_API}/services/homeassistant/restart" > /dev/null
 
-if [ -z "$ENTRIES" ]; then
-  echo "⚠️  No config entries found for '${ENTRY_DOMAIN}' — is the integration set up in HA?"
-  exit 0
-fi
+echo "⏳ Waiting for HA to come back up..."
 
-for entry_id in $ENTRIES; do
-  curl -sf -X POST \
-    -H "Authorization: Bearer ${HA_TOKEN}" \
-    "${HA_API}/config/config_entries/entry/${entry_id}/reload" > /dev/null
-  echo "  ✅ Reloaded entry ${entry_id}"
+for _ in $(seq 1 30); do
+  sleep 2
+  if curl -sf -o /dev/null "${HA_URL}/"; then
+    echo ""
+    echo "🎉 Deploy complete. HA is back up at ${HA_URL}"
+    exit 0
+  fi
 done
 
-echo ""
-echo "🎉 Deploy complete. Verify entities at ${HA_URL}"
+echo "⚠️  HA did not respond within 60s after restart — check manually."
+exit 1

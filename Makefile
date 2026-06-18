@@ -34,9 +34,12 @@ coverage:
 watch:
 	ptw tests/ custom_components/ -- -x -q --tb=short
 
-# Deploy integration to the LOCAL devcontainer HA instance and reload.
+# Deploy integration to the LOCAL devcontainer HA instance and restart HA.
 # ONLY works inside the devcontainer (requires /config and localhost:8123).
 # Never deploys to a remote host.
+# A restart (not just a config-entry reload) is required: HA reuses the
+# already-imported Python module from sys.modules on reload, so a reload-only
+# deploy silently keeps running old code despite the new files on disk.
 deploy:
 	bash scripts/deploy.sh
 
@@ -52,7 +55,7 @@ install:
 # Start the full dev environment (HA + devcontainer) from the terminal.
 # Docker must be running. HA will be available at http://localhost:8123.
 # The integration is mounted directly into HA — no deploy step needed for file changes.
-# Use 'make deploy' only to trigger an API reload after code changes.
+# Use 'make deploy' to push code changes — it restarts HA so they take effect.
 devcontainer:
 	docker compose -f .devcontainer/docker-compose.yml up -d
 	@echo "✅ HA running at http://localhost:8123"

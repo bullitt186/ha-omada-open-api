@@ -211,7 +211,7 @@ make lint        # ruff + pylint
 make typecheck   # mypy strict
 make coverage    # Full suite + open htmlcov/index.html
 make watch       # TDD file-watcher: reruns tests on save (pytest-watch)
-make deploy      # copy to /config + reload via localhost:8123 API (devcontainer only)
+make deploy      # copy to /config + restart via localhost:8123 API (devcontainer only)
 make check       # Full quality gate: lint + typecheck + test-all (mirrors CI)
 make install     # Create .venv and install all dev dependencies
 ```
@@ -399,9 +399,15 @@ async def test_sensor(hass: HomeAssistant) -> None:
 ### Deploying and Verifying (devcontainer only)
 
 **IMPORTANT:** All development, deployment, and testing MUST happen inside the devcontainer.
-`make deploy` copies files to `/config` and reloads via `localhost:8123`.
-It NEVER writes to any remote host. Never run deploy targeting `homeassistant.stahmer.lan`
-or any external HA instance.
+`make deploy` copies files to `/config` and restarts HA via `localhost:8123` so the new
+code is actually re-imported. It NEVER writes to any remote host. Never run deploy
+targeting `homeassistant.stahmer.lan` or any external HA instance.
+
+**Reload is not enough for code changes:** a config-entry *reload* re-runs setup on the
+already-imported Python module in `sys.modules` — it does not re-read the `.py` files
+from disk. Copying new files and only reloading the config entry will silently keep
+running the old code with no error. Only a full HA restart re-imports the module, which
+is why `make deploy` restarts rather than reloads.
 
 After implementing and merging a fix:
 
@@ -413,7 +419,7 @@ After implementing and merging a fix:
    ```bash
    make deploy
    ```
-   The script copies `custom_components/omada_open_api/` to `/config/custom_components/` and calls the HA REST API at `localhost:8123` to reload. `HASS_TOKEN` is read from `.claude/settings.json`.
+   The script copies `custom_components/omada_open_api/` to `/config/custom_components/` and calls the HA REST API at `localhost:8123` to restart Home Assistant (`homeassistant.restart` service), so the new code is re-imported rather than silently reusing the old module. `HASS_TOKEN` is read from `.claude/settings.json`.
 
 3. **Verify entities via MCP** (project-scoped `ha-mcp` in `.claude/settings.json`):
    - Use `mcp__home-assistant__ha_get_state` or `mcp__home-assistant__ha_search_entities`
