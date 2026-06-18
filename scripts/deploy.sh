@@ -74,7 +74,7 @@ fi
 for entry_id in $ENTRIES; do
   curl -sf -X POST \
     -H "Authorization: Bearer ${HA_TOKEN}" \
-    "${HA_API}/config/config_entries/${entry_id}/reload" > /dev/null
+    "${HA_API}/config/config_entries/entry/${entry_id}/reload" > /dev/null
   echo "  ✅ Reloaded entry ${entry_id}"
 done
 
