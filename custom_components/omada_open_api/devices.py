@@ -160,7 +160,6 @@ def process_device(device: dict[str, Any]) -> dict[str, Any]:
         "status": device.get("status"),
         "status_category": device.get("statusCategory"),
         "detail_status": device.get("detailStatus"),
-        "need_upgrade": device.get("needUpgrade", False),
         "last_seen": device.get("lastSeen"),
         # Network
         "ip": device.get("ip"),

@@ -125,7 +125,7 @@ def test_process_device_minimal() -> None:
     assert result["model"] == "Unknown"
     assert result["type"] == "unknown"
     assert result["client_num"] == 0
-    assert result["need_upgrade"] is False
+    assert "need_upgrade" not in result
 
 
 def test_process_device_maps_public_ip() -> None:
