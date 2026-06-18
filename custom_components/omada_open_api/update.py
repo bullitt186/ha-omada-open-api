@@ -123,19 +123,15 @@ class OmadaDeviceUpdateEntity(
     def latest_version(self) -> str | None:
         """Return the latest available firmware version.
 
-        Uses the device's ``need_upgrade`` flag as the primary signal:
-        when the controller reports no upgrade is needed, return the
-        installed version so HA immediately shows "Up to date".
+        Reads the cached ``lastFwVer`` from the coordinator's firmware
+        info — present only when the controller actually has a newer
+        firmware available. Falls back to the installed version when
+        absent, so HA shows "Up to date" until a real update appears.
         """
         device = self.coordinator.data.get("devices", {}).get(self._device_mac)
         if device is None:
             return self.installed_version
 
-        if not device.get("need_upgrade", False):
-            # Controller says no upgrade available — entity is up to date.
-            return self.installed_version
-
-        # Upgrade available — return the latest version from firmware info.
         fw_info: dict[str, Any] = self.coordinator.data.get("firmware_info", {}).get(
             self._device_mac, {}
         )

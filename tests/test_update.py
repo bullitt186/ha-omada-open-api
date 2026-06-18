@@ -184,9 +184,11 @@ async def test_update_latest_version_fallback(hass: HomeAssistant) -> None:
     assert entity.latest_version == entity.installed_version
 
 
-async def test_update_latest_version_no_upgrade_needed(hass: HomeAssistant) -> None:
-    """Test latest_version returns installed_version when needUpgrade is False."""
-    device = {**SAMPLE_DEVICE_AP, "needUpgrade": False}
+async def test_update_latest_version_ignores_absent_upgrade_flag(
+    hass: HomeAssistant,
+) -> None:
+    """Test latest_version reports newer firmware with no upgrade-flag field at all."""
+    device = {k: v for k, v in SAMPLE_DEVICE_AP.items() if k != "needUpgrade"}
     firmware_info = {
         AP_MAC: {
             "curFwVer": "1.0.0",
@@ -197,9 +199,9 @@ async def test_update_latest_version_no_upgrade_needed(hass: HomeAssistant) -> N
     entity = _create_update_entity(
         hass, devices={AP_MAC: device}, firmware_info=firmware_info
     )
-    # Even though firmware_info has a newer version, need_upgrade=False
-    # means the entity should report up-to-date.
-    assert entity.latest_version == entity.installed_version
+    # latest_version must come purely from firmware_info, regardless of
+    # whether the device carries any upgrade-flag field.
+    assert entity.latest_version == "1.1.0"
 
 
 async def test_update_latest_version_device_missing(hass: HomeAssistant) -> None:
