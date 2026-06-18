@@ -623,19 +623,20 @@ async def test_site_coordinator_firmware_info_refreshes_after_interval(
     assert mock_api_client.get_firmware_info.call_count == 6
 
 
-async def test_site_coordinator_firmware_skips_devices_without_need_upgrade(
+async def test_site_coordinator_firmware_checks_all_devices(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
-    """Test that firmware info is only fetched for devices with needUpgrade."""
+    """Test firmware info is fetched for every device, ignoring any needUpgrade flag."""
     mock_api_client.get_firmware_info = AsyncMock(
         return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
     )
-    # Only AP needs upgrade; switch and gateway don't.
-    ap_with_upgrade = {**SAMPLE_DEVICE_AP, "needUpgrade": True}
-    switch_no_upgrade = {**SAMPLE_DEVICE_SWITCH, "needUpgrade": False}
-    gateway_no_upgrade = {**SAMPLE_DEVICE_GATEWAY, "needUpgrade": False}
+    # None of these devices report needUpgrade=True — all three must still be checked,
+    # since the real API never reports this field and it must not gate the real check.
+    no_upgrade_ap = {**SAMPLE_DEVICE_AP, "needUpgrade": False}
+    no_upgrade_switch = {**SAMPLE_DEVICE_SWITCH, "needUpgrade": False}
+    no_upgrade_gateway = {**SAMPLE_DEVICE_GATEWAY, "needUpgrade": False}
     mock_api_client.get_devices = AsyncMock(
-        return_value=[ap_with_upgrade, switch_no_upgrade, gateway_no_upgrade]
+        return_value=[no_upgrade_ap, no_upgrade_switch, no_upgrade_gateway]
     )
 
     coordinator = OmadaSiteCoordinator(
@@ -646,12 +647,11 @@ async def test_site_coordinator_firmware_skips_devices_without_need_upgrade(
     )
 
     await coordinator.async_refresh()
-    # Only 1 device needs upgrade, so only 1 firmware info fetch.
-    assert mock_api_client.get_firmware_info.call_count == 1
+    assert mock_api_client.get_firmware_info.call_count == 3
     fw = coordinator.data["firmware_info"]
     assert SAMPLE_DEVICE_AP["mac"] in fw
-    assert SAMPLE_DEVICE_SWITCH["mac"] not in fw
-    assert SAMPLE_DEVICE_GATEWAY["mac"] not in fw
+    assert SAMPLE_DEVICE_SWITCH["mac"] in fw
+    assert SAMPLE_DEVICE_GATEWAY["mac"] in fw
 
 
 async def test_site_coordinator_firmware_info_error_per_device(
@@ -754,15 +754,15 @@ async def test_site_coordinator_restores_polling_after_upgrade(
     assert coordinator._upgrade_active is False  # noqa: SLF001
 
 
-async def test_site_coordinator_firmware_cache_reset_after_upgrade(
+async def test_site_coordinator_firmware_cache_reset_after_upgrade_cooldown(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
-    """Test that stale firmware info is cleared when upgrade completes."""
+    """Test cooldown-triggered cache reset forces a fresh fetch for all devices."""
     mock_api_client.get_firmware_info = AsyncMock(
         return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
     )
 
-    # First refresh: device upgrading, firmware info fetched (needUpgrade=True).
+    # First refresh: device upgrading, firmware info fetched for both devices.
     upgrading_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 12}
     mock_api_client.get_devices = AsyncMock(
         return_value=[SAMPLE_DEVICE_AP, upgrading_switch]
@@ -777,28 +777,52 @@ async def test_site_coordinator_firmware_cache_reset_after_upgrade(
 
     await coordinator.async_refresh()
     first_call_count = mock_api_client.get_firmware_info.call_count
-    assert first_call_count == 2  # 2 devices with needUpgrade=True
+    assert first_call_count == 2  # both devices checked, unconditionally
 
-    # Second refresh: still upgrading — firmware cache NOT bypassed.
+    # Second refresh: still upgrading, within the cache window — no new fetch.
     await coordinator.async_refresh()
     assert mock_api_client.get_firmware_info.call_count == first_call_count
 
-    # Third refresh: upgrade finished — needUpgrade is now False for the switch.
-    # Cooldown starts, cache reset takes effect in the same cycle.
-    normal_switch = {
-        **SAMPLE_DEVICE_SWITCH,
-        "detailStatus": 14,
-        "needUpgrade": False,
-    }
+    # Third refresh: upgrade finished — cooldown starts, cache reset takes
+    # effect in the SAME cycle (the ordering this test guards).
+    normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
     mock_api_client.get_devices = AsyncMock(
         return_value=[SAMPLE_DEVICE_AP, normal_switch]
     )
     await coordinator.async_refresh()
-    # Firmware info re-fetched in the SAME cycle due to order swap.
-    # Only the AP still needs upgrade, so only 1 new fetch.
-    assert mock_api_client.get_firmware_info.call_count > first_call_count
-    # The switch's stale firmware_info should be cleared.
+    # Cache reset forced a fresh fetch for both devices again this cycle.
+    assert mock_api_client.get_firmware_info.call_count == first_call_count + 2
+
+
+async def test_site_coordinator_firmware_info_purged_when_device_disappears(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test firmware_info is purged only once a device leaves the device list."""
+    mock_api_client.get_firmware_info = AsyncMock(
+        return_value={"curFwVer": "1.0.0", "lastFwVer": "1.1.0", "fwReleaseLog": "Fix"}
+    )
+    mock_api_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
     sw_mac = SAMPLE_DEVICE_SWITCH["mac"]
+    assert sw_mac in coordinator.data["firmware_info"]
+
+    # Move past the check interval, then the switch disappears entirely
+    # (e.g. unplugged/removed from the controller) rather than just changing
+    # status — this is the only case that should purge its cached entry.
+    coordinator._last_firmware_check -= timedelta(minutes=31)  # noqa: SLF001
+    mock_api_client.get_devices = AsyncMock(return_value=[SAMPLE_DEVICE_AP])
+
+    await coordinator.async_refresh()
     assert sw_mac not in coordinator.data["firmware_info"]
 
 

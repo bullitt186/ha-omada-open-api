@@ -288,10 +288,11 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Refresh firmware info if the check interval has elapsed.
 
-        Only queries the firmware endpoint for devices that have
-        ``need_upgrade`` set to True.  This avoids unnecessary API
-        calls for devices already on the latest firmware.  Stale cache
-        entries for devices that no longer need an upgrade are removed.
+        Queries the firmware endpoint for every known device — the
+        device-list endpoint never reports whether an upgrade is
+        needed, so the per-device ``latest-firmware-info`` endpoint is
+        the only reliable signal.  Stale cache entries for devices
+        that have disappeared from the network are removed.
 
         Args:
             devices: Processed device dict keyed by MAC.
@@ -305,19 +306,13 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         ):
             return
 
-        # Only fetch firmware details for devices that need an upgrade.
-        macs_needing_upgrade = [
-            mac for mac, dev in devices.items() if dev.get("need_upgrade", False)
-        ]
-
         _LOGGER.debug(
-            "Refreshing firmware info for %d/%d devices in site %s",
-            len(macs_needing_upgrade),
+            "Refreshing firmware info for %d devices in site %s",
             len(devices),
             self.site_name,
         )
 
-        for mac in macs_needing_upgrade:
+        for mac in devices:
             try:
                 info = await self.api_client.get_firmware_info(self.site_id, mac)
                 self._firmware_info[mac] = info
@@ -325,8 +320,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("Could not fetch firmware info for %s: %s", mac, err)
                 # Keep stale data if present; otherwise skip this device.
 
-        # Remove cached entries for devices no longer needing upgrade.
-        stale_macs = set(self._firmware_info) - set(macs_needing_upgrade)
+        # Remove cached entries for devices no longer present in the network.
+        stale_macs = set(self._firmware_info) - set(devices)
         for mac in stale_macs:
             del self._firmware_info[mac]
 
