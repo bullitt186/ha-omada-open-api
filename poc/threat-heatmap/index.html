@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Omada Threat Heatmap POC</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b0d10;
+        --panel: #151a20;
+        --line: #2d3540;
+        --text: #e8edf2;
+        --muted: #9aa6b2;
+        --accent: #5fd3ff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .app {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 100vh;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(11, 13, 16, 0.92);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .meta {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .bounds {
+        margin-top: 3px;
+        color: #74808c;
+        font-size: 12px;
+      }
+
+      .controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      label {
+        display: grid;
+        gap: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      select {
+        min-width: 92px;
+        height: 28px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #0f141a;
+        color: var(--text);
+      }
+
+      input[type="range"] {
+        width: 110px;
+        accent-color: var(--accent);
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        min-height: 0;
+      }
+
+      .map-wrap {
+        position: relative;
+        min-height: 0;
+        overflow: hidden;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+          #101923;
+        background-size: 8.333333% 16.666667%;
+      }
+
+      .map {
+        position: absolute;
+        inset: 0;
+        margin: auto;
+        width: min(100vw, calc((100vh - 64px) * 2));
+        max-width: 100%;
+        aspect-ratio: var(--map-aspect, 2);
+        background: #111820;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.07);
+        overflow: hidden;
+      }
+
+      .map::before,
+      .map::after {
+        position: absolute;
+        inset: 0;
+        content: "";
+      }
+
+      .map::before {
+        background-image: url("https://upload.wikimedia.org/wikipedia/commons/thumb/8/83/Equirectangular_projection_SW.jpg/1280px-Equirectangular_projection_SW.jpg");
+        background-size: 100% 100%;
+        background-position: center;
+        width: var(--world-w, 100%);
+        height: var(--world-h, 100%);
+        left: var(--world-left, 0%);
+        top: var(--world-top, 0%);
+        right: auto;
+        bottom: auto;
+      }
+
+      .map::after {
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .map-style-dark::before {
+        filter: invert(1) hue-rotate(180deg) saturate(0.8) brightness(0.5)
+          contrast(1.2);
+        opacity: 0.88;
+      }
+
+      .map-style-dark::after {
+        background: rgba(4, 11, 18, 0.28);
+      }
+
+      .map-style-muted::before {
+        filter: grayscale(1) brightness(0.58) contrast(1.05);
+        opacity: 0.72;
+      }
+
+      .map-style-muted::after {
+        background: rgba(10, 16, 21, 0.38);
+      }
+
+      .map-style-contrast::before {
+        filter: grayscale(1) brightness(0.28) contrast(2.2);
+        opacity: 0.95;
+      }
+
+      .map-style-contrast::after {
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+        background-size: 8.333333% 16.666667%;
+      }
+
+      .map-style-light::before {
+        filter: saturate(0.85) brightness(0.9) contrast(0.95);
+        opacity: 0.8;
+      }
+
+      .map-style-light::after {
+        background: rgba(9, 14, 18, 0.12);
+      }
+
+      .map-style-grid::before {
+        opacity: 0;
+      }
+
+      .map-style-grid::after {
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.13) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.13) 1px, transparent 1px),
+          radial-gradient(circle at center, rgba(95, 211, 255, 0.1), transparent 65%);
+        background-size: 8.333333% 16.666667%, 8.333333% 16.666667%, 100% 100%;
+      }
+
+      canvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+      }
+
+      .sidebar {
+        overflow: auto;
+        border-left: 1px solid var(--line);
+        background: var(--panel);
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        background: var(--line);
+      }
+
+      .stat {
+        padding: 14px;
+        background: var(--panel);
+      }
+
+      .stat b {
+        display: block;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      .stat span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .list {
+        display: grid;
+      }
+
+      .point {
+        padding: 12px 14px;
+        border-top: 1px solid var(--line);
+      }
+
+      .point-title {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 6px;
+      }
+
+      .point-title strong {
+        font-size: 14px;
+      }
+
+      .point-title b {
+        color: var(--accent);
+        font-size: 16px;
+      }
+
+      .point p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .error {
+        position: absolute;
+        inset: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      @media (max-width: 900px) {
+        header {
+          align-items: flex-start;
+          flex-direction: column;
+        }
+
+        main {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(280px, 58vh) auto;
+        }
+
+        .sidebar {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header>
+        <div>
+          <h1>Omada Threat Heatmap POC</h1>
+          <div class="meta" id="meta">Loading threat-heatmap-data.json</div>
+          <div class="bounds" id="bounds"></div>
+        </div>
+        <div class="controls">
+          <label>
+            Radius
+            <input id="radius" type="range" min="4" max="80" value="24" />
+          </label>
+          <label>
+            Blur
+            <input id="blur" type="range" min="0" max="80" value="14" />
+          </label>
+          <label>
+            Opacity
+            <input id="opacity" type="range" min="0" max="40" value="16" />
+          </label>
+          <label>
+            Floor
+            <input id="floor" type="range" min="0" max="60" value="32" />
+          </label>
+          <label>
+            Scale
+            <select id="scale">
+              <option value="log" selected>Log</option>
+              <option value="sqrt">Sqrt</option>
+              <option value="linear">Linear</option>
+            </select>
+          </label>
+          <label>
+            Map
+            <select id="mapStyle">
+              <option value="dark" selected>Dark</option>
+              <option value="muted">Muted</option>
+              <option value="contrast">Contrast</option>
+              <option value="light">Light</option>
+              <option value="grid">Grid</option>
+            </select>
+          </label>
+          <label>
+            Crop
+            <select id="crop">
+              <option value="threats" selected>Threats XY</option>
+              <option value="threatsLat">Threats Lat</option>
+              <option value="world">World</option>
+              <option value="noAntarctica">No Antarctica</option>
+              <option value="temperate">Temperate</option>
+            </select>
+          </label>
+        </div>
+      </header>
+      <main>
+        <section class="map-wrap">
+          <div class="map" id="map">
+            <canvas id="heat"></canvas>
+          </div>
+          <div class="error" id="error" hidden></div>
+        </section>
+        <aside class="sidebar">
+          <div class="summary" id="summary"></div>
+          <div class="list" id="list"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script src="https://unpkg.com/simpleheat@0.4.0/simpleheat.js"></script>
+    <script>
+      const state = {
+        data: null,
+        heat: null,
+        points: [],
+      };
+
+      const canvas = document.querySelector("#heat");
+      const map = document.querySelector("#map");
+      const meta = document.querySelector("#meta");
+      const boundsLabel = document.querySelector("#bounds");
+      const error = document.querySelector("#error");
+      const summary = document.querySelector("#summary");
+      const list = document.querySelector("#list");
+      const controls = {
+        radius: document.querySelector("#radius"),
+        blur: document.querySelector("#blur"),
+        opacity: document.querySelector("#opacity"),
+        floor: document.querySelector("#floor"),
+        scale: document.querySelector("#scale"),
+        mapStyle: document.querySelector("#mapStyle"),
+        crop: document.querySelector("#crop"),
+      };
+
+      function formatDate(seconds) {
+        return new Date(seconds * 1000).toLocaleString();
+      }
+
+      function cropBounds() {
+        if (controls.crop.value === "world") {
+          return { north: 90, south: -90, west: -180, east: 180 };
+        }
+        if (controls.crop.value === "noAntarctica") {
+          return { north: 85, south: -60, west: -180, east: 180 };
+        }
+        if (controls.crop.value === "temperate") {
+          return { north: 70, south: -55, west: -180, east: 180 };
+        }
+
+        const latitudes = (state.data?.points || [])
+          .map((point) => point.lat)
+          .filter((lat) => Number.isFinite(lat));
+        const longitudes = (state.data?.points || [])
+          .map((point) => point.lon)
+          .filter((lon) => Number.isFinite(lon));
+        if (!latitudes.length || !longitudes.length) {
+          return { north: 85, south: -60, west: -180, east: 180 };
+        }
+        const latPadding = 7;
+        const lonPadding = 12;
+        const cropLongitude = controls.crop.value === "threats";
+        return {
+          north: Math.min(85, Math.max(...latitudes) + latPadding),
+          south: Math.max(-60, Math.min(...latitudes) - latPadding),
+          west: cropLongitude
+            ? Math.max(-180, Math.min(...longitudes) - lonPadding)
+            : -180,
+          east: cropLongitude
+            ? Math.min(180, Math.max(...longitudes) + lonPadding)
+            : 180,
+        };
+      }
+
+      function project(lat, lon, width, height) {
+        const bounds = cropBounds();
+        const latSpan = bounds.north - bounds.south;
+        const lonSpan = bounds.east - bounds.west;
+        return [
+          ((lon - bounds.west) / lonSpan) * width,
+          ((bounds.north - lat) / latSpan) * height,
+        ];
+      }
+
+      function updateMapCrop() {
+        const bounds = cropBounds();
+        const latSpan = bounds.north - bounds.south;
+        const lonSpan = bounds.east - bounds.west;
+        const worldWidth = (360 / lonSpan) * 100;
+        const worldHeight = (180 / latSpan) * 100;
+        const worldLeft = -((bounds.west + 180) / lonSpan) * 100;
+        const worldTop = -((90 - bounds.north) / latSpan) * 100;
+        map.style.setProperty("--world-w", `${worldWidth}%`);
+        map.style.setProperty("--world-h", `${worldHeight}%`);
+        map.style.setProperty("--world-left", `${worldLeft}%`);
+        map.style.setProperty("--world-top", `${worldTop}%`);
+        map.style.setProperty("--map-aspect", `${lonSpan / latSpan}`);
+        boundsLabel.textContent =
+          `Bounds: ${bounds.south.toFixed(1)} to ${bounds.north.toFixed(1)} lat, ` +
+          `${bounds.west.toFixed(1)} to ${bounds.east.toFixed(1)} lon`;
+      }
+
+      function scaledValue(value) {
+        if (controls.scale.value === "linear") return value;
+        if (controls.scale.value === "sqrt") return Math.sqrt(value);
+        return Math.log1p(value);
+      }
+
+      function resizeCanvas() {
+        const rect = map.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.round(rect.width * dpr));
+        canvas.height = Math.max(1, Math.round(rect.height * dpr));
+        canvas.style.width = `${rect.width}px`;
+        canvas.style.height = `${rect.height}px`;
+      }
+
+      function buildHeatPoints() {
+        const width = canvas.width;
+        const height = canvas.height;
+        const rawValues = state.data.points.map((point) => scaledValue(point.value));
+        const maxValue = Math.max(...rawValues, 1);
+        const floor = Number(controls.floor.value) / 100;
+        state.points = state.data.points
+          .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lon))
+          .map((point) => {
+            const [x, y] = project(point.lat, point.lon, width, height);
+            const normalized = scaledValue(point.value) / maxValue;
+            const boosted = floor + normalized * (1 - floor);
+            return [x, y, boosted * maxValue];
+          });
+      }
+
+      function draw() {
+        if (!state.data || !window.simpleheat) return;
+        updateMapCrop();
+        resizeCanvas();
+        buildHeatPoints();
+        if (!state.heat) state.heat = simpleheat(canvas);
+        const maxValue = Math.max(
+          ...state.data.points.map((point) => scaledValue(point.value)),
+          1,
+        );
+        state.heat
+          .data(state.points)
+          .max(maxValue)
+          .radius(Number(controls.radius.value), Number(controls.blur.value))
+          .gradient({
+            0.2: "#2b7bff",
+            0.45: "#39d98a",
+            0.7: "#ffe15c",
+            1.0: "#ff4d4d",
+          })
+          .draw(Number(controls.opacity.value) / 100);
+      }
+
+      function renderSidebar() {
+        const points = state.data.points || [];
+        summary.innerHTML = `
+          <div class="stat"><b>${state.data.total_rows}</b><span>Threat rows</span></div>
+          <div class="stat"><b>${points.length}</b><span>Heat points</span></div>
+          <div class="stat"><b>${state.data.max}</b><span>Peak country value</span></div>
+          <div class="stat"><b>${formatDate(state.data.window_start).split(",")[0]}</b><span>Window start</span></div>
+        `;
+        list.innerHTML = points
+          .slice(0, 20)
+          .map((point) => {
+            const signature =
+              point.top_signatures?.[0]?.[0] || "No signature sample";
+            return `
+              <article class="point">
+                <div class="point-title">
+                  <strong>${point.country} (${point.lat}, ${point.lon})</strong>
+                  <b>${point.value}</b>
+                </div>
+                <p>${signature}</p>
+                <p>Samples: ${(point.sample_ips || []).join(", ") || "none"}</p>
+              </article>
+            `;
+          })
+          .join("");
+      }
+
+      async function loadData() {
+        if (!window.simpleheat) {
+          throw new Error("simpleheat failed to load from the CDN.");
+        }
+        const response = await fetch("threat-heatmap-data.json", {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(`Unable to load threat-heatmap-data.json (${response.status})`);
+        }
+        state.data = await response.json();
+        meta.textContent = `${state.data.fetched_rows} rows, ${state.data.points.length} points, ${formatDate(state.data.window_start)} - ${formatDate(state.data.window_end)}`;
+        renderSidebar();
+        draw();
+      }
+
+      for (const input of Object.values(controls)) {
+        input.addEventListener("input", draw);
+      }
+
+      controls.mapStyle.addEventListener("change", () => {
+        map.className = `map map-style-${controls.mapStyle.value}`;
+      });
+
+      controls.crop.addEventListener("change", draw);
+
+      map.className = `map map-style-${controls.mapStyle.value}`;
+
+      new ResizeObserver(draw).observe(map);
+
+      loadData().catch((err) => {
+        error.hidden = false;
+        error.textContent = `${err.message}. Run the exporter and serve this folder with python3 -m http.server.`;
+        meta.textContent = "Data not loaded";
+      });
+    </script>
+  </body>
+</html>

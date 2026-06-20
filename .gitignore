@@ -71,6 +71,7 @@ config/
 .mypy_cache/
 .ruff_cache/
 openapi/openapi.json
+poc/threat-heatmap/threat-heatmap-data.json
 .env
 ha-developer-docs/
 .claude

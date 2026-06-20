@@ -7,6 +7,8 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
         "visualstudioexptteam.vscodeintellicode"
       ],
       "settings": {
@@ -33,7 +35,10 @@
   "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv --clear .venv && .venv/bin/pip install -r requirements_dev.txt && pre-commit install",
   "remoteUser": "vscode",
   "features": {
-    "ghcr.io/devcontainers/features/git:1": {}
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    }
   },
   "forwardPorts": [8123],
   "portsAttributes": {

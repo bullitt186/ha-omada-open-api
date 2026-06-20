@@ -18,6 +18,22 @@ Usage:
         --param device_type=switch \
         --param interval=hourly
 
+    # Fetch one page of threat-management rows as raw result JSON
+    python scripts/omada_api_inspect.py security/threat-management \
+        --max-pages 1 \
+        --output raw-result \
+        --param siteList={siteId} \
+        --param archived=false \
+        --param filters.startTime=1780000000 \
+        --param filters.endTime=1782000000
+
+    # POST a JSON body to an endpoint
+    python scripts/omada_api_inspect.py security/threat-map \
+        --method post \
+        --json start=1780000000000 \
+        --json end=1782000000000 \
+        --json sites={siteId}
+
 Required environment variables (or set in .env at repo root):
     OMADA_API_URL       e.g. https://use1-omada-northbound.tplinkcloud.com
     OMADA_ID            omadacId value
@@ -36,6 +52,7 @@ import json
 import os
 from pathlib import Path
 import sys
+from typing import Any
 
 import aiohttp
 
@@ -79,7 +96,82 @@ async def _get_token(
     return str(data["result"]["accessToken"])
 
 
-async def _fetch(path: str, extra_params: dict[str, str], page_size: int) -> None:
+def _parse_scalar(value: str) -> str | int | float | bool | None:
+    """Parse a CLI scalar into a JSON-compatible value."""
+    lower = value.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    if lower == "null":
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
+
+
+def _parse_key_values(items: list[str]) -> dict[str, Any]:
+    """Parse repeated KEY=VALUE CLI arguments."""
+    parsed: dict[str, Any] = {}
+    for kv in items:
+        if "=" not in kv:
+            print(  # noqa: T201
+                f"Invalid KEY=VALUE format: {kv}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        k, _, v = kv.partition("=")
+        parsed[k.strip()] = _parse_scalar(v.strip())
+    return parsed
+
+
+def _load_body(body_file: str | None, body_items: list[str]) -> dict[str, Any] | None:
+    """Load a JSON request body from a file and repeated KEY=VALUE items."""
+    body: dict[str, Any] = {}
+    if body_file:
+        try:
+            loaded = json.loads(Path(body_file).read_text())
+        except OSError as err:
+            print(f"Unable to read body file: {err}", file=sys.stderr)  # noqa: T201
+            sys.exit(1)
+        except json.JSONDecodeError as err:
+            print(f"Invalid JSON body file: {err}", file=sys.stderr)  # noqa: T201
+            sys.exit(1)
+        if not isinstance(loaded, dict):
+            print("JSON body file must contain an object.", file=sys.stderr)  # noqa: T201
+            sys.exit(1)
+        body.update(loaded)
+    body.update(_parse_key_values(body_items))
+    return body or None
+
+
+def _query_value(value: Any) -> str | int | float:
+    """Convert parsed CLI values into aiohttp-compatible query values."""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return ""
+    if isinstance(value, str | int | float):
+        return value
+    return str(value)
+
+
+async def _fetch(
+    path: str,
+    extra_params: dict[str, Any],
+    *,
+    api_version: str,
+    body: dict[str, Any] | None,
+    max_pages: int | None,
+    method: str,
+    output: str,
+    page_size: int,
+) -> None:
     """Fetch and print the API response for the given path."""
     _load_dotenv()
 
@@ -112,22 +204,30 @@ async def _fetch(path: str, extra_params: dict[str, str], page_size: int) -> Non
 
         headers = {"Authorization": f"AccessToken={access_token}"}
 
-        # Expand {omadacId} placeholder in path
+        # Expand {omadacId} placeholder in path.
         resolved_path = path.replace("{omadacId}", omada_id)
-        url = f"{api_url}/openapi/v1/{omada_id}/{resolved_path.lstrip('/')}"
+        url = f"{api_url}/openapi/{api_version}/{omada_id}/{resolved_path.lstrip('/')}"
 
         all_items: list[object] = []
         page = 1
 
-        print(f"GET {url}", file=sys.stderr)  # noqa: T201
+        print(f"{method.upper()} {url}", file=sys.stderr)  # noqa: T201
 
         while True:
             params: dict[str, str | int] = {"pageSize": page_size, "page": page}
-            params.update(extra_params)
+            params.update(
+                {key: _query_value(value) for key, value in extra_params.items()}
+            )
 
-            async with session.get(
-                url, headers=headers, params=params, ssl=False
-            ) as resp:
+            request_kwargs: dict[str, Any] = {
+                "headers": headers,
+                "params": params,
+                "ssl": False,
+            }
+            if method == "post":
+                request_kwargs["json"] = body or {}
+
+            async with getattr(session, method)(url, **request_kwargs) as resp:
                 data = await resp.json()
 
             if data.get("errorCode", -1) != 0:
@@ -135,6 +235,13 @@ async def _fetch(path: str, extra_params: dict[str, str], page_size: int) -> Non
                 return
 
             result = data.get("result", {})
+
+            if output == "full":
+                print(json.dumps(data, indent=2))  # noqa: T201
+                return
+            if output == "raw-result":
+                print(json.dumps(result, indent=2))  # noqa: T201
+                return
 
             # Handle both list and paginated dict responses.
             if isinstance(result, list):
@@ -155,6 +262,8 @@ async def _fetch(path: str, extra_params: dict[str, str], page_size: int) -> Non
                 )
                 if len(all_items) >= total or len(items) < page_size:
                     break
+                if max_pages is not None and page >= max_pages:
+                    break
                 page += 1
             else:
                 # Non-paginated single object.
@@ -172,7 +281,19 @@ def main() -> None:
     )
     parser.add_argument(
         "path",
-        help="API path relative to /openapi/v1/{omadacId}/ (e.g. sites, sites/{siteId}/devices)",
+        help="API path relative to /openapi/{version}/{omadacId}/ (e.g. sites, sites/{siteId}/devices)",
+    )
+    parser.add_argument(
+        "--api-version",
+        default="v1",
+        choices=("v1", "v2", "v3"),
+        help="OpenAPI version path segment (default: v1)",
+    )
+    parser.add_argument(
+        "--method",
+        choices=("get", "post"),
+        default="get",
+        help="HTTP method to use (default: get)",
     )
     parser.add_argument(
         "--param",
@@ -188,20 +309,49 @@ def main() -> None:
         default=1000,
         help="Items per page for paginated endpoints (default: 1000)",
     )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        help="Maximum number of paginated pages to fetch.",
+    )
+    parser.add_argument(
+        "--json",
+        action="append",
+        metavar="KEY=VALUE",
+        default=[],
+        help="JSON body field for POST requests (repeatable).",
+    )
+    parser.add_argument(
+        "--body-file",
+        help="Path to a JSON object file to use as the request body.",
+    )
+    parser.add_argument(
+        "--output",
+        choices=("items", "raw-result", "full"),
+        default="items",
+        help="Output shape: paginated items, raw result, or full API response.",
+    )
     args = parser.parse_args()
 
-    extra: dict[str, str] = {}
-    for kv in args.param:
-        if "=" not in kv:
-            print(  # noqa: T201
-                f"Invalid --param format (expected KEY=VALUE): {kv}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        k, _, v = kv.partition("=")
-        extra[k.strip()] = v.strip()
+    if args.method == "get" and (args.json or args.body_file):
+        print("Request bodies are only supported with --method post.", file=sys.stderr)  # noqa: T201
+        sys.exit(1)
+    if args.max_pages is not None and args.max_pages < 1:
+        print("--max-pages must be at least 1.", file=sys.stderr)  # noqa: T201
+        sys.exit(1)
 
-    asyncio.run(_fetch(args.path, extra, args.page_size))
+    asyncio.run(
+        _fetch(
+            args.path,
+            _parse_key_values(args.param),
+            api_version=args.api_version,
+            body=_load_body(args.body_file, args.json),
+            max_pages=args.max_pages,
+            method=args.method,
+            output=args.output,
+            page_size=args.page_size,
+        )
+    )
 
 
 if __name__ == "__main__":

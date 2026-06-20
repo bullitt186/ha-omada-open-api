@@ -4,6 +4,8 @@ services:
     image: mcr.microsoft.com/devcontainers/python:3.14
     volumes:
       - ..:/workspaces/ha-omada-open-api:cached
+      # Sibling custom-card repository for joint backend/frontend development.
+      - ../../ha-world-heatmap-card:/workspaces/ha-world-heatmap-card:cached
       - ha-config:/config
     working_dir: /workspaces/ha-omada-open-api
     command: sleep infinity
@@ -20,6 +22,10 @@ services:
       - ha-config:/config
       # Mount the integration directly so it's always in sync
       - ../custom_components/omada_open_api:/config/custom_components/omada_open_api:ro
+      # Mount the separately built custom card into /local/.
+      # Home Assistant resource URL:
+      # /local/ha-world-heatmap-card/world-heatmap-card.js
+      - ../../ha-world-heatmap-card/dist:/config/www/ha-world-heatmap-card:ro
     ports:
       - "8123:8123"
     environment:
