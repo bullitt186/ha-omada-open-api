@@ -430,6 +430,8 @@ For more details, see the [removal instructions rule](ha-developer-docs/core/int
 3. Ensure outbound HTTPS is not blocked by a firewall
 4. Use **Settings → Devices & Services → TP-Link Omada Open API → Reauthenticate** to re-enter credentials
 
+> **Cloud setup fails with "Controller ID not exist" (error -7131)?** This means your Omada ID will never resolve, no matter how carefully you re-copy it — **Omada Cloud/Central Essentials (the free tier) does not support Open API at all**, confirmed directly by TP-Link support. Open API on the cloud requires the paid **Omada Cloud/Central Standard** tier (device license fee). If you don't want to pay for that, use a self-hosted **Omada Software Controller** or supported **Hardware Controller** (not OC200, which doesn't support Open API either) with this integration's **Local** controller type instead — cloud access for those is free and Open API works the same way.
+
 ### No Entities Created
 
 1. Verify you selected at least one site during setup

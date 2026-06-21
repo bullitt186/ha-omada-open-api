@@ -97,6 +97,21 @@ def _classify_connection_error(err: aiohttp.ClientError) -> str:
     return "cannot_connect"
 
 
+# Omada error -7131 ("Controller ID not exist") means the Omada ID can never
+# resolve via cloud OpenAPI — Omada Cloud/Central Essentials (the free tier)
+# doesn't support Open API at all, confirmed by TP-Link support. Re-checking
+# the Omada ID will not help, so this gets a dedicated, actionable message
+# instead of the generic "check your credentials" invalid_auth string.
+_CONTROLLER_ID_NOT_FOUND_ERROR_CODE = -7131
+
+
+def _invalid_auth_error_key(err: InvalidAuthError) -> str:
+    """Map an InvalidAuthError to the most specific translation error key."""
+    if err.error_code == _CONTROLLER_ID_NOT_FOUND_ERROR_CODE:
+        return "controller_id_not_found_free_tier"
+    return "invalid_auth"
+
+
 def extract_ssids_from_clients(clients: list[dict[str, Any]]) -> list[str]:
     """Extract unique, sorted SSIDs from a list of client dicts.
 
@@ -310,9 +325,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     err,
                 )
                 errors["base"] = error_key
-            except InvalidAuthError:
+            except InvalidAuthError as err:
                 _LOGGER.warning("Invalid authentication for %s", self._api_url)
-                errors["base"] = "invalid_auth"
+                errors["base"] = _invalid_auth_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception during authentication")
                 errors["base"] = "unknown"
@@ -604,7 +619,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.error(
                     "API error during authentication: %s - %s", error_code, error_msg
                 )
-                raise InvalidAuthError(f"API error: {error_msg}")
+                raise InvalidAuthError(f"API error: {error_msg}", error_code=error_code)
 
             return result["result"]  # type: ignore[no-any-return]
 
@@ -959,8 +974,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 errors["base"] = error_key
                 return self._show_reconfigure_form(reconfigure_entry, errors)
-            except InvalidAuthError:
-                errors["base"] = "invalid_auth"
+            except InvalidAuthError as err:
+                errors["base"] = _invalid_auth_error_key(err)
                 return self._show_reconfigure_form(reconfigure_entry, errors)
             except Exception:
                 _LOGGER.exception("Unexpected exception during reconfigure")
@@ -1158,8 +1173,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     "Connection error during reauth (%s): %s", error_key, err
                 )
                 errors["base"] = error_key
-            except InvalidAuthError:
-                errors["base"] = "invalid_auth"
+            except InvalidAuthError as err:
+                errors["base"] = _invalid_auth_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception during reauth")
                 errors["base"] = "unknown"
@@ -1762,3 +1777,8 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
 class InvalidAuthError(Exception):
     """Error to indicate authentication failure."""
+
+    def __init__(self, message: str, error_code: int | None = None) -> None:
+        """Initialize with the message and optional Omada API error code."""
+        super().__init__(message)
+        self.error_code = error_code

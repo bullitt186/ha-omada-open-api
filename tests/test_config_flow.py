@@ -1831,6 +1831,44 @@ async def test_get_access_token_api_error_code(
     assert result["errors"]["base"] == "invalid_auth"
 
 
+async def test_get_access_token_controller_id_not_found(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Test error -7131 shows a free-tier-specific message, not generic invalid_auth.
+
+    Error -7131 ("Controller ID not exist") means the Omada ID will never
+    resolve via cloud OpenAPI because Omada Cloud/Central Essentials (the
+    free tier) doesn't support Open API at all — confirmed by TP-Link
+    support. A generic "check your credentials" message sends users on a
+    wild goose chase re-copying an ID that was never going to work.
+    """
+    _register_token_endpoint(
+        aioclient_mock,
+        json_data={"errorCode": -7131, "msg": "Controller ID not exist."},
+    )
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_CONTROLLER_TYPE: "cloud"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_REGION: "us"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_OMADA_ID: "test_omada",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+        },
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["errors"]["base"] == "controller_id_not_found_free_tier"
+
+
 async def test_get_sites_no_sites(hass: HomeAssistant, aioclient_mock) -> None:
     """Test _get_sites returns empty list shows no_sites error."""
     _register_token_endpoint(aioclient_mock)

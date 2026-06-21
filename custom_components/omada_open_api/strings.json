@@ -121,6 +121,7 @@
             "cannot_connect": "Failed to connect to Omada API. Check network connectivity between Home Assistant and the controller. Enable debug logging for detailed diagnostics.",
             "cannot_resolve_host": "Cannot resolve hostname. Check that the URL is correct and DNS is working on your Home Assistant host.",
             "connection_refused": "Connection refused. Verify the controller is running and the port is correct (default HTTPS port is usually 8043 for local controllers).",
+            "controller_id_not_found_free_tier": "This Omada ID was not found via the cloud Open API. Omada Cloud/Central Essentials (the free tier) does not support Open API at all, so no Omada ID will ever resolve here — re-checking the ID will not help. Upgrade to Omada Cloud/Central Standard, or use a self-hosted Omada Software/Hardware Controller (not OC200) with the Local controller type instead.",
             "invalid_auth": "Invalid authentication credentials. Verify your Omada ID matches the MSP/Customer ID shown in Settings > Platform Integration > Open API. Also check Client ID and Client Secret.",
             "invalid_url": "Invalid URL format. Please use http:// or https://",
             "no_sites": "No sites found on this controller. Please ensure at least one site is configured.",
