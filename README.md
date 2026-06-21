@@ -28,18 +28,12 @@
 - [Configuration](#configuration)
 - [Entities](#entities)
 - [Automation Examples](#automation-examples)
+- [Use Cases](#use-cases)
 - [Options](#options)
 - [Supported Devices](#supported-devices)
-- [Data Update](#data-update)
-- [Use Cases](#use-cases)
-- [Diagnostics](#diagnostics)
-- [Removing the Integration](#removing-the-integration)
-- [Troubleshooting](#troubleshooting)
-- [Services](#services)
-- [Reporting Issues](#reporting-issues)
 - [Known Limitations](#known-limitations)
-- [Development](#development)
-- [Contributing](#contributing)
+- [Removing the Integration](#removing-the-integration)
+- [Getting Help & Contributing](#getting-help--contributing)
 - [License](#license)
 
 ---
@@ -70,7 +64,7 @@ Not every feature works on every setup — some need specific hardware:
 
 > **World heatmap card:** Threat heatmap sensors feed the companion [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card), a generic Lovelace card for any sensor exposing this attribute shape. This integration is backend-only — install the card separately to visualize the data.
 
-> **Free cloud accounts won't work.** Omada Cloud/Central **Essentials** has no Open API support — confirmed by TP-Link support. Cloud mode needs the paid **Standard** tier or higher; otherwise use **Local** with a self-hosted controller. See [Authentication Errors](#authentication-errors) for the resulting error.
+> **Free cloud accounts won't work.** Omada Cloud/Central **Essentials** has no Open API support — confirmed by TP-Link support. Cloud mode needs the paid **Standard** tier or higher; otherwise use **Local** with a self-hosted controller. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#authentication-errors) for the resulting error.
 
 > **OC200 controllers don't support Open API**, regardless of licensing — a hardware limitation. Use a different hardware controller (e.g. OC300) or the free Software Controller instead.
 
@@ -271,6 +265,18 @@ automation:
 
 ---
 
+## Use Cases
+
+- **Network dashboard** — device status, client counts, CPU/memory, PoE budgets at a glance
+- **Presence detection** — trigger lights/locks/thermostat from device trackers
+- **PoE scheduling** — power cameras/APs/phones down at night, back up in the morning
+- **Firmware management** — get notified and install updates from HA
+- **Bandwidth alerts** — flag a client or app exceeding a traffic threshold
+- **Guest network automation** — toggle SSID broadcast by time, presence, or switch
+- **Infrastructure health** — alert on sustained high CPU/memory for proactive maintenance
+
+---
+
 ## Options
 
 After initial setup, go to **Settings → Devices & Services → TP-Link Omada Open API → Configure** to access a menu with the following configuration options:
@@ -319,132 +325,10 @@ All TP-Link Omada SDN devices accessible via the Open API are supported:
 - **Gateways**: ER and SafeStream series
 - **Clients**: Any device connected to the Omada network (wireless and wired)
 
-Device availability depends on your controller's firmware version and API access level.
+Device availability depends on your controller's firmware version and API access level. See [Features](#features) for the OC200 and free-cloud-tier limitations.
 
 ---
 
-## Data Update
-
-The integration uses Home Assistant's **DataUpdateCoordinator** pattern to fetch data efficiently from the Omada Open API. Three separate coordinators handle different data types, each with its own polling interval:
-
-| Coordinator | Default Interval | Data Fetched |
-|---|---|---|
-| **Device Coordinator** | 60 s | Infrastructure devices (APs, switches, gateways), SSIDs, PoE budgets, AP band stats, gateway temperature, uplink info, AP SSID overrides |
-| **Client Coordinator** | 30 s | Connected clients (IP, MAC, RSSI, SNR, traffic, activity rates), device tracker state |
-| **App Traffic Coordinator** | 300 s | Per-client application traffic (upload/download) from DPI data, queried from midnight to now, resets daily |
-
-### Polling Architecture
-
-- **One coordinator per site** — each selected site gets its own set of coordinators
-- **Hierarchical fetch** — device data merges supplementary info (uplink, band stats, temperature, PoE) in a single update cycle
-- **Token management** — OAuth2 tokens refresh automatically 5 minutes before expiry; expired refresh tokens trigger full re-authentication using client credentials
-- **Error recovery** — transient API failures raise `UpdateFailed`, triggering HA's automatic back-off and retry. Authentication errors raise `ConfigEntryAuthFailed`, prompting a reauth flow
-
-All polling intervals are configurable via **Options → Update Intervals** (range: 10–3600 s).
-
----
-
-## Use Cases
-
-- **Network dashboard** — device status, client counts, CPU/memory, PoE budgets at a glance
-- **Presence detection** — trigger lights/locks/thermostat from device trackers
-- **PoE scheduling** — power cameras/APs/phones down at night, back up in the morning
-- **Firmware management** — get notified and install updates from HA
-- **Bandwidth alerts** — flag a client or app exceeding a traffic threshold
-- **Guest network automation** — toggle SSID broadcast by time, presence, or switch
-- **Infrastructure health** — alert on sustained high CPU/memory for proactive maintenance
-
----
-
-## Diagnostics
-
-**Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Download diagnostics** produces a JSON file with config data, coordinator summaries (device/client counts, tracked apps), write-access status, and site device info. Tokens, secrets, MAC addresses, and IPs are redacted automatically.
-
----
-
-## Removing the Integration
-
-**Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Delete**, then confirm. This removes all entities and devices it created. To also clear config data/tokens, delete the `custom_components/omada_open_api` folder afterward.
-
----
-## Troubleshooting
-
-### Integration Not Loading
-
-1. Check Home Assistant logs at **Settings → System → Logs**
-2. Verify `custom_components/omada_open_api/manifest.json` exists
-3. Restart Home Assistant after installation
-
-### Authentication Errors
-
-1. Double-check Client ID, Client Secret, and Omada ID — no extra spaces
-2. Verify region (cloud) or API URL (local) is correct
-3. Ensure outbound HTTPS is not blocked by a firewall
-4. Use **Settings → Devices & Services → TP-Link Omada Open API → Reauthenticate** to re-enter credentials
-
-> **"Controller ID not exist" (error -7131)?** Re-copying the Omada ID won't help — the free Essentials tier has no Open API at all (see [Features](#features)). Upgrade to Standard, or switch to **Local** with a self-hosted controller.
-
-### No Entities Created
-
-1. Verify you selected at least one site during setup
-2. Check that devices and clients exist in your Omada Controller
-3. Check logs for coordinator update errors
-
-### Missing Application Traffic Sensors
-
-1. Enable **DPI** on your gateway: Omada Controller → Gateway → Settings → DPI
-2. Verify applications were selected during setup (or add them via Options → Application selection)
-3. Application data resets daily at midnight
-
-### Entities Showing "Unavailable"
-
-1. Confirm the device is online in the Omada Controller
-2. Check logs for API errors
-3. Try increasing the polling interval via Options if you hit rate limits
-
-### Token Errors
-
-Token refresh is fully automatic. If you see persistent token errors in logs, use the **Reauthenticate** flow to obtain fresh credentials.
-
-### Reconfiguring the Integration
-
-To change the controller type, API URL, credentials, or selected sites without deleting and re-adding the integration, use **Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Reconfigure**. The reconfigure flow walks through the same steps as initial setup and preserves your options (clients, applications, intervals).
-
-### Repair Notifications
-
-The integration may create repair notifications under **Settings → Repairs**:
-
-- **Read-only API credentials** — Your API application has viewer-only permissions. Device controls (PoE, LED, reboot) are unavailable. Update the application permissions in your Omada controller.
-- **No gateway for DPI tracking** — You selected applications for traffic tracking but no gateway was found. DPI requires an Omada gateway in your network.
-
----
-
-
-## Services
-
-### `omada_open_api.debug_ssid_switches`
-
-Dumps SSID switch entity diagnostics for a config entry to the HA log — useful when entities aren't created as expected.
-
-```yaml
-service: omada_open_api.debug_ssid_switches
-data:
-  config_entry_id: "your_config_entry_id_here"  # from the entity registry
-```
-
----
-
-## Reporting Issues
-
-Use our [issue templates](https://github.com/bullitt186/ha-omada-open-api/issues/new/choose): [Bug Report](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=bug_report.yml) (fill all required fields) or [Feature Request](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=feature_request.yml) (describe the problem, not just the fix). For general questions, use the [Community forum](https://community.home-assistant.io/) instead.
-
-Before reporting a bug, gather:
-
-1. Debug logs — **⋮ → Enable debug logging**, reproduce the issue, then **Settings → System → Logs** (strip tokens/secrets)
-2. Diagnostics — **⋮ → Download diagnostics**
-3. Your environment — HA version, install type, integration version, Omada Controller version, cloud or local
-
----
 ## Known Limitations
 
 - **Cloud dependency**: Cloud controllers require internet connectivity
@@ -455,46 +339,15 @@ Before reporting a bug, gather:
 
 ---
 
-## Development
+## Removing the Integration
 
-This project uses VS Code devcontainers for a consistent development environment.
-
-### Prerequisites
-
-- Docker ([Desktop](https://docs.docker.com/desktop/) or [Engine](https://docs.docker.com/engine/install/))
-- [Visual Studio Code](https://code.visualstudio.com/) with the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) extension
-
-### Getting Started
-
-```bash
-git clone https://github.com/bullitt186/ha-omada-open-api.git
-cd ha-omada-open-api
-# Open in VS Code → Reopen in Container
-# Dev HA instance at http://localhost:8123
-```
-
-### Code Quality
-
-Pre-commit hooks enforce **Ruff** (lint + format), **Pylint**, **Mypy**, and **pytest with a coverage gate** on every commit.
-
-```bash
-ruff check custom_components/ && ruff format --check custom_components/
-mypy custom_components/omada_open_api/
-pytest tests/ -v
-pytest tests/ --cov=custom_components.omada_open_api --cov-report=html
-```
+**Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Delete**, then confirm. This removes all entities and devices it created. To also clear config data/tokens, delete the `custom_components/omada_open_api` folder afterward.
 
 ---
 
-## Contributing
+## Getting Help & Contributing
 
-Contributions are welcome — bug reports, feature requests, pull requests, documentation, and testing with different Omada setups.
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes and add tests
-4. Ensure all checks pass (`pytest`, `ruff`, `mypy`, `pylint`)
-5. Open a pull request
+Something not working? See [TROUBLESHOOTING.md](TROUBLESHOOTING.md). Want to contribute code, report a bug, or request a feature? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 

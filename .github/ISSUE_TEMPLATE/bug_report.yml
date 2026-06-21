@@ -10,7 +10,7 @@ body:
 
         Before opening a new issue, please [search existing issues](https://github.com/bullitt186/ha-omada-open-api/issues?q=is%3Aissue+label%3Abug) to see if your problem has already been reported.
 
-        Please also check the [Troubleshooting section](https://github.com/bullitt186/ha-omada-open-api#troubleshooting) in the README for common solutions.
+        Please also check [TROUBLESHOOTING.md](https://github.com/bullitt186/ha-omada-open-api/blob/main/TROUBLESHOOTING.md) for common solutions.
 
   - type: checkboxes
     id: checklist
@@ -19,7 +19,7 @@ body:
       options:
         - label: I have enabled debug logging for the integration before reproducing the issue.
           required: true
-        - label: I have checked the [Troubleshooting](https://github.com/bullitt186/ha-omada-open-api#troubleshooting) section in the README.
+        - label: I have checked [TROUBLESHOOTING.md](https://github.com/bullitt186/ha-omada-open-api/blob/main/TROUBLESHOOTING.md).
           required: true
         - label: I have searched [existing issues](https://github.com/bullitt186/ha-omada-open-api/issues?q=is%3Aissue+label%3Abug) and this is not a duplicate.
           required: true
