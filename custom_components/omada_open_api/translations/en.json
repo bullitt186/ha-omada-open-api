@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Select Controller Type",
-                "description": "Choose whether your Omada controller is self-hosted (local) or cloud-hosted.",
+                "description": "Choose whether your Omada controller is self-hosted (local) or cloud-hosted.\n\nCloud requires a paid Omada Cloud/Central Standard plan or higher — the free Essentials tier does not support Open API.\n\nLocal requires a software controller or a supported hardware controller; the OC200 does not support Open API due to hardware limitations.",
                 "data": {
                     "controller_type": "Controller Type"
                 },
