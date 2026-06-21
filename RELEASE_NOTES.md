@@ -1,7 +1,7 @@
-## What's New in v1.6.1
+## What's New in v1.7.0
 
-### Bug Fixes
+### Features
 
-- Fixed firmware update entities (`update.*_firmware`) never showing "update available," even when the Omada controller had a genuine pending update. The integration relied on a `needUpgrade` field from the device-list API that the real controller never returns, so the actual firmware-check endpoint was never queried. Every device is now checked directly against the real firmware-check endpoint on the existing 30-minute interval — verified against live hardware with an actual firmware install end-to-end, including the in-progress indicator and version updating correctly afterward.
-- Fixed `make deploy`'s config-entry reload pointing at a non-existent API path, which caused the reload step to silently 404 after the file copy succeeded.
-- Fixed `make deploy` reusing already-imported Python code instead of picking up changes: a config-entry reload re-runs setup on the existing in-memory module and does not re-read files from disk. `make deploy` now restarts Home Assistant so code changes actually take effect.
+- Added threat heatmap sensors: for each selected site, the integration now creates `sensor.<site>_threat_heatmap_hourly`, `..._daily`, `..._weekly`, and `..._monthly` entities backed by the Omada Threat Management API. Each sensor's state is the raw threat count for a rolling time window (always relative to "now," never calendar-aligned), with attributes exposing aggregated points (location, country, severity, top signatures/activities) suitable for mapping.
+- These sensors are designed to pair with the new [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) — a standalone Lovelace card that renders the heatmap on a world map. Install it separately; this integration only provides the backend sensors and registers no dashboard resources.
+- Added a **Site Entity Settings** option to enable/disable the threat heatmap sensors per config entry (enabled by default). Controllers that don't support the Threat Management endpoint leave the sensors `unavailable` instead of blocking setup.
