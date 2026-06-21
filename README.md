@@ -64,38 +64,27 @@ Authentication uses **OAuth 2.0 Client Credentials** with fully automatic token 
 
 ## Features
 
-| Platform | What it provides |
-|---|---|
-| **Sensor** | Device metrics (clients, uptime, CPU, memory, model, firmware, link speed, public IP, temperature, etc.), per-band client counts & radio utilization for APs, client metrics (IP, RSSI, SNR, SSID, traffic, activity rates), PoE budget & per-port power, per-app DPI traffic, WAN rate/total/latency/packet-loss per port, site-level client/PoE aggregates, threat heatmap (location-based threat counts, rolling hourly/daily/weekly/monthly windows) |
-| **Binary Sensor** | Device online/offline, firmware update available, client power-save mode, WAN connected/internet status, WLAN optimization running |
-| **Device Tracker** | Presence detection for devices (APs, switches, gateways) and selected clients |
-| **Switch** | PoE enable/disable per switch port, site-wide LED toggle, client network access (block/unblock), SSID broadcast control, per-AP SSID enable, per-AP radio band enable |
-| **Button** | Device reboot, device locate (flash LEDs), wireless client reconnect, site-wide WLAN optimization |
-| **Update** | Firmware update entity with install action |
+Not every feature works on every setup — some need specific hardware:
 
-### Feature Requirements
-
-Not every feature works on every setup — some need specific hardware, and a few sensors and switches only appear once the relevant device is present. Use this to set expectations before installing:
-
-| Feature | Requires | Notes |
+| Feature | Platform(s) | Requires |
 |---|---|---|
-| Device status, CPU/memory, uptime, IP, firmware update/install | Any AP, switch, or gateway | Firmware install needs write-access credentials |
-| Wired client count, uplink device/port, link speed | A device with confirmed wired ports | Gateways always qualify; switches are detected via the API |
-| Wireless client count, per-band client counts, per-band radio utilization, SSID & radio-band switches | Access Point | Per-band sensors are disabled by default; switches need write-access credentials |
-| Temperature, public IP, WAN sensors (rate/total/latency/loss/IP/link speed) and WAN binary sensors | Gateway | One set of WAN sensors per WAN port |
-| Application (DPI) traffic sensors | Gateway with DPI enabled | Also requires selecting clients and applications in Options |
-| PoE budget/used/remaining, per-port PoE power, per-port PoE switch | PoE-capable switch | PoE switch needs write-access credentials |
-| Site-wide LED toggle, WLAN optimization | Any site | Both need write-access credentials |
-| Threat heatmap sensors | Controller with the Omada Threat Management API | Not available on the free cloud tier — see limitations below; can be disabled in Options |
-| Client sensors, presence, block/unblock, reconnect | Any selected client | RSSI/SNR/signal %/power-save only apply to wireless clients; block/unblock and reconnect need write-access credentials |
+| Device status, CPU/memory, uptime, IP, firmware update/install | Sensor, Binary Sensor, Device Tracker, Button, Update | Any AP, switch, or gateway (install needs write access) |
+| Wired client count, uplink device/port, link speed | Sensor | Device with confirmed wired ports (gateways always qualify) |
+| Wireless client count, per-band stats, radio utilization, SSID & radio-band switches | Sensor, Switch | Access Point (per-band sensors disabled by default; switches need write access) |
+| Temperature, public IP, WAN rate/total/latency/loss, WAN status | Sensor, Binary Sensor | Gateway |
+| Application (DPI) traffic | Sensor | Gateway with DPI enabled, plus clients/apps selected in Options |
+| PoE budget/used/remaining, per-port power & switch | Sensor, Switch | PoE-capable switch (switch needs write access) |
+| Site-wide LED toggle, WLAN optimization | Switch, Button, Binary Sensor | Any site (needs write access) |
+| Threat heatmap (rolling hourly/daily/weekly/monthly) | Sensor | Controller with the Omada Threat Management API — not on the free cloud tier (see below); can be disabled in Options |
+| Client sensors, presence, block/unblock, reconnect | Sensor, Binary Sensor, Device Tracker, Switch, Button | Selected client (RSSI/SNR/power-save are wireless-only; block/unblock and reconnect need write access) |
 
-### Cloud & Hardware Limitations
+> **World heatmap card:** Threat heatmap sensors feed the companion [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card), a generic Lovelace card for any sensor exposing this attribute shape. This integration is backend-only — install the card separately to visualize the data.
 
-> **Free cloud accounts can't use this integration's cloud mode at all.** Omada Cloud/Central **Essentials** (the free tier) does not support Open API — confirmed directly by TP-Link support. Cloud mode requires the paid **Standard** tier or higher. If you don't want to pay for that, use the **Local** controller type against a self-hosted Software Controller or supported Hardware Controller instead — see [Authentication Errors](#authentication-errors) for the exact error this produces and how to tell the difference from a credentials mistake.
+> **Free cloud accounts won't work.** Omada Cloud/Central **Essentials** has no Open API support — confirmed by TP-Link support. Cloud mode needs the paid **Standard** tier or higher; otherwise use **Local** with a self-hosted controller. See [Authentication Errors](#authentication-errors) for the resulting error.
 
-> **OC200 hardware controllers don't support Open API at all**, regardless of licensing — this is a hardware limitation, not something this integration can work around. Use a different hardware controller (e.g. OC300), or the free Software Controller, if you're self-hosting.
+> **OC200 controllers don't support Open API**, regardless of licensing — a hardware limitation. Use a different hardware controller (e.g. OC300) or the free Software Controller instead.
 
-> **Note on permissions:** PoE, LED, SSID, and radio-band switches (and firmware install) are only created when the API credentials have editing rights. If your credentials are viewer-only, the integration automatically detects this during setup and skips those controls — all monitoring entities are still created.
+> **Permissions:** Control entities (PoE/LED/SSID/radio-band switches, firmware install) need write-access credentials. Viewer-only credentials still get all monitoring entities; controls are detected and skipped automatically.
 
 > **World heatmap card:** The threat heatmap sensors (see [Entities](#entities)) are designed to feed the companion [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) — a generic Lovelace card that renders any sensor exposing the documented attribute shape as a world map heatmap. This integration is backend-only and does not register any dashboard resources; install the card separately to visualize the data.
 
