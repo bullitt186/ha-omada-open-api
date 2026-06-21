@@ -21,7 +21,7 @@ from custom_components.omada_open_api import (
     _migrate_data_to_options,
     async_remove_config_entry_device,
 )
-from custom_components.omada_open_api.api import OmadaApiAuthError
+from custom_components.omada_open_api.api import OmadaApiAuthError, OmadaApiError
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
@@ -121,6 +121,7 @@ def _patch_api_client(**overrides):
     mock_instance.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )
+    mock_instance.get_threat_management = AsyncMock(return_value=[])
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
@@ -279,6 +280,52 @@ async def test_setup_entry_skips_missing_site(hass: HomeAssistant) -> None:
     # Only the valid site should have a coordinator.
     assert TEST_SITE_ID in entry.runtime_data.coordinators
     assert "nonexistent_site" not in entry.runtime_data.coordinators
+
+
+# ---------------------------------------------------------------------------
+# Threat heatmap coordinator setup
+# ---------------------------------------------------------------------------
+
+
+async def test_setup_entry_creates_threat_heatmap_coordinators(
+    hass: HomeAssistant,
+) -> None:
+    """Setup creates one threat heatmap coordinator per window per site."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_threat_management=AsyncMock(return_value=[]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    coords = entry.runtime_data.threat_heatmap_coordinators
+    assert len(coords) == 4
+    assert {c.window for c in coords} == {"hourly", "daily", "weekly", "monthly"}
+    assert all(c.site_id == TEST_SITE_ID for c in coords)
+
+
+async def test_setup_entry_tolerates_unsupported_threat_endpoint(
+    hass: HomeAssistant,
+) -> None:
+    """An unsupported threat-management endpoint must not block setup."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_threat_management=AsyncMock(
+            side_effect=OmadaApiError("HTTP 404: not found")
+        ),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    coords = entry.runtime_data.threat_heatmap_coordinators
+    assert len(coords) == 4
+    assert all(c.data["available"] is False for c in coords)
 
 
 # ---------------------------------------------------------------------------

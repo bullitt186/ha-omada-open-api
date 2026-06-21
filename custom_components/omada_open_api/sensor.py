@@ -32,6 +32,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     DOMAIN,
     ICON_CLIENTS,
     ICON_CPU,
@@ -45,6 +46,7 @@ from .const import (
     ICON_STATUS,
     ICON_TAG,
     ICON_TEMPERATURE,
+    ICON_THREAT_HEATMAP,
     ICON_UPLOAD,
     ICON_UPTIME,
     WAN_SPEED_MAP,
@@ -54,6 +56,7 @@ from .coordinator import (
     OmadaClientCoordinator,
     OmadaDeviceStatsCoordinator,
     OmadaSiteCoordinator,
+    OmadaThreatHeatmapCoordinator,
 )
 from .devices import format_detail_status, format_link_speed, get_device_sort_key
 from .entity import OmadaEntity
@@ -1101,6 +1104,18 @@ def _setup_site_sensors(
         async_add_entities(site_entities)
 
 
+def _setup_threat_heatmap_sensors(
+    coordinators: list[OmadaThreatHeatmapCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Create one threat heatmap sensor per site/window coordinator."""
+    entities: list[SensorEntity] = [
+        OmadaThreatHeatmapSensor(coordinator=coord) for coord in coordinators
+    ]
+    if entities:
+        async_add_entities(entities)
+
+
 def _make_device_sensor(
     coordinator: OmadaSiteCoordinator,
     description: OmadaSensorEntityDescription,
@@ -1248,8 +1263,13 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
         rd.device_stats_coordinators
     )
+    _enable_threat_heatmap = opts.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True)
 
     _setup_site_sensors(coordinators, async_add_entities)
+    if _enable_threat_heatmap:
+        _setup_threat_heatmap_sensors(
+            rd.threat_heatmap_coordinators, async_add_entities
+        )
     _migrate_5g_entity_ids(hass, entry)
     _purge_absent_band_entities(hass, entry, coordinators)
 
@@ -1621,6 +1641,65 @@ class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         if self.entity_description.attrs_fn is None:
             return None
         return self.entity_description.attrs_fn(self.coordinator.data)
+
+
+class OmadaThreatHeatmapSensor(
+    OmadaEntity[OmadaThreatHeatmapCoordinator], SensorEntity
+):
+    """Sensor exposing aggregated threat heatmap points for a site/window."""
+
+    entity_description: SensorEntityDescription
+
+    def __init__(self, coordinator: OmadaThreatHeatmapCoordinator) -> None:
+        """Initialize the threat heatmap sensor.
+
+        Args:
+            coordinator: Threat heatmap coordinator for one site/window
+
+        """
+        super().__init__(coordinator)
+        window = coordinator.window
+        self.entity_description = SensorEntityDescription(
+            key=f"threat_heatmap_{window}",
+            translation_key=f"threat_heatmap_{window}",
+            icon=ICON_THREAT_HEATMAP,
+            native_unit_of_measurement="threats",
+            state_class=SensorStateClass.MEASUREMENT,
+        )
+        self._attr_unique_id = f"site_{coordinator.site_id}_threat_heatmap_{window}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the raw threat row count for the window."""
+        return self.coordinator.data.get("total_rows")
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return bool(self.coordinator.data.get("available", False))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the heatmap attribute contract consumed by the custom card."""
+        data = self.coordinator.data
+        return {
+            "source": data["source"],
+            "site_id": data["site_id"],
+            "site_name": data["site_name"],
+            "window": data["window"],
+            "window_start": data["window_start"],
+            "window_end": data["window_end"],
+            "total_rows": data["total_rows"],
+            "fetched_rows": data["fetched_rows"],
+            "skipped_rows": data["skipped_rows"],
+            "max": data["max"],
+            "points": data["points"],
+        }
 
 
 class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):

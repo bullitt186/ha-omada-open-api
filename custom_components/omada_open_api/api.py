@@ -1512,6 +1512,65 @@ class OmadaApiClient:
             return raw
         return raw.get("data", [])  # type: ignore[no-any-return]
 
+    async def get_threat_management(
+        self,
+        *,
+        site_id: str,
+        start_time: int,
+        end_time: int,
+        archived: bool = False,
+        page_size: int = 100,
+    ) -> list[dict[str, Any]]:
+        """Fetch threat-management rows for a site within a time window.
+
+        Fetches all pages until every row has been retrieved. Callers are
+        responsible for treating ``OmadaApiError`` (e.g. HTTP 404 on
+        controllers that don't support this endpoint) as unavailable data
+        rather than an integration setup failure.
+
+        Args:
+            site_id: Site ID to query
+            start_time: Window start, Unix timestamp in seconds
+            end_time: Window end, Unix timestamp in seconds
+            archived: False for active threat rows (default)
+            page_size: Rows per page (1-1000)
+
+        Returns:
+            List of raw threat-management row dictionaries
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/security/threat-management"
+        page = 1
+        all_rows: list[dict[str, Any]] = []
+
+        while True:
+            params: dict[str, Any] = {
+                "siteList": site_id,
+                "archived": str(archived).lower(),
+                "page": page,
+                "pageSize": page_size,
+                "filters.startTime": start_time,
+                "filters.endTime": end_time,
+                "sorts.time": "desc",
+            }
+            result = await self._authenticated_request("get", url, params=params)
+            data = result.get("result", {})
+            rows = data.get("data", [])
+            total_rows = data.get("totalRows", 0)
+            all_rows.extend(rows)
+
+            if len(all_rows) >= total_rows or len(rows) < page_size:
+                break
+            page += 1
+
+        _LOGGER.debug(
+            "Fetched %d threat-management rows for site %s", len(all_rows), site_id
+        )
+        return all_rows
+
     @property
     def access_token(self) -> str:
         """Get current access token."""

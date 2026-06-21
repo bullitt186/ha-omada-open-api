@@ -21,6 +21,7 @@ from custom_components.omada_open_api.const import (
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_SITES,
@@ -178,3 +179,67 @@ async def test_update_intervals_preserves_existing(hass: HomeAssistant) -> None:
             assert key.default() == 45
         elif str(key) == CONF_APP_SCAN_INTERVAL:
             assert key.default() == 180
+
+
+# ---------------------------------------------------------------------------
+# Site entity settings step: threat heatmap toggle
+# ---------------------------------------------------------------------------
+
+
+async def test_options_menu_shows_site_entity_settings(hass: HomeAssistant) -> None:
+    """Test that the options menu includes the site_entity_settings option."""
+    entry = _create_config_entry(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    assert result["type"] == FlowResultType.MENU
+    assert "site_entity_settings" in result["menu_options"]
+
+
+async def test_site_entity_settings_defaults_to_enabled(hass: HomeAssistant) -> None:
+    """Test the threat heatmap toggle defaults to True when unconfigured."""
+    entry = _create_config_entry(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "site_entity_settings"},
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "site_entity_settings"
+    schema_keys = list(result["data_schema"].schema)
+    key = next(k for k in schema_keys if str(k) == CONF_ENABLE_THREAT_HEATMAP_SENSORS)
+    assert key.default() is True
+
+
+async def test_site_entity_settings_saves_value(hass: HomeAssistant) -> None:
+    """Test submitting the site entity settings step saves the toggle."""
+    entry = _create_config_entry(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "site_entity_settings"},
+    )
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_ENABLE_THREAT_HEATMAP_SENSORS: False},
+        )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False

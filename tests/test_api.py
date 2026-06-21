@@ -2399,3 +2399,115 @@ async def test_get_switch_port_details_returns_empty_on_error(
     result = await api_client.get_switch_port_details(site_id="site_001")
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# get_threat_management tests
+# ---------------------------------------------------------------------------
+
+
+def _make_threat_api_client(mock_session, mock_config_entry) -> OmadaApiClient:
+    """Build an OmadaApiClient with a mocked session for threat tests."""
+    return OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+
+async def test_get_threat_management_single_page(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_threat_management fetches a single page of threat rows."""
+    mock_session = MagicMock()
+    api_client = _make_threat_api_client(mock_session, mock_config_entry)
+
+    rows = [{"time": 1, "srcCountry": "US"}, {"time": 2, "srcCountry": "CN"}]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": rows, "totalRows": 2},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_threat_management(
+        site_id="site_001", start_time=1000, end_time=2000
+    )
+
+    assert result == rows
+    call_url = mock_get.call_args[0][0]
+    assert "/security/threat-management" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["siteList"] == "site_001"
+    assert call_params["archived"] == "false"
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert call_params["filters.startTime"] == 1000
+    assert call_params["filters.endTime"] == 2000
+    assert call_params["sorts.time"] == "desc"
+
+
+async def test_get_threat_management_multi_page(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_threat_management paginates until all rows are fetched."""
+    mock_session = MagicMock()
+    api_client = _make_threat_api_client(mock_session, mock_config_entry)
+
+    page1_rows = [{"time": i} for i in range(100)]
+    page2_rows = [{"time": i} for i in range(100, 150)]
+
+    page1_response = AsyncMock()
+    page1_response.status = 200
+    page1_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": page1_rows, "totalRows": 150},
+    }
+    page2_response = AsyncMock()
+    page2_response.status = 200
+    page2_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": page2_rows, "totalRows": 150},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.side_effect = [page1_response, page2_response]
+    result = await api_client.get_threat_management(
+        site_id="site_001", start_time=1000, end_time=2000
+    )
+
+    assert len(result) == 150
+    assert mock_get.call_count == 2
+    second_params = mock_get.call_args_list[1][1]["params"]
+    assert second_params["page"] == 2
+
+
+async def test_get_threat_management_404_raises(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_threat_management raises OmadaApiError on HTTP 404.
+
+    The coordinator (not the API client) is responsible for treating an
+    unsupported endpoint as unavailable data rather than a setup failure.
+    """
+    mock_session = MagicMock()
+    api_client = _make_threat_api_client(mock_session, mock_config_entry)
+
+    mock_response = AsyncMock()
+    mock_response.status = 404
+    mock_response.text.return_value = "Not Found"
+
+    mock_session.get.return_value.__aenter__.return_value = mock_response
+
+    with pytest.raises(OmadaApiError):
+        await api_client.get_threat_management(
+            site_id="site_001", start_time=1000, end_time=2000
+        )

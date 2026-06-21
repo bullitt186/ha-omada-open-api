@@ -75,6 +75,8 @@ Authentication uses **OAuth 2.0 Client Credentials** with fully automatic token 
 
 > **Note on permissions:** PoE and LED switches are only created when the API credentials have editing rights. If your credentials are viewer-only, the integration automatically detects this during setup and skips those controls — all monitoring entities are still created.
 
+> **World heatmap card:** The threat heatmap sensors (see [Entities](#entities)) are designed to feed the companion [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) — a generic Lovelace card that renders any sensor exposing the documented attribute shape as a world map heatmap. This integration is backend-only and does not register any dashboard resources; install the card separately to visualize the data.
+
 ---
 
 ## Installation
@@ -191,6 +193,27 @@ The following parameters are required during the initial setup flow:
 
 Application traffic sensors auto-scale their unit (B, KB, MB, GB, TB) and reset daily at midnight.
 
+### Per Site — Threat Heatmap
+
+| Entity | Example | Description |
+|---|---|---|
+| Sensor | `sensor.office_site_threat_heatmap_hourly` | Threat count, rolling last 60 minutes |
+| Sensor | `sensor.office_site_threat_heatmap_daily` | Threat count, rolling last 24 hours |
+| Sensor | `sensor.office_site_threat_heatmap_weekly` | Threat count, rolling last 7 days |
+| Sensor | `sensor.office_site_threat_heatmap_monthly` | Threat count, rolling last 30 days |
+
+One set of four is created per selected site. Each sensor's state is the raw
+threat row count for its rolling window (always relative to "now", never
+calendar-aligned); `extra_state_attributes` carries `source`, `site_id`,
+`site_name`, `window`, `window_start`/`window_end`, `total_rows`,
+`fetched_rows`, `skipped_rows`, `max`, and a `points` array (`lat`, `lon`,
+`country`, `value`, sample IPs, top signatures/activities, severities) —
+the shape consumed by
+[`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card).
+Disable these sensors under **Options → Site Entity Settings**. Controllers
+that don't support the Omada Threat Management endpoint leave the sensors
+`unavailable` rather than failing setup.
+
 ---
 
 ## Automation Examples
@@ -288,6 +311,12 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | **Device polling interval** | 60 s | 10 – 3600 s | How often infrastructure device data (APs, switches, gateways) is refreshed. Affects status, CPU, memory, uptime, PoE, and firmware sensors. |
 | **Client polling interval** | 30 s | 10 – 3600 s | How often client data is refreshed. Affects device trackers, RSSI, SNR, traffic, and activity rate sensors. |
 | **Application traffic polling interval** | 300 s | 10 – 3600 s | How often per-client application traffic data is refreshed. Higher values recommended since DPI data updates less frequently on the controller. |
+
+### Site Entity Settings
+
+| Parameter | Default | Description |
+|---|---|---|
+| **Threat heatmap sensors** | Enabled | Enables/disables the four threat heatmap sensors (hourly/daily/weekly/monthly) per site. Disable if your controller doesn't support the Omada Threat Management endpoint. |
 
 ---
 

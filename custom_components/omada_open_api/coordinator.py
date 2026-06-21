@@ -19,10 +19,13 @@ from .const import (
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
     SCAN_INTERVAL,
+    THREAT_HEATMAP_INTERVALS,
+    THREAT_HEATMAP_SOURCE,
     UPGRADE_COOLDOWN_POLLS,
     UPGRADE_POLL_INTERVAL,
 )
 from .devices import process_device
+from .threat_heatmap import aggregate_threat_points, compute_window
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -1250,3 +1253,106 @@ class OmadaDeviceStatsCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]
             self.site_coordinator.site_name,
         )
         return stats
+
+
+class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator for a single site's threat heatmap rolling window."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_id: str,
+        site_name: str,
+        window: str,
+    ) -> None:
+        """Initialize the threat heatmap coordinator.
+
+        Args:
+            hass: Home Assistant instance
+            api_client: Omada API client
+            site_id: Site ID to fetch threat data for
+            site_name: Human-readable site name
+            window: Rolling window name ("daily", "weekly", or "monthly")
+
+        """
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_threat_heatmap_{window}_{site_id}",
+            update_interval=timedelta(seconds=THREAT_HEATMAP_INTERVALS[window]),
+        )
+        self.api_client = api_client
+        self.site_id = site_id
+        self.site_name = site_name
+        self.window = window
+
+    def _unavailable_data(self, window_start: int, window_end: int) -> dict[str, Any]:
+        """Return an empty, marked-unavailable data dict for this window."""
+        return {
+            "source": THREAT_HEATMAP_SOURCE,
+            "site_id": self.site_id,
+            "site_name": self.site_name,
+            "window": self.window,
+            "window_start": window_start,
+            "window_end": window_end,
+            "total_rows": 0,
+            "fetched_rows": 0,
+            "skipped_rows": 0,
+            "max": 0,
+            "points": [],
+            "available": False,
+        }
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch and aggregate threat rows for this site's rolling window.
+
+        An unsupported endpoint or transient API error marks the data
+        unavailable (or keeps the last good data, if any) instead of
+        failing the coordinator refresh — this is an optional, additive
+        feature and must not block integration setup.
+
+        Returns:
+            Compact attribute dict matching the heatmap sensor contract
+
+        """
+        window_start, window_end = compute_window(self.window)
+
+        try:
+            rows = await self.api_client.get_threat_management(
+                site_id=self.site_id,
+                start_time=window_start,
+                end_time=window_end,
+            )
+        except OmadaApiError as err:
+            _LOGGER.debug(
+                "Threat heatmap fetch failed for site %s (%s window): %s",
+                self.site_name,
+                self.window,
+                err,
+            )
+            # self.data is None before the first successful update despite
+            # being typed non-Optional (HA intentionally lies about this —
+            # see DataUpdateCoordinator.__init__).
+            if self.data is not None:
+                return self.data
+            return self._unavailable_data(  # type: ignore[unreachable]
+                window_start, window_end
+            )
+
+        points, skipped_rows = aggregate_threat_points(rows)
+
+        return {
+            "source": THREAT_HEATMAP_SOURCE,
+            "site_id": self.site_id,
+            "site_name": self.site_name,
+            "window": self.window,
+            "window_start": window_start,
+            "window_end": window_end,
+            "total_rows": len(rows),
+            "fetched_rows": len(rows),
+            "skipped_rows": skipped_rows,
+            "max": max((p["value"] for p in points), default=0),
+            "points": points,
+            "available": True,
+        }

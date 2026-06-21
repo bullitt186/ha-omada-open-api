@@ -31,6 +31,7 @@ from .const import (
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -45,12 +46,14 @@ from .const import (
     DEFAULT_DISCONNECT_TIMEOUT,
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
+    THREAT_HEATMAP_INTERVALS,
 )
 from .coordinator import (
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
     OmadaDeviceStatsCoordinator,
     OmadaSiteCoordinator,
+    OmadaThreatHeatmapCoordinator,
 )
 from .devices import normalize_site_id
 from .types import OmadaConfigEntry, OmadaRuntimeData
@@ -447,6 +450,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             len(stats_coordinator.data),
         )
 
+    # Create threat heatmap coordinators (daily/weekly/monthly per site).
+    # An unsupported/erroring endpoint never blocks setup — see
+    # OmadaThreatHeatmapCoordinator._async_update_data.
+    threat_heatmap_coordinators: list[OmadaThreatHeatmapCoordinator] = []
+    if entry.options.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True):
+        for site_coordinator in coordinators.values():
+            for window in THREAT_HEATMAP_INTERVALS:
+                heatmap_coordinator = OmadaThreatHeatmapCoordinator(
+                    hass=hass,
+                    api_client=api_client,
+                    site_id=site_coordinator.site_id,
+                    site_name=site_coordinator.site_name,
+                    window=window,
+                )
+                await heatmap_coordinator.async_config_entry_first_refresh()
+                threat_heatmap_coordinators.append(heatmap_coordinator)
+
     # Store API client and coordinators in runtime_data
     #
     # Check whether the API credentials have write access by performing a
@@ -513,6 +533,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         site_devices=site_devices,
         prev_data=dict(entry.data),
         prev_options=dict(entry.options),
+        threat_heatmap_coordinators=threat_heatmap_coordinators,
     )
 
     # Set up platforms

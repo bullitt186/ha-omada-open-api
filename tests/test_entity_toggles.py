@@ -24,6 +24,7 @@ from custom_components.omada_open_api.const import (
     CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -101,6 +102,12 @@ def test_options_flow_menu_includes_entity_settings() -> None:
     )
     assert "device_entity_settings" in source
     assert "client_entity_settings" in source
+    assert "site_entity_settings" in source
+
+
+def test_options_flow_has_site_entity_settings_step() -> None:
+    """OmadaOptionsFlowHandler has async_step_site_entity_settings."""
+    assert hasattr(OmadaOptionsFlowHandler, "async_step_site_entity_settings")
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +143,7 @@ def _build_mock_api(devices: list) -> AsyncMock:
     )
     mock.get_device_stats = AsyncMock(return_value=[])
     mock.check_write_access = AsyncMock(return_value=True)
+    mock.get_threat_management = AsyncMock(return_value=[])
     mock.api_url = TEST_API_URL
     return mock
 
@@ -234,3 +242,55 @@ async def test_toggle_defaults_to_true_on_upgrade(
         reg.async_get_entity_id("sensor", DOMAIN, f"{sw_mac}_daily_download")
         is not None
     )
+
+
+async def test_threat_heatmap_sensors_created_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """Threat heatmap sensors are created when the toggle is unset (default True)."""
+    entry = _build_entry(hass, {}, "test_threat_heatmap_default")
+    mock = _build_mock_api([SAMPLE_DEVICE_AP])
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    assert (
+        reg.async_get_entity_id(
+            "sensor", DOMAIN, f"site_{TEST_SITE_ID}_threat_heatmap_daily"
+        )
+        is not None
+    )
+    assert (
+        reg.async_get_entity_id(
+            "sensor", DOMAIN, f"site_{TEST_SITE_ID}_threat_heatmap_hourly"
+        )
+        is not None
+    )
+    assert len(entry.runtime_data.threat_heatmap_coordinators) == 4
+
+
+async def test_threat_heatmap_sensors_skipped_when_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """No threat heatmap coordinators/sensors are created when toggle is False."""
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_THREAT_HEATMAP_SENSORS: False},
+        "test_threat_heatmap_disabled",
+    )
+    mock = _build_mock_api([SAMPLE_DEVICE_AP])
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    assert (
+        reg.async_get_entity_id(
+            "sensor", DOMAIN, f"site_{TEST_SITE_ID}_threat_heatmap_daily"
+        )
+        is None
+    )
+    assert entry.runtime_data.threat_heatmap_coordinators == []

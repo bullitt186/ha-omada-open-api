@@ -29,6 +29,7 @@ CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS = "enable_client_bandwidth_sensors"
 CONF_ENABLE_CLIENT_SIGNAL_SENSORS = "enable_client_signal_sensors"
 CONF_ENABLE_CLIENT_BLOCK_SWITCH = "enable_client_block_switch"
 CONF_ENABLE_CLIENT_RECONNECT_BUTTON = "enable_client_reconnect_button"
+CONF_ENABLE_THREAT_HEATMAP_SENSORS = "enable_threat_heatmap_sensors"
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"
@@ -86,6 +87,19 @@ DEVICE_TYPE_SWITCH = "switch"
 CONF_STATS_SCAN_INTERVAL = "stats_scan_interval"
 DEFAULT_STATS_SCAN_INTERVAL = 300
 
+# Threat heatmap — windows hard-coded for v1 (named so options can be added later).
+THREAT_HEATMAP_SOURCE = "omada_open_api.security.threat-management"
+THREAT_HEATMAP_HOURLY_INTERVAL = 300  # 5 minutes
+THREAT_HEATMAP_DAILY_INTERVAL = 900  # 15 minutes
+THREAT_HEATMAP_WEEKLY_INTERVAL = 3600  # 60 minutes
+THREAT_HEATMAP_MONTHLY_INTERVAL = 21600  # 6 hours
+THREAT_HEATMAP_INTERVALS: dict[str, int] = {
+    "hourly": THREAT_HEATMAP_HOURLY_INTERVAL,
+    "daily": THREAT_HEATMAP_DAILY_INTERVAL,
+    "weekly": THREAT_HEATMAP_WEEKLY_INTERVAL,
+    "monthly": THREAT_HEATMAP_MONTHLY_INTERVAL,
+}
+
 # WAN link speed enum → Mbps
 WAN_SPEED_MAP: dict[int, int] = {
     1: 10,
@@ -119,3 +133,4 @@ ICON_TEMPERATURE = "mdi:thermometer"
 ICON_WIFI = "mdi:wifi"
 ICON_WIFI_OFF = "mdi:wifi-off"
 ICON_WIFI_COG = "mdi:wifi-cog"
+ICON_THREAT_HEATMAP = "mdi:map-marker-radius"

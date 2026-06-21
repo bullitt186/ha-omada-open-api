@@ -95,6 +95,7 @@ def _patch_api_client(**overrides) -> tuple:
     mock.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )
+    mock.get_threat_management = AsyncMock(return_value=[])
     mock.api_url = TEST_API_URL  # used as configuration_url in device_info
     for key, value in overrides.items():
         setattr(mock, key, value)

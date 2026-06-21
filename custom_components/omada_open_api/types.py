@@ -16,6 +16,7 @@ if TYPE_CHECKING:
         OmadaClientCoordinator,
         OmadaDeviceStatsCoordinator,
         OmadaSiteCoordinator,
+        OmadaThreatHeatmapCoordinator,
     )
 
 
@@ -32,6 +33,9 @@ class OmadaRuntimeData:
     site_devices: dict[str, dr.DeviceEntry]
     prev_data: dict[str, Any] = field(default_factory=dict)
     prev_options: dict[str, Any] = field(default_factory=dict)
+    threat_heatmap_coordinators: list[OmadaThreatHeatmapCoordinator] = field(
+        default_factory=list
+    )
 
 
 type OmadaConfigEntry = ConfigEntry[OmadaRuntimeData]

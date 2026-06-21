@@ -41,6 +41,7 @@ from .const import (
     CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
@@ -1209,6 +1210,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 "tracker_settings",
                 "device_entity_settings",
                 "client_entity_settings",
+                "site_entity_settings",
             ],
         )
 
@@ -1345,6 +1347,37 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="client_entity_settings",
+            data_schema=data_schema,
+        )
+
+    async def async_step_site_entity_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle site-level entity toggles (threat heatmap sensors)."""
+        opts = self.config_entry.options
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **opts,
+                    CONF_ENABLE_THREAT_HEATMAP_SENSORS: user_input.get(
+                        CONF_ENABLE_THREAT_HEATMAP_SENSORS, True
+                    ),
+                },
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
+                    default=opts.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True),
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="site_entity_settings",
             data_schema=data_schema,
         )
 

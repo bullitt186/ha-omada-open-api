@@ -101,6 +101,7 @@ def _patch_api_client(**overrides):
     mock_instance.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )
+    mock_instance.get_threat_management = AsyncMock(return_value=[])
 
     for key, value in overrides.items():
         setattr(mock_instance, key, value)
