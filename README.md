@@ -46,17 +46,7 @@
 
 ## About
 
-This integration connects to your **TP-Link Omada SDN** controller through the **Omada Open API** and exposes your network infrastructure as Home Assistant devices and entities. It supports cloud-managed and locally-hosted controllers.
-
-With it you can:
-
-- Monitor access points, switches, and gateways (status, CPU, memory, uptime, PoE budgets)
-- Track connected clients with presence detection
-- Control PoE per switch port, toggle site-wide LEDs, and block/unblock clients
-- Reboot devices, trigger locate (LED flash), reconnect wireless clients, and start WLAN optimization
-- Install firmware updates directly from Home Assistant
-- Monitor per-client application traffic when DPI is enabled
-- Automate based on any of the above
+Connects to your **TP-Link Omada SDN** controller (cloud or local) through the **Omada Open API** and exposes your infrastructure, clients, and security data as Home Assistant entities — monitoring, control, and automation triggers included. See [Features](#features) for the full breakdown.
 
 Authentication uses **OAuth 2.0 Client Credentials** with fully automatic token refresh — set it up once and forget it.
 
@@ -85,8 +75,6 @@ Not every feature works on every setup — some need specific hardware:
 > **OC200 controllers don't support Open API**, regardless of licensing — a hardware limitation. Use a different hardware controller (e.g. OC300) or the free Software Controller instead.
 
 > **Permissions:** Control entities (PoE/LED/SSID/radio-band switches, firmware install) need write-access credentials. Viewer-only credentials still get all monitoring entities; controls are detected and skipped automatically.
-
-> **World heatmap card:** The threat heatmap sensors (see [Entities](#entities)) are designed to feed the companion [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) — a generic Lovelace card that renders any sensor exposing the documented attribute shape as a world map heatmap. This integration is backend-only and does not register any dashboard resources; install the card separately to visualize the data.
 
 ---
 
@@ -213,17 +201,7 @@ Application traffic sensors auto-scale their unit (B, KB, MB, GB, TB) and reset 
 | Sensor | `sensor.office_site_threat_heatmap_weekly` | Threat count, rolling last 7 days |
 | Sensor | `sensor.office_site_threat_heatmap_monthly` | Threat count, rolling last 30 days |
 
-One set of four is created per selected site. Each sensor's state is the raw
-threat row count for its rolling window (always relative to "now", never
-calendar-aligned); `extra_state_attributes` carries `source`, `site_id`,
-`site_name`, `window`, `window_start`/`window_end`, `total_rows`,
-`fetched_rows`, `skipped_rows`, `max`, and a `points` array (`lat`, `lon`,
-`country`, `value`, sample IPs, top signatures/activities, severities) —
-the shape consumed by
-[`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card).
-Disable these sensors under **Options → Site Entity Settings**. Controllers
-that don't support the Omada Threat Management endpoint leave the sensors
-`unavailable` rather than failing setup.
+One set of four per selected site. State is the raw threat count for a rolling window (relative to "now", never calendar-aligned). Attributes carry `source`, `site_id`, `site_name`, `window`, `window_start`/`window_end`, `total_rows`, `fetched_rows`, `skipped_rows`, `max`, and a `points` array (`lat`, `lon`, `country`, `value`, sample IPs, top signatures/activities, severities) — the shape [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) consumes. Disable under **Options → Site Entity Settings**; unsupported controllers just leave the sensors `unavailable`.
 
 ---
 
@@ -368,62 +346,25 @@ All polling intervals are configurable via **Options → Update Intervals** (ran
 
 ## Use Cases
 
-### Network Monitoring Dashboard
-
-Build a Lovelace dashboard showing all your Omada infrastructure at a glance — device status, connected client counts, CPU/memory usage, and PoE budgets. Use conditional cards to highlight offline devices.
-
-### Presence Detection
-
-Track family members' phones or laptops as they connect to your Omada network. Use device tracker entities to trigger automations (lights on arrival, lock doors on departure, set thermostat away mode).
-
-### PoE Scheduling
-
-Automate PoE ports to power down IP cameras, access points, or VoIP phones at night to save energy, then bring them back up in the morning.
-
-### Firmware Management
-
-Receive notifications when firmware updates are available for your network devices. Install updates directly from Home Assistant during maintenance windows.
-
-### Bandwidth Alerts
-
-Monitor per-client download/upload traffic and per-app DPI data. Alert when a device exceeds a traffic threshold or when unusual application usage is detected.
-
-### Guest Network Automation
-
-Toggle SSID broadcasts on or off to control guest network availability based on time of day, presence, or manual switch.
-
-### Infrastructure Health
-
-Set up automations that alert you when CPU or memory utilization on any device exceeds a threshold for a sustained period, allowing proactive maintenance.
+- **Network dashboard** — device status, client counts, CPU/memory, PoE budgets at a glance
+- **Presence detection** — trigger lights/locks/thermostat from device trackers
+- **PoE scheduling** — power cameras/APs/phones down at night, back up in the morning
+- **Firmware management** — get notified and install updates from HA
+- **Bandwidth alerts** — flag a client or app exceeding a traffic threshold
+- **Guest network automation** — toggle SSID broadcast by time, presence, or switch
+- **Infrastructure health** — alert on sustained high CPU/memory for proactive maintenance
 
 ---
 
 ## Diagnostics
 
-The integration provides downloadable diagnostics to help with troubleshooting. Go to **Settings → Devices & Services → TP-Link Omada Open API → 3 dots → Download diagnostics**.
-
-The diagnostics file includes:
-- Redacted configuration data (tokens and credentials are masked)
-- Coordinator summaries (device counts by type, client counts, tracked applications)
-- Write access status
-- Site device information
-
-Sensitive data (API tokens, client secrets, MAC addresses, IP addresses) is automatically redacted.
+**Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Download diagnostics** produces a JSON file with config data, coordinator summaries (device/client counts, tracked apps), write-access status, and site device info. Tokens, secrets, MAC addresses, and IPs are redacted automatically.
 
 ---
 
 ## Removing the Integration
 
-To remove the TP-Link Omada Open API integration from Home Assistant:
-
-1. Go to **Settings → Devices & Services** in Home Assistant.
-2. Find the **TP-Link Omada Open API** integration in the list.
-3. Click the integration, then click the three-dot menu (⋮) and select **Delete**.
-4. Confirm the removal when prompted.
-
-All entities and devices created by the integration will be removed. If you wish to remove configuration data and tokens, you may also delete the integration folder from `custom_components/` after removal.
-
-For more details, see the [removal instructions rule](ha-developer-docs/core/integration-quality-scale/rules/docs-removal-instructions.md).
+**Settings → Devices & Services → TP-Link Omada Open API → ⋮ → Delete**, then confirm. This removes all entities and devices it created. To also clear config data/tokens, delete the `custom_components/omada_open_api` folder afterward.
 
 ---
 ## Troubleshooting
@@ -441,7 +382,7 @@ For more details, see the [removal instructions rule](ha-developer-docs/core/int
 3. Ensure outbound HTTPS is not blocked by a firewall
 4. Use **Settings → Devices & Services → TP-Link Omada Open API → Reauthenticate** to re-enter credentials
 
-> **Cloud setup fails with "Controller ID not exist" (error -7131)?** This means your Omada ID will never resolve, no matter how carefully you re-copy it — **Omada Cloud/Central Essentials (the free tier) does not support Open API at all**, confirmed directly by TP-Link support. Open API on the cloud requires the paid **Omada Cloud/Central Standard** tier (device license fee). If you don't want to pay for that, use a self-hosted **Omada Software Controller** or supported **Hardware Controller** (not OC200, which doesn't support Open API either) with this integration's **Local** controller type instead — cloud access for those is free and Open API works the same way.
+> **"Controller ID not exist" (error -7131)?** Re-copying the Omada ID won't help — the free Essentials tier has no Open API at all (see [Features](#features)). Upgrade to Standard, or switch to **Local** with a self-hosted controller.
 
 ### No Entities Created
 
@@ -481,51 +422,27 @@ The integration may create repair notifications under **Settings → Repairs**:
 
 ## Services
 
-This integration provides the following Home Assistant service:
-
 ### `omada_open_api.debug_ssid_switches`
 
-**Description:**
-  Dumps diagnostic information about SSID switch entities for a given config entry to the Home Assistant log. Useful for troubleshooting entity creation and mapping.
+Dumps SSID switch entity diagnostics for a config entry to the HA log — useful when entities aren't created as expected.
 
-**Fields:**
-  - `config_entry_id` (string, required): The config entry ID of the Omada integration instance to debug. You can find this in the entity registry or by inspecting the integration in Home Assistant.
-
-**Example YAML:**
 ```yaml
 service: omada_open_api.debug_ssid_switches
 data:
-  config_entry_id: "your_config_entry_id_here"
+  config_entry_id: "your_config_entry_id_here"  # from the entity registry
 ```
-
-See the [integration documentation](ha-developer-docs/core/integration-quality-scale/rules/docs-actions.md) for more details on service usage and troubleshooting.
 
 ---
 
 ## Reporting Issues
 
-If you encounter a bug or have a feature request, please use our [issue templates](https://github.com/bullitt186/ha-omada-open-api/issues/new/choose) to submit a structured report. This helps us investigate and resolve problems faster.
+Use our [issue templates](https://github.com/bullitt186/ha-omada-open-api/issues/new/choose): [Bug Report](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=bug_report.yml) (fill all required fields) or [Feature Request](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=feature_request.yml) (describe the problem, not just the fix). For general questions, use the [Community forum](https://community.home-assistant.io/) instead.
 
-### Before Reporting a Bug
+Before reporting a bug, gather:
 
-Please gather the following information:
-
-1. **Enable debug logging**: Go to **Settings → Devices & Services → TP-Link Omada Open API → ⋮ (three-dot menu) → Enable debug logging**. Then reproduce the issue.
-2. **Check the logs**: Go to **Settings → System → Logs** and copy the relevant log entries (remove any tokens/secrets before posting).
-3. **Download diagnostics** (if the integration is loaded): Same **⋮ menu → Download diagnostics** — produces a JSON file with the integration's runtime state.
-4. **Note your environment**: Home Assistant version, installation type, integration version, Omada Controller version, and whether you use a cloud or local controller.
-
-### Bug Reports
-
-Use the [Bug Report template](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=bug_report.yml). All fields marked as required must be filled in — incomplete reports may be closed.
-
-### Feature Requests
-
-Use the [Feature Request template](https://github.com/bullitt186/ha-omada-open-api/issues/new?template=feature_request.yml). Please describe the problem you're trying to solve, not just the solution you envision.
-
-### General Questions
-
-For general questions or support, please use the [Home Assistant Community forum](https://community.home-assistant.io/) rather than opening an issue.
+1. Debug logs — **⋮ → Enable debug logging**, reproduce the issue, then **Settings → System → Logs** (strip tokens/secrets)
+2. Diagnostics — **⋮ → Download diagnostics**
+3. Your environment — HA version, install type, integration version, Omada Controller version, cloud or local
 
 ---
 ## Known Limitations
