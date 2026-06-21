@@ -1,7 +1,10 @@
-## What's New in v1.7.0
+## What's New in v1.7.1
 
-### Features
+### Bug Fixes
 
-- Added threat heatmap sensors: for each selected site, the integration now creates `sensor.<site>_threat_heatmap_hourly`, `..._daily`, `..._weekly`, and `..._monthly` entities backed by the Omada Threat Management API. Each sensor's state is the raw threat count for a rolling time window (always relative to "now," never calendar-aligned), with attributes exposing aggregated points (location, country, severity, top signatures/activities) suitable for mapping.
-- These sensors are designed to pair with the new [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) — a standalone Lovelace card that renders the heatmap on a world map. Install it separately; this integration only provides the backend sensors and registers no dashboard resources.
-- Added a **Site Entity Settings** option to enable/disable the threat heatmap sensors per config entry (enabled by default). Controllers that don't support the Threat Management endpoint leave the sensors `unavailable` instead of blocking setup.
+- Cloud setup failing with `-7131 Controller ID not exist` now shows a clear, specific message instead of the generic "invalid authentication" error. This happens because free Omada Cloud/Central Essentials accounts don't support Open API at all — no Omada ID will ever resolve there, so re-checking credentials wasn't going to help. The "Select Controller Type" setup screen now also warns about this upfront, along with the fact that OC200 hardware controllers don't support Open API either.
+
+### Improvements
+
+- Reorganized the documentation: the README now focuses on what the integration does and how to set it up, while contributor/development info moved to a new `CONTRIBUTING.md` and the full troubleshooting runbook moved to a new `TROUBLESHOOTING.md`.
+- Expanded the README's Features section with a table mapping each capability to the hardware it requires (gateway, PoE switch, access point, etc.), and documented the Omada Cloud/Central Essentials and OC200 Open API limitations.
