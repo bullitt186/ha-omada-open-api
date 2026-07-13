@@ -70,7 +70,9 @@ ignore = [
     "PLR0915",  # Too many statements
     "PLR2004",  # Magic value used in comparison
     "PT011",    # pytest.raises() is too broad
+    "PLC0415",  # import at top-level (lazy imports for circular dep avoidance)
     "S105",     # Possible hardcoded password (false positives for config constants)
+    "S106",     # Possible hardcoded password assigned to argument (test false positives)
     "SIM102",   # Use a single if statement instead of nested if statements
     "SIM103",   # Return the condition directly
     "SIM108",   # Use ternary operator
@@ -128,6 +130,7 @@ disable = [
     "cyclic-import",
     "duplicate-code",
     "import-error",
+    "import-outside-toplevel",
     "inconsistent-return-statements",
     "locally-disabled",
     "not-context-manager",
