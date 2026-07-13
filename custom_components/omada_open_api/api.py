@@ -53,6 +53,7 @@ class OmadaApiClient:
         self._session = session
         self._api_url = api_url.rstrip("/")
         self._omada_id = omada_id
+        self._use_v1_clients = False
 
         if auth is not None:
             self._auth = auth
@@ -253,6 +254,9 @@ class OmadaApiClient:
     ) -> dict[str, Any]:
         """Get clients for a site.
 
+        Tries the v2 POST endpoint first. On error -1600 (unsupported on
+        Fusion firmware), falls back to the v1 GET endpoint permanently.
+
         Args:
             site_id: Site ID to get clients for
             page: Page number (starts at 1)
@@ -265,15 +269,33 @@ class OmadaApiClient:
             and data list
 
         """
-        url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
-        body = {
-            "page": page,
-            "pageSize": page_size,
-            "scope": scope,
-            "filters": {},
-        }
+        if self._use_v1_clients:
+            return await self._get_clients_v1(site_id, page, page_size)
 
-        result = await self._authenticated_request("post", url, json_data=body)
+        try:
+            url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
+            body = {
+                "page": page,
+                "pageSize": page_size,
+                "scope": scope,
+                "filters": {},
+            }
+            result = await self._authenticated_request("post", url, json_data=body)
+            return result["result"]  # type: ignore[no-any-return]
+        except OmadaApiError as err:
+            if err.error_code == -1600:
+                _LOGGER.info("v2 clients endpoint unsupported, falling back to v1 GET")
+                self._use_v1_clients = True
+                return await self._get_clients_v1(site_id, page, page_size)
+            raise
+
+    async def _get_clients_v1(
+        self, site_id: str, page: int = 1, page_size: int = 100
+    ) -> dict[str, Any]:
+        """Get clients using the v1 GET endpoint (Fusion fallback)."""
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/clients"
+        params = {"page": page, "pageSize": page_size}
+        result = await self._authenticated_request("get", url, params=params)
         return result["result"]  # type: ignore[no-any-return]
 
     async def get_applications(
