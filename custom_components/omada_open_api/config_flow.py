@@ -24,9 +24,12 @@ from homeassistant.helpers.selector import (
 import voluptuous as vol
 
 from .const import (
+    AUTH_MODE_OPENAPI,
+    AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
+    CONF_AUTH_MODE,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -43,6 +46,7 @@ from .const import (
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
+    CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
     CONF_SELECTED_APPLICATIONS,
@@ -50,7 +54,9 @@ from .const import (
     CONF_SELECTED_SITES,
     CONF_SSID_FILTER,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
+    CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
@@ -177,6 +183,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         self._selected_client_macs: list[str] = []
         self._available_applications: list[dict[str, Any]] = []
         self._ssid_filter: list[str] = []
+        # Fusion-specific
+        self._fusion_username: str | None = None
+        self._fusion_password: str | None = None
+        self._fusion_csrf_token: str | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -189,6 +199,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if self._controller_type == CONTROLLER_TYPE_CLOUD:
                 return await self.async_step_cloud()
+            if self._controller_type == CONTROLLER_TYPE_FUSION:
+                return await self.async_step_fusion()
             return await self.async_step_local()
 
         # Create schema for controller type selection
@@ -200,6 +212,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     {
                         CONTROLLER_TYPE_LOCAL: "Self-Hosted (Local Controller)",
                         CONTROLLER_TYPE_CLOUD: "Cloud-Hosted (TP-Link Cloud)",
+                        CONTROLLER_TYPE_FUSION: "Fusion Gateway (Built-in Controller)",
                     }
                 ),
             }
@@ -269,6 +282,152 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 "example_url": "https://192.168.1.100:8043",
             },
         )
+
+    async def async_step_fusion(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle Fusion Gateway credentials input."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            api_url = user_input[CONF_API_URL].rstrip("/")
+            if not api_url.startswith(("http://", "https://")):
+                errors[CONF_API_URL] = "invalid_url"
+            else:
+                username = user_input[CONF_USERNAME]
+                password = user_input[CONF_PASSWORD]
+
+                try:
+                    # Auto-detect Omada CID
+                    omada_id = await self._get_omada_cid(api_url)
+
+                    # Validate credentials via web login
+                    csrf_token = await self._fusion_login(
+                        api_url, omada_id, username, password
+                    )
+
+                    # Store for later steps
+                    self._api_url = api_url
+                    self._omada_id = omada_id
+                    self._controller_type = CONTROLLER_TYPE_FUSION
+                    self._fusion_username = username
+                    self._fusion_password = password
+                    self._fusion_csrf_token = csrf_token
+                    # Set access_token to the CSRF token so existing
+                    # _get_clients/_get_applications can work via header override
+                    self._access_token = csrf_token
+
+                    # Prevent duplicate entries
+                    await self.async_set_unique_id(f"fusion_{omada_id}")
+                    self._abort_if_unique_id_configured()
+
+                    # Fetch sites
+                    sites = await self._get_sites_fusion(
+                        api_url, omada_id, username, password
+                    )
+                    if not sites:
+                        errors["base"] = "no_sites"
+                    else:
+                        self._available_sites = sites
+                        # Auto-select if single site
+                        if len(sites) == 1:
+                            self._selected_site_ids = [sites[0]["siteId"]]
+                            return await self.async_step_ssid_filter()
+                        return await self.async_step_sites()
+
+                except TimeoutError:
+                    errors["base"] = "timeout"
+                except aiohttp.ClientError as err:
+                    error_key = _classify_connection_error(err)
+                    errors["base"] = error_key
+                except InvalidAuthError:
+                    errors["base"] = "invalid_auth"
+                except Exception:
+                    _LOGGER.exception("Unexpected error during Fusion login")
+                    errors["base"] = "unknown"
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_API_URL,
+                    description={"suggested_value": "https://"},
+                ): cv.string,
+                vol.Required(CONF_USERNAME): cv.string,
+                vol.Required(CONF_PASSWORD): cv.string,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="fusion",
+            data_schema=data_schema,
+            errors=errors,
+            description_placeholders={
+                "example_url": "https://192.168.1.1",
+            },
+        )
+
+    async def _get_omada_cid(self, api_url: str) -> str:
+        """Auto-detect Omada controller ID from /api/info endpoint."""
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{api_url}/api/info"
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        ) as response:
+            if response.status != 200:
+                raise InvalidAuthError("Failed to reach controller info endpoint")
+            result = await response.json()
+            if result.get("errorCode") != 0:
+                raise InvalidAuthError(
+                    f"Controller info error: {result.get('msg', 'Unknown')}"
+                )
+            omada_cid = result.get("result", {}).get("omadacId")
+            if not omada_cid:
+                raise InvalidAuthError("Could not detect Omada Controller ID")
+            return omada_cid  # type: ignore[no-any-return]
+
+    async def _fusion_login(
+        self, api_url: str, omada_id: str, username: str, password: str
+    ) -> str:
+        """Perform Fusion web login and return CSRF token."""
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        url = f"{api_url}/{omada_id}/api/v2/login"
+        data = {"username": username, "password": password}
+        async with session.post(
+            url, json=data, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        ) as response:
+            result = await response.json()
+            if result.get("errorCode") != 0:
+                raise InvalidAuthError(
+                    f"Login failed: {result.get('msg', 'Unknown error')}",
+                    error_code=result.get("errorCode"),
+                )
+            return result["result"]["token"]  # type: ignore[no-any-return]
+
+    async def _get_sites_fusion(
+        self, api_url: str, omada_id: str, username: str, password: str
+    ) -> list[dict[str, Any]]:
+        """Fetch sites using Fusion web-session auth."""
+        session = async_get_clientsession(self.hass, verify_ssl=False)
+        csrf_token = await self._fusion_login(api_url, omada_id, username, password)
+        url = f"{api_url}/openapi/v1/{omada_id}/sites"
+        headers = {
+            "Csrf-Token": csrf_token,
+            "Omada-Request-Source": "web-local",
+            "Content-Type": "application/json",
+        }
+        params = {"pageSize": 100, "page": 1}
+        async with session.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            if response.status != 200:
+                return []
+            result = await response.json()
+            if result.get("errorCode") != 0:
+                return []
+            return result.get("result", {}).get("data", [])  # type: ignore[no-any-return]
 
     async def async_step_credentials(
         self, user_input: dict[str, Any] | None = None
@@ -398,6 +557,33 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
+    def _generate_entry_data(self) -> dict[str, Any]:
+        """Generate config entry data dict based on controller type."""
+        if self._controller_type == CONTROLLER_TYPE_FUSION:
+            return {
+                CONF_CONTROLLER_TYPE: self._controller_type,
+                CONF_AUTH_MODE: AUTH_MODE_WEB_SESSION,
+                CONF_API_URL: self._api_url,
+                CONF_OMADA_ID: self._omada_id,
+                CONF_USERNAME: self._fusion_username,
+                CONF_PASSWORD: self._fusion_password,
+                CONF_SELECTED_SITES: self._selected_site_ids,
+            }
+        return {
+            CONF_CONTROLLER_TYPE: self._controller_type,
+            CONF_AUTH_MODE: AUTH_MODE_OPENAPI,
+            CONF_API_URL: self._api_url,
+            CONF_OMADA_ID: self._omada_id,
+            CONF_CLIENT_ID: self._client_id,
+            CONF_CLIENT_SECRET: self._client_secret,
+            CONF_ACCESS_TOKEN: self._access_token,
+            CONF_REFRESH_TOKEN: self._refresh_token,
+            CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat()
+            if self._token_expires_at
+            else "",
+            CONF_SELECTED_SITES: self._selected_site_ids,
+        }
+
     def _generate_entry_title(self) -> str:
         """Generate config entry title from selected sites."""
         if self._selected_site_ids:
@@ -499,17 +685,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             return self.async_create_entry(
                 title=title,
-                data={
-                    CONF_CONTROLLER_TYPE: self._controller_type,
-                    CONF_API_URL: self._api_url,
-                    CONF_OMADA_ID: self._omada_id,
-                    CONF_CLIENT_ID: self._client_id,
-                    CONF_CLIENT_SECRET: self._client_secret,
-                    CONF_ACCESS_TOKEN: self._access_token,
-                    CONF_REFRESH_TOKEN: self._refresh_token,
-                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
-                    CONF_SELECTED_SITES: self._selected_site_ids,
-                },
+                data=self._generate_entry_data(),
                 options={
                     CONF_SELECTED_CLIENTS: [],
                     CONF_SELECTED_APPLICATIONS: [],
@@ -661,6 +837,19 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             return result["result"]["data"]  # type: ignore[no-any-return]
 
+    def _build_api_headers(self) -> dict[str, str]:
+        """Build API headers based on current auth mode."""
+        if self._controller_type == CONTROLLER_TYPE_FUSION and self._fusion_csrf_token:
+            return {
+                "Csrf-Token": self._fusion_csrf_token,
+                "Omada-Request-Source": "web-local",
+                "Content-Type": "application/json",
+            }
+        return {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
+
     async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
         """Fetch all clients for a site.
 
@@ -676,10 +865,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         session = async_get_clientsession(self.hass, verify_ssl=False)
         url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = self._build_api_headers()
 
         # scope=0 is intentional here: the config / options flow must
         # show all known clients (including offline) so the user can
@@ -731,10 +917,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         session = async_get_clientsession(self.hass, verify_ssl=False)
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = self._build_api_headers()
 
         _LOGGER.debug("Fetching applications from site %s", site_id)
 
@@ -808,17 +991,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             # Create config entry
             return self.async_create_entry(
                 title=title,
-                data={
-                    CONF_CONTROLLER_TYPE: self._controller_type,
-                    CONF_API_URL: self._api_url,
-                    CONF_OMADA_ID: self._omada_id,
-                    CONF_CLIENT_ID: self._client_id,
-                    CONF_CLIENT_SECRET: self._client_secret,
-                    CONF_ACCESS_TOKEN: self._access_token,
-                    CONF_REFRESH_TOKEN: self._refresh_token,
-                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
-                    CONF_SELECTED_SITES: self._selected_site_ids,
-                },
+                data=self._generate_entry_data(),
                 options={
                     CONF_SELECTED_CLIENTS: self._selected_client_macs,
                     CONF_SELECTED_APPLICATIONS: selected_app_ids,
@@ -842,17 +1015,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             return self.async_create_entry(
                 title=title,
-                data={
-                    CONF_CONTROLLER_TYPE: self._controller_type,
-                    CONF_API_URL: self._api_url,
-                    CONF_OMADA_ID: self._omada_id,
-                    CONF_CLIENT_ID: self._client_id,
-                    CONF_CLIENT_SECRET: self._client_secret,
-                    CONF_ACCESS_TOKEN: self._access_token,
-                    CONF_REFRESH_TOKEN: self._refresh_token,
-                    CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat(),  # type: ignore[union-attr]
-                    CONF_SELECTED_SITES: self._selected_site_ids,
-                },
+                data=self._generate_entry_data(),
                 options={
                     CONF_SELECTED_CLIENTS: self._selected_client_macs,
                     CONF_SELECTED_APPLICATIONS: [],
