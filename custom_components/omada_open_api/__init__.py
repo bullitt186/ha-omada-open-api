@@ -21,11 +21,14 @@ from homeassistant.helpers import (
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import OmadaApiAuthError, OmadaApiClient
+from .auth import WebSessionAuth
 from .clients import normalize_client_mac
 from .const import (
+    AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
+    CONF_AUTH_MODE,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -33,6 +36,7 @@ from .const import (
     CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
+    CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
@@ -40,6 +44,7 @@ from .const import (
     CONF_STATS_SCAN_INTERVAL,
     CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_USERNAME,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
@@ -219,38 +224,69 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     # Migrate legacy config: move user-preference keys from data to options.
     _migrate_data_to_options(hass, entry)
 
-    # Parse token expiration time
-    token_expires_at = dt.datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRES_AT])
-
-    # Create token update callback for the API client.
-    async def _token_update_callback(
-        access_token: str, refresh_token: str, expires_at_iso: str
-    ) -> None:
-        """Persist updated tokens to the config entry."""
-        hass.config_entries.async_update_entry(
-            entry,
-            data={
-                **entry.data,
-                CONF_ACCESS_TOKEN: access_token,
-                CONF_REFRESH_TOKEN: refresh_token,
-                CONF_TOKEN_EXPIRES_AT: expires_at_iso,
-            },
-        )
-
     # Create API client with injected session and callback.
     session = async_get_clientsession(hass, verify_ssl=False)
+    auth_mode = entry.data.get(
+        CONF_AUTH_MODE, AUTH_MODE_WEB_SESSION if CONF_USERNAME in entry.data else None
+    )
+
     try:
-        api_client = OmadaApiClient(
-            session=session,
-            token_update_callback=_token_update_callback,
-            api_url=entry.data[CONF_API_URL],
-            omada_id=entry.data[CONF_OMADA_ID],
-            client_id=entry.data[CONF_CLIENT_ID],
-            client_secret=entry.data[CONF_CLIENT_SECRET],
-            access_token=entry.data[CONF_ACCESS_TOKEN],
-            refresh_token=entry.data[CONF_REFRESH_TOKEN],
-            token_expires_at=token_expires_at,
-        )
+        if auth_mode == AUTH_MODE_WEB_SESSION:
+            # Fusion Gateway: web-session authentication
+            async def _fusion_token_callback(*_args: str) -> None:
+                """No-op for Fusion — session is re-created from credentials."""
+
+            auth = WebSessionAuth(
+                session=session,
+                token_update_callback=_fusion_token_callback,
+                api_url=entry.data[CONF_API_URL],
+                omada_id=entry.data[CONF_OMADA_ID],
+                username=entry.data[CONF_USERNAME],
+                password=entry.data[CONF_PASSWORD],
+            )
+            api_client = OmadaApiClient(
+                session=session,
+                token_update_callback=_fusion_token_callback,
+                api_url=entry.data[CONF_API_URL],
+                omada_id=entry.data[CONF_OMADA_ID],
+                client_id="",
+                client_secret="",
+                access_token="",
+                refresh_token="",
+                token_expires_at=dt.datetime.now(dt.UTC),
+                auth=auth,
+            )
+        else:
+            # Traditional OpenAPI: client_credentials authentication
+            token_expires_at = dt.datetime.fromisoformat(
+                entry.data[CONF_TOKEN_EXPIRES_AT]
+            )
+
+            async def _token_update_callback(
+                access_token: str, refresh_token: str, expires_at_iso: str
+            ) -> None:
+                """Persist updated tokens to the config entry."""
+                hass.config_entries.async_update_entry(
+                    entry,
+                    data={
+                        **entry.data,
+                        CONF_ACCESS_TOKEN: access_token,
+                        CONF_REFRESH_TOKEN: refresh_token,
+                        CONF_TOKEN_EXPIRES_AT: expires_at_iso,
+                    },
+                )
+
+            api_client = OmadaApiClient(
+                session=session,
+                token_update_callback=_token_update_callback,
+                api_url=entry.data[CONF_API_URL],
+                omada_id=entry.data[CONF_OMADA_ID],
+                client_id=entry.data[CONF_CLIENT_ID],
+                client_secret=entry.data[CONF_CLIENT_SECRET],
+                access_token=entry.data[CONF_ACCESS_TOKEN],
+                refresh_token=entry.data[CONF_REFRESH_TOKEN],
+                token_expires_at=token_expires_at,
+            )
 
         # Test connection and refresh token if needed
         sites = await api_client.get_sites()
@@ -285,6 +321,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
 
     for site_id in selected_site_ids:
         site_info = sites_by_id.get(site_id)
+        if not site_info and len(all_sites) == 1 and auth_mode == AUTH_MODE_WEB_SESSION:
+            # Fusion single-site fallback: site ID may change after firmware update
+            site_info = all_sites[0]
+            _LOGGER.info(
+                "Site %s not found, using only available site %s (Fusion fallback)",
+                site_id,
+                site_info["siteId"],
+            )
         if not site_info:
             _LOGGER.warning("Selected site %s not found in available sites", site_id)
             continue
