@@ -116,13 +116,15 @@ The following parameters are required during the initial setup flow:
 
 | Parameter | Step | Required | Description |
 |---|---|---|---|
-| **Controller Type** | 1 – Controller type | Yes | `Cloud` (TP-Link cloud-hosted) or `Local` (self-hosted controller). Determines the API endpoint used. |
+| **Controller Type** | 1 – Controller type | Yes | `Cloud` (TP-Link cloud-hosted), `Local` (self-hosted controller), or `Fusion Gateway` (built-in controller). Determines the authentication method and API endpoint used. |
 | **Region** | 2 – Region *(cloud only)* | Yes (cloud) | Cloud region where your controller is deployed: **United States**, **Europe**, or **Asia Pacific (Singapore)**. Sets the API base URL automatically. |
-| **Controller URL** | 2 – Local URL *(local only)* | Yes (local) | Full URL of your self-hosted controller, including protocol and port (e.g., `https://192.168.1.100:8043`). |
-| **Omada ID** | 3 – Credentials | Yes | The MSP ID or Customer ID from your Open API application. Found in **Settings → Platform Integration → Open API** in the Omada controller. |
-| **Client ID** | 3 – Credentials | Yes | OAuth2 Client ID from your Open API application. Generated when creating a new application in the controller. |
-| **Client Secret** | 3 – Credentials | Yes | OAuth2 Client Secret from your Open API application. Shown once when the application is created — copy and store it securely. |
-| **Sites** | 4 – Site selection | Yes | One or more Omada sites to monitor. All devices and clients under the selected sites become available as Home Assistant entities. |
+| **Controller URL** | 2 – Local URL *(local/fusion)* | Yes (local/fusion) | Full URL of your controller, including protocol and port (e.g., `https://192.168.1.100:8043` for local, `https://192.168.1.1` for Fusion). |
+| **Username** | 2 – Fusion credentials *(fusion only)* | Yes (fusion) | Web interface login username for the Fusion Gateway. |
+| **Password** | 2 – Fusion credentials *(fusion only)* | Yes (fusion) | Web interface login password for the Fusion Gateway. |
+| **Omada ID** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | The MSP ID or Customer ID from your Open API application. Found in **Settings → Platform Integration → Open API** in the Omada controller. |
+| **Client ID** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client ID from your Open API application. Generated when creating a new application in the controller. |
+| **Client Secret** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client Secret from your Open API application. Shown once when the application is created — copy and store it securely. |
+| **Sites** | 4 – Site selection | Yes | One or more Omada sites to monitor. Fusion gateways with a single site are auto-selected. All devices and clients under the selected sites become available as Home Assistant entities. |
 | **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. Can be modified later via Options. Limited to the first 200 clients in the UI. |
 | **Applications** | 6 – Application selection | No | DPI-tracked applications for per-client traffic monitoring (upload/download sensors). Requires DPI enabled on the gateway. Can be modified later via Options. |
 
@@ -320,10 +322,13 @@ Configure how frequently each data type is polled from the Omada controller. Low
 All TP-Link Omada SDN devices accessible via the Open API are supported:
 
 - **Controllers**: OC200, OC300, software controllers, cloud-managed controllers
+- **Fusion Gateways**: TP-Link Omada Fusion series (built-in controller, no separate hardware controller required)
 - **Access Points**: EAP series (WiFi 5/6/6E/7, indoor & outdoor)
 - **Switches**: JetStream and Smart Managed switches (PoE and non-PoE)
 - **Gateways**: ER and SafeStream series
 - **Clients**: Any device connected to the Omada network (wireless and wired)
+
+> **Fusion + Traditional side by side**: You can add both a Fusion Gateway and a traditional Omada controller in the same Home Assistant instance — each as its own integration entry with independent authentication and polling.
 
 Device availability depends on your controller's firmware version and API access level. See [Features](#features) for the OC200 and free-cloud-tier limitations.
 
@@ -334,6 +339,7 @@ Device availability depends on your controller's firmware version and API access
 - **Cloud dependency**: Cloud controllers require internet connectivity
 - **DPI required**: Application traffic monitoring needs DPI enabled on the gateway
 - **Local controller**: Requires Open API enabled (not available on all firmware versions)
+- **Fusion Gateway**: Single-site only; no Open API app creation UI (uses web-session auth instead)
 - **API rate limits**: Respected automatically; rarely an issue with default polling intervals
 - **Viewer-only credentials**: PoE and LED switches are not created; all monitoring entities still work
 
