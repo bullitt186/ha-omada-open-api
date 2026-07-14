@@ -77,6 +77,10 @@ This project is a Home Assistant integration for TP-Link Omada Open API.
 - **Base URL**: Region-specific endpoints (e.g., use1-omada-northbound.tplinkcloud.com)
 
 ### Authentication & Session Management
+
+The integration supports two authentication modes via the `OmadaAuthStrategy` pattern (`auth.py`):
+
+#### Traditional OpenAPI (client_credentials)
 - **OAuth Flow**: OAuth 2.0 Client Credentials grant type (not Authorization Code)
 - **Token Lifecycle**: Access tokens expire in 2 hours, refresh tokens in 14 days
 - **Automatic Refresh**: Implement 5-minute expiry buffer - refresh tokens before they expire
@@ -85,6 +89,18 @@ This project is a Home Assistant integration for TP-Link Omada Open API.
 - **Token Storage**: Store in config entry data: `access_token`, `refresh_token`, `token_expires_at` (ISO format)
 - **Error Codes**: API returns HTTP 200 with `errorCode: -44114` for expired refresh tokens (not HTTP 401)
 - **Session Persistence**: Maintain authenticated session across HA restarts via persisted tokens
+
+#### Fusion Gateway (web_session)
+- **Auth Mode**: Web login via `POST /{omadaCID}/api/v2/login` with username/password
+- **Session**: Uses CSRF token + session cookie (no OAuth tokens)
+- **Headers**: `Csrf-Token: {token}` + `Omada-Request-Source: web-local` (NOT `Authorization: AccessToken=...`)
+- **Cookie Jar**: Requires `aiohttp.CookieJar(unsafe=True)` because Fusion gateways are accessed by IP address and the default safe jar refuses cookies for IP-based URLs
+- **Content-Type**: Fusion firmware may return JSON without a Content-Type header — always use `response.json(content_type=None)` when talking to Fusion endpoints
+- **CID Auto-Detection**: `GET {url}/api/info` returns `result.omadacId`
+- **Single Site**: Fusion gateways typically expose one site with an auto-generated name; use single-site fallback if the stored site_id no longer matches
+- **Session Invalidation**: Each web login invalidates prior sessions — never log in twice with the same session; reuse the CSRF token from a single login
+- **Entry Data**: Stores `auth_mode: "web_session"`, `username`, `password` (no client_id/secret/tokens)
+- **v2 Clients Fallback**: Some Fusion firmware returns error `-1600` on the v2 clients POST endpoint; the client falls back to v1 GET permanently when this occurs
 
 ### API Access Patterns
 - **Controller Discovery**: Retrieve available Omada controllers for the account

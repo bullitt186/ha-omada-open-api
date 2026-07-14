@@ -31,6 +31,20 @@
                     "api_url": "Full URL including protocol and port"
                 }
             },
+            "fusion": {
+                "title": "Fusion Gateway Credentials",
+                "description": "Enter the URL and login credentials for your Fusion Gateway (e.g., {example_url}).\n\nUse the same username and password you use to log in to the gateway's web interface.",
+                "data": {
+                    "api_url": "Gateway URL",
+                    "username": "Username",
+                    "password": "Password"
+                },
+                "data_description": {
+                    "api_url": "Full URL including protocol (e.g., https://192.168.1.1)",
+                    "username": "Web interface login username",
+                    "password": "Web interface login password"
+                }
+            },
             "credentials": {
                 "title": "Omada API Credentials",
                 "description": "Enter your Omada Open API credentials.\n\nYou can find these in your Omada controller:\n1. Go to Settings > Platform Integration > Open API\n2. Create a new application (Client Credentials Mode)\n3. Copy the Client ID, Client Secret, and Omada ID\n\n{controller_info}",

@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import asyncio
-import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
-from .const import DEFAULT_TIMEOUT, TOKEN_EXPIRY_BUFFER
+from .auth import ClientCredentialsAuth, OmadaAuthStrategy
+from .const import DEFAULT_TIMEOUT
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    import datetime as dt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ class OmadaApiClient:
         access_token: str,
         refresh_token: str,
         token_expires_at: dt.datetime,
+        *,
+        auth: OmadaAuthStrategy | None = None,
     ) -> None:
         """Initialize the API client.
 
@@ -45,47 +47,33 @@ class OmadaApiClient:
             access_token: Current access token
             refresh_token: Current refresh token
             token_expires_at: When the access token expires
+            auth: Optional pre-built auth strategy (overrides credential args)
 
         """
         self._session = session
-        self._token_update_callback = token_update_callback
         self._api_url = api_url.rstrip("/")
         self._omada_id = omada_id
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._access_token = access_token
-        self._refresh_token = refresh_token
-        self._token_expires_at = token_expires_at
-        self._token_refresh_lock = asyncio.Lock()
+        self._use_v1_clients = False
+
+        if auth is not None:
+            self._auth = auth
+        else:
+            self._auth = ClientCredentialsAuth(
+                session=session,
+                token_update_callback=token_update_callback,
+                api_url=api_url,
+                omada_id=omada_id,
+                client_id=client_id,
+                client_secret=client_secret,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                token_expires_at=token_expires_at,
+            )
 
     @property
     def api_url(self) -> str:
         """Return the API URL."""
         return self._api_url
-
-    async def _ensure_valid_token(self) -> None:
-        """Ensure we have a valid access token, refresh if needed.
-
-        Raises:
-            OmadaApiException: If token refresh fails
-
-        """
-        async with self._token_refresh_lock:
-            # Check if token needs refresh (5 minutes before expiry)
-            now = dt.datetime.now(dt.UTC)
-            buffer = dt.timedelta(seconds=TOKEN_EXPIRY_BUFFER)
-            if now >= self._token_expires_at - buffer:
-                _LOGGER.debug("Access token expired or expiring soon, refreshing")
-                await self._refresh_access_token()
-
-    async def _update_config_entry(self) -> None:
-        """Persist updated tokens via the injected callback."""
-        await self._token_update_callback(
-            self._access_token,
-            self._refresh_token,
-            self._token_expires_at.isoformat(),
-        )
-        _LOGGER.debug("Config entry updated with new tokens")
 
     async def _authenticated_request(
         self,
@@ -113,13 +101,11 @@ class OmadaApiClient:
             OmadaApiError: If the request fails after retry
 
         """
-        await self._ensure_valid_token()
+        await self._auth.ensure_valid_session()
 
         for attempt in range(2):
-            headers = {
-                "Authorization": f"AccessToken={self._access_token}",
-                "Content-Type": "application/json",
-            }
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            self._auth.decorate_request(headers)
 
             try:
                 request_kwargs: dict[str, Any] = {
@@ -141,8 +127,7 @@ class OmadaApiClient:
                                 "retrying (attempt %s)",
                                 attempt + 1,
                             )
-                            async with self._token_refresh_lock:
-                                await self._refresh_access_token()
+                            await self._auth.handle_auth_failure()
                             continue
                         response_text = await response.text()
                         raise OmadaApiError(
@@ -152,8 +137,6 @@ class OmadaApiClient:
                     if response.status != 200:
                         response_text = await response.text()
                         if response.status == 404:
-                            # 404 means the endpoint is not supported by this
-                            # controller firmware — not an error, log at DEBUG.
                             _LOGGER.debug("HTTP 404 (endpoint not supported): %s", url)
                         else:
                             _LOGGER.error(
@@ -161,7 +144,7 @@ class OmadaApiClient:
                             )
                         raise OmadaApiError(f"HTTP {response.status}: {response_text}")
 
-                    result = await response.json()
+                    result = await response.json(content_type=None)
                     error_code = result.get("errorCode")
 
                     # Token-related errors: refresh and retry
@@ -173,8 +156,7 @@ class OmadaApiClient:
                                 error_code,
                                 result.get("msg", ""),
                             )
-                            async with self._token_refresh_lock:
-                                await self._refresh_access_token()
+                            await self._auth.handle_auth_failure()
                             continue
                         raise OmadaApiError(
                             f"Token error {error_code} persists after refresh: "
@@ -195,179 +177,6 @@ class OmadaApiClient:
 
         # Should not reach here, but just in case
         raise OmadaApiError("Request failed after all retry attempts")
-
-    async def _get_fresh_tokens(self) -> None:
-        """Get fresh tokens using client credentials grant.
-
-        Per the Omada API docs, only grant_type goes in the query string.
-        The omadacId, client_id, and client_secret go in the JSON body.
-
-        Raises:
-            OmadaApiAuthError: If getting fresh tokens fails
-
-        """
-        _LOGGER.info("Requesting fresh tokens using client_credentials grant")
-        url = f"{self._api_url}/openapi/authorize/token"
-        # Per API docs: only grant_type in query string
-        params = {
-            "grant_type": "client_credentials",
-        }
-        # Per API docs: omadacId, client_id, client_secret in JSON body
-        data = {
-            "omadacId": self._omada_id,
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-        }
-
-        try:
-            async with self._session.post(
-                url,
-                params=params,
-                json=data,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status != 200:
-                    raise OmadaApiAuthError(
-                        f"Failed to get fresh tokens with status {response.status}"
-                    )
-
-                result = await response.json()
-
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    error_code = result.get("errorCode")
-                    _LOGGER.error(
-                        "API error getting fresh tokens: %s - %s",
-                        error_code,
-                        error_msg,
-                    )
-                    raise OmadaApiAuthError(f"API error: {error_msg}")
-
-                token_data = result["result"]
-                self._access_token = token_data["accessToken"]
-                self._refresh_token = token_data["refreshToken"]
-                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
-                    seconds=token_data["expiresIn"]
-                )
-
-                _LOGGER.info(
-                    "Fresh tokens obtained successfully, expires in %s seconds",
-                    token_data["expiresIn"],
-                )
-
-                # Persist to config entry
-                await self._update_config_entry()
-
-        except aiohttp.ClientError as err:
-            raise OmadaApiAuthError(
-                f"Connection error getting fresh tokens: {err}"
-            ) from err
-
-    async def _refresh_access_token(self) -> None:
-        """Refresh the access token using refresh token.
-
-        Per the Omada API docs, refresh_token grant puts ALL parameters in the
-        query string with no request body. Refresh tokens are single-use: after
-        use, the old token is invalidated and a new one is returned.
-
-        If refresh token is expired or invalid, automatically gets fresh tokens
-        using client credentials.
-
-        Raises:
-            OmadaApiAuthError: If refresh fails
-
-        """
-        url = f"{self._api_url}/openapi/authorize/token"
-        # Per API docs: all params go in query string for refresh_token grant
-        params = {
-            "grant_type": "refresh_token",
-            "client_id": self._client_id,
-            "client_secret": self._client_secret,
-            "refresh_token": self._refresh_token,
-        }
-
-        _LOGGER.debug("Attempting token refresh via refresh_token grant")
-
-        try:
-            async with self._session.post(
-                url,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                if response.status == 401:
-                    # Refresh token expired, get fresh tokens automatically
-                    _LOGGER.info(
-                        "HTTP 401 during token refresh, falling back to "
-                        "client_credentials grant"
-                    )
-                    await self._get_fresh_tokens()
-                    return
-
-                if response.status != 200:
-                    _LOGGER.warning(
-                        "Token refresh returned HTTP %s, falling back to "
-                        "client_credentials grant",
-                        response.status,
-                    )
-                    await self._get_fresh_tokens()
-                    return
-
-                result = await response.json()
-                error_code = result.get("errorCode")
-
-                if error_code != 0:
-                    error_msg = result.get("msg", "Unknown error")
-
-                    # Error code -44114: Refresh token expired
-                    # Error code -44111: Invalid grant type
-                    # Error code -44106: Invalid client credentials
-                    if error_code in (-44114, -44111, -44106):
-                        _LOGGER.info(
-                            "Token refresh failed (error %s: %s), falling back "
-                            "to client_credentials grant",
-                            error_code,
-                            error_msg,
-                        )
-                        await self._get_fresh_tokens()
-                        return
-
-                    _LOGGER.error(
-                        "API error during token refresh: %s - %s",
-                        error_code,
-                        error_msg,
-                    )
-                    raise OmadaApiAuthError(
-                        f"Token refresh failed: {error_msg} (code: {error_code})"
-                    )
-
-                token_data = result["result"]
-                self._access_token = token_data["accessToken"]
-                self._refresh_token = token_data["refreshToken"]
-                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
-                    seconds=token_data["expiresIn"]
-                )
-
-                _LOGGER.debug(
-                    "Access token refreshed successfully, expires in %s seconds",
-                    token_data["expiresIn"],
-                )
-
-                # Persist to config entry
-                await self._update_config_entry()
-
-        except aiohttp.ClientError as err:
-            _LOGGER.warning(
-                "Connection error during token refresh: %s, falling back to "
-                "client_credentials grant",
-                err,
-            )
-            try:
-                await self._get_fresh_tokens()
-            except (OmadaApiError, aiohttp.ClientError) as fresh_err:
-                raise OmadaApiError(
-                    f"Token refresh failed and client_credentials fallback "
-                    f"also failed: {fresh_err}"
-                ) from err
 
     async def get_sites(self) -> list[dict[str, Any]]:
         """Get list of sites from Omada controller.
@@ -445,6 +254,9 @@ class OmadaApiClient:
     ) -> dict[str, Any]:
         """Get clients for a site.
 
+        Tries the v2 POST endpoint first. On error -1600 (unsupported on
+        Fusion firmware), falls back to the v1 GET endpoint permanently.
+
         Args:
             site_id: Site ID to get clients for
             page: Page number (starts at 1)
@@ -457,15 +269,33 @@ class OmadaApiClient:
             and data list
 
         """
-        url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
-        body = {
-            "page": page,
-            "pageSize": page_size,
-            "scope": scope,
-            "filters": {},
-        }
+        if self._use_v1_clients:
+            return await self._get_clients_v1(site_id, page, page_size)
 
-        result = await self._authenticated_request("post", url, json_data=body)
+        try:
+            url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
+            body = {
+                "page": page,
+                "pageSize": page_size,
+                "scope": scope,
+                "filters": {},
+            }
+            result = await self._authenticated_request("post", url, json_data=body)
+            return result["result"]  # type: ignore[no-any-return]
+        except OmadaApiError as err:
+            if err.error_code == -1600:
+                _LOGGER.info("v2 clients endpoint unsupported, falling back to v1 GET")
+                self._use_v1_clients = True
+                return await self._get_clients_v1(site_id, page, page_size)
+            raise
+
+    async def _get_clients_v1(
+        self, site_id: str, page: int = 1, page_size: int = 100
+    ) -> dict[str, Any]:
+        """Get clients using the v1 GET endpoint (Fusion fallback)."""
+        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/clients"
+        params = {"page": page, "pageSize": page_size}
+        result = await self._authenticated_request("get", url, params=params)
         return result["result"]  # type: ignore[no-any-return]
 
     async def get_applications(
@@ -1572,19 +1402,9 @@ class OmadaApiClient:
         return all_rows
 
     @property
-    def access_token(self) -> str:
-        """Get current access token."""
-        return self._access_token
-
-    @property
-    def refresh_token(self) -> str:
-        """Get current refresh token."""
-        return self._refresh_token
-
-    @property
-    def token_expires_at(self) -> dt.datetime:
-        """Get token expiration time."""
-        return self._token_expires_at
+    def auth(self) -> OmadaAuthStrategy:
+        """Return the auth strategy."""
+        return self._auth
 
 
 class OmadaApiError(Exception):

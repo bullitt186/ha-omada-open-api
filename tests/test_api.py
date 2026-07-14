@@ -81,7 +81,7 @@ async def test_token_refresh_before_expiry(
     mock_post.return_value.__aenter__.return_value = mock_response
 
     # Call method that should trigger token refresh
-    await api_client._ensure_valid_token()  # noqa: SLF001
+    await api_client._auth.ensure_valid_session()  # noqa: SLF001
 
     # Verify refresh endpoint was called
     mock_post.assert_called_once()
@@ -154,7 +154,7 @@ async def test_refresh_token_expiry_triggers_renewal(
     ]
 
     # Call method that should trigger refresh, then renewal
-    await api_client._ensure_valid_token()  # noqa: SLF001
+    await api_client._auth.ensure_valid_session()  # noqa: SLF001
 
     # Verify both calls were made
     assert mock_post.call_count == 2
@@ -218,7 +218,7 @@ async def test_token_persistence_to_config_entry(
     mock_post.return_value.__aenter__.return_value = mock_response
 
     # Trigger token refresh
-    await api_client._ensure_valid_token()  # noqa: SLF001
+    await api_client._auth.ensure_valid_session()  # noqa: SLF001
 
     # Verify config entry was updated
     mock_callback.assert_called_once()
@@ -258,7 +258,9 @@ async def test_authenticated_request_retries_on_token_expired(
     mock_get = mock_session.get
     with (
         patch.object(
-            api_client, "_refresh_access_token", new_callable=AsyncMock
+            api_client._auth,  # noqa: SLF001
+            "handle_auth_failure",
+            new_callable=AsyncMock,
         ) as mock_refresh,
     ):
         # First call returns -44112 (token expired), second call succeeds
@@ -284,7 +286,7 @@ async def test_authenticated_request_retries_on_token_expired(
 
         # Make the refresh update the token so retry works
         async def update_token() -> None:
-            api_client._access_token = "refreshed_token"  # noqa: SLF001
+            api_client._auth._access_token = "refreshed_token"  # noqa: SLF001
 
         mock_refresh.side_effect = update_token
 
@@ -326,7 +328,9 @@ async def test_authenticated_request_retries_on_token_invalid(
     mock_get = mock_session.get
     with (
         patch.object(
-            api_client, "_refresh_access_token", new_callable=AsyncMock
+            api_client._auth,  # noqa: SLF001
+            "handle_auth_failure",
+            new_callable=AsyncMock,
         ) as mock_refresh,
     ):
         # First call returns -44113, second succeeds
@@ -383,7 +387,9 @@ async def test_authenticated_request_retries_on_http_401(
     mock_get = mock_session.get
     with (
         patch.object(
-            api_client, "_refresh_access_token", new_callable=AsyncMock
+            api_client._auth,  # noqa: SLF001
+            "handle_auth_failure",
+            new_callable=AsyncMock,
         ) as mock_refresh,
     ):
         # First call returns HTTP 401, second succeeds
@@ -455,7 +461,7 @@ async def test_refresh_connection_error_falls_back_to_client_credentials(
         fresh_token_response,
     ]
 
-    await api_client._ensure_valid_token()  # noqa: SLF001
+    await api_client._auth.ensure_valid_session()  # noqa: SLF001
 
     # Verify both calls were made (refresh + client_credentials)
     assert mock_post.call_count == 2
@@ -488,7 +494,7 @@ async def test_get_fresh_tokens_http_error(
     mock_session.post.return_value.__aenter__.return_value = mock_response
 
     with pytest.raises(OmadaApiAuthError, match="status 500"):
-        await api_client._get_fresh_tokens()  # noqa: SLF001
+        await api_client._auth._get_fresh_tokens()  # noqa: SLF001
 
 
 async def test_get_fresh_tokens_api_error(
@@ -518,7 +524,7 @@ async def test_get_fresh_tokens_api_error(
     mock_session.post.return_value.__aenter__.return_value = mock_response
 
     with pytest.raises(OmadaApiAuthError, match="Invalid credentials"):
-        await api_client._get_fresh_tokens()  # noqa: SLF001
+        await api_client._auth._get_fresh_tokens()  # noqa: SLF001
 
 
 async def test_get_fresh_tokens_connection_error(
@@ -544,7 +550,7 @@ async def test_get_fresh_tokens_connection_error(
     )
 
     with pytest.raises(OmadaApiAuthError, match="Connection error"):
-        await api_client._get_fresh_tokens()  # noqa: SLF001
+        await api_client._auth._get_fresh_tokens()  # noqa: SLF001
 
 
 async def test_refresh_non_200_falls_back(
@@ -584,7 +590,7 @@ async def test_refresh_non_200_falls_back(
         success_response,
     ]
 
-    await api_client._refresh_access_token()  # noqa: SLF001
+    await api_client._auth._refresh_access_token()  # noqa: SLF001
     assert mock_session.post.call_count == 2
 
 
@@ -615,7 +621,7 @@ async def test_refresh_unknown_api_error_raises(
     mock_session.post.return_value.__aenter__.return_value = mock_response
 
     with pytest.raises(OmadaApiAuthError, match="Unknown server error"):
-        await api_client._refresh_access_token()  # noqa: SLF001
+        await api_client._auth._refresh_access_token()  # noqa: SLF001
 
 
 async def test_authenticated_request_401_after_retry(

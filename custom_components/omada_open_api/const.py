@@ -34,6 +34,14 @@ CONF_ENABLE_THREAT_HEATMAP_SENSORS = "enable_threat_heatmap_sensors"
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"
 CONTROLLER_TYPE_LOCAL = "local"
+CONTROLLER_TYPE_FUSION = "fusion"
+
+# Auth modes
+AUTH_MODE_OPENAPI = "openapi"
+AUTH_MODE_WEB_SESSION = "web_session"
+CONF_AUTH_MODE = "auth_mode"
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
 
 # API constants
 DEFAULT_TIMEOUT = 30
