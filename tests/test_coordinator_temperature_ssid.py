@@ -35,7 +35,7 @@ async def test_merge_gateway_temperature_success(hass: HomeAssistant) -> None:
     )
 
     # Call the private method
-    await coordinator._merge_gateway_temperature(devices)  # noqa: SLF001
+    await coordinator._merge_gateway_temperature(devices)
 
     # Verify temperature was merged
     assert devices["AA:BB:CC:DD:EE:FF"].get("temperature") == 45
@@ -65,7 +65,7 @@ async def test_merge_gateway_temperature_api_error(hass: HomeAssistant) -> None:
     )
 
     # Should not raise, just log warning
-    await coordinator._merge_gateway_temperature(devices)  # noqa: SLF001
+    await coordinator._merge_gateway_temperature(devices)
 
     # Temperature should not be added on error
     assert "temperature" not in devices["AA:BB:CC:DD:EE:FF"]
@@ -93,7 +93,7 @@ async def test_merge_gateway_temperature_skips_non_gateways(
         site_name="Test Site",
     )
 
-    await coordinator._merge_gateway_temperature(devices)  # noqa: SLF001
+    await coordinator._merge_gateway_temperature(devices)
 
     # Should not call get_gateway_info for non-gateways
     mock_api_client.get_gateway_info.assert_not_called()
@@ -117,7 +117,7 @@ async def test_fetch_site_ssids_success(hass: HomeAssistant) -> None:
         site_name="Test Site",
     )
 
-    ssids = await coordinator._fetch_site_ssids()  # noqa: SLF001
+    ssids = await coordinator._fetch_site_ssids()
 
     assert len(ssids) == 2
     assert ssids[0]["ssidName"] == "HomeWiFi"
@@ -139,7 +139,7 @@ async def test_fetch_site_ssids_api_error(hass: HomeAssistant) -> None:
         site_name="Test Site",
     )
 
-    ssids = await coordinator._fetch_site_ssids()  # noqa: SLF001
+    ssids = await coordinator._fetch_site_ssids()
 
     # Should return empty list on error
     assert ssids == []

@@ -106,7 +106,7 @@ async def test_device_info(hass: HomeAssistant) -> None:
     sensor = _create_device_binary_sensor(
         hass, SWITCH_MAC, {SWITCH_MAC: data}, "status"
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, SWITCH_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Core Switch"
 

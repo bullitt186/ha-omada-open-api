@@ -71,7 +71,7 @@ class TestClientCredentialsAuth:
         # Should not raise and should not trigger refresh
         await auth.ensure_valid_session()
         # Session.post should NOT have been called (no refresh needed)
-        auth._session.post.assert_not_called()  # noqa: SLF001
+        auth._session.post.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_ensure_valid_session_refreshes_when_expired(self) -> None:
@@ -96,12 +96,12 @@ class TestClientCredentialsAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.ensure_valid_session()
 
-        assert auth._access_token == "new_access"  # noqa: SLF001
-        assert auth._refresh_token == "new_refresh"  # noqa: SLF001
+        assert auth._access_token == "new_access"
+        assert auth._refresh_token == "new_refresh"
 
     @pytest.mark.asyncio
     async def test_handle_auth_failure_refreshes_token(self) -> None:
@@ -123,11 +123,11 @@ class TestClientCredentialsAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.handle_auth_failure()
 
-        assert auth._access_token == "refreshed_token"  # noqa: SLF001
+        assert auth._access_token == "refreshed_token"
 
     @pytest.mark.asyncio
     async def test_refresh_falls_back_to_fresh_tokens_on_expired_refresh(
@@ -167,11 +167,11 @@ class TestClientCredentialsAuth:
         mock_ctx_2.__aenter__ = AsyncMock(return_value=fresh_response)
         mock_ctx_2.__aexit__ = AsyncMock(return_value=False)
 
-        auth._session.post.side_effect = [mock_ctx_1, mock_ctx_2]  # noqa: SLF001
+        auth._session.post.side_effect = [mock_ctx_1, mock_ctx_2]
 
         await auth.ensure_valid_session()
 
-        assert auth._access_token == "fresh_access"  # noqa: SLF001
+        assert auth._access_token == "fresh_access"
 
     @pytest.mark.asyncio
     async def test_token_update_callback_called_after_refresh(self) -> None:
@@ -195,11 +195,11 @@ class TestClientCredentialsAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.ensure_valid_session()
 
-        auth._token_update_callback.assert_awaited_once()  # noqa: SLF001
+        auth._token_update_callback.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -244,13 +244,13 @@ class TestWebSessionAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.authenticate()
 
-        assert auth._csrf_token == "csrf_token_123"  # noqa: SLF001
+        assert auth._csrf_token == "csrf_token_123"
         # Verify correct URL was called
-        call_args = auth._session.post.call_args  # noqa: SLF001
+        call_args = auth._session.post.call_args
         url = call_args[0][0]
         assert f"/{TEST_OMADA_ID}/api/v2/login" in url
 
@@ -272,7 +272,7 @@ class TestWebSessionAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         with pytest.raises(OmadaApiAuthError):
             await auth.authenticate()
@@ -280,7 +280,7 @@ class TestWebSessionAuth:
     def test_decorate_request_adds_csrf_and_web_local(self) -> None:
         """decorate_request sets Csrf-Token and Omada-Request-Source headers."""
         auth = self._make_auth()
-        auth._csrf_token = "my_csrf"  # noqa: SLF001
+        auth._csrf_token = "my_csrf"
 
         headers: dict[str, str] = {}
         result = auth.decorate_request(headers)
@@ -293,7 +293,7 @@ class TestWebSessionAuth:
     async def test_ensure_valid_session_logs_in_when_no_token(self) -> None:
         """ensure_valid_session authenticates when CSRF token is missing."""
         auth = self._make_auth()
-        assert auth._csrf_token is None  # noqa: SLF001
+        assert auth._csrf_token is None
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -306,27 +306,27 @@ class TestWebSessionAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.ensure_valid_session()
 
-        assert auth._csrf_token == "new_csrf"  # noqa: SLF001
+        assert auth._csrf_token == "new_csrf"
 
     @pytest.mark.asyncio
     async def test_ensure_valid_session_skips_when_has_token(self) -> None:
         """ensure_valid_session does nothing when CSRF token already present."""
         auth = self._make_auth()
-        auth._csrf_token = "existing_csrf"  # noqa: SLF001
+        auth._csrf_token = "existing_csrf"
 
         await auth.ensure_valid_session()
 
-        auth._session.post.assert_not_called()  # noqa: SLF001
+        auth._session.post.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_handle_auth_failure_clears_and_relogins(self) -> None:
         """handle_auth_failure clears CSRF token and re-authenticates."""
         auth = self._make_auth()
-        auth._csrf_token = "old_csrf"  # noqa: SLF001
+        auth._csrf_token = "old_csrf"
 
         mock_response = AsyncMock()
         mock_response.status = 200
@@ -339,11 +339,11 @@ class TestWebSessionAuth:
         mock_ctx = AsyncMock()
         mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
         mock_ctx.__aexit__ = AsyncMock(return_value=False)
-        auth._session.post.return_value = mock_ctx  # noqa: SLF001
+        auth._session.post.return_value = mock_ctx
 
         await auth.handle_auth_failure()
 
-        assert auth._csrf_token == "relogin_csrf"  # noqa: SLF001
+        assert auth._csrf_token == "relogin_csrf"
 
     @pytest.mark.asyncio
     async def test_concurrent_login_uses_lock(self) -> None:
@@ -368,7 +368,7 @@ class TestWebSessionAuth:
             mock_ctx.__aexit__ = AsyncMock(return_value=False)
             return mock_ctx
 
-        auth._session.post = _mock_post  # noqa: SLF001
+        auth._session.post = _mock_post
 
         # Run 5 concurrent ensure_valid_session calls
         await asyncio.gather(

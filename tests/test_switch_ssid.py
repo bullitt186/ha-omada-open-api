@@ -358,6 +358,6 @@ async def test_ssid_switch_sanitize_vlan_mode_default(
         "vlanSetting": {"mode": 0, "customConfig": {"some": "data"}},
         "broadcast": True,
     }
-    sanitized = switch._sanitize_ssid_config(detail)  # noqa: SLF001
+    sanitized = switch._sanitize_ssid_config(detail)
     assert "vlanId" not in sanitized
     assert "customConfig" not in sanitized.get("vlanSetting", {})

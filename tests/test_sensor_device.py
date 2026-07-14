@@ -269,7 +269,7 @@ async def test_device_sensor_device_info_ap(hass: HomeAssistant) -> None:
     """Test device_info for AP."""
     data = process_device(SAMPLE_DEVICE_AP)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "client_num")
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, AP_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Office AP"
     assert device_info["manufacturer"] == "TP-Link"
@@ -282,7 +282,7 @@ async def test_device_sensor_device_info_gateway(hass: HomeAssistant) -> None:
     sensor = _create_device_sensor(
         hass, GATEWAY_MAC, {GATEWAY_MAC: data}, "device_type"
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert "via_device" not in device_info
 
 

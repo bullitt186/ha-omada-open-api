@@ -79,13 +79,13 @@ def _classify_connection_error(err: aiohttp.ClientError) -> str:
     """
     try:
         error_message = str(err).lower()
-    except Exception:  # noqa: BLE001
+    except Exception:
         error_message = repr(err).lower()
 
     os_error = err.__cause__ or err.__context__
     try:
         os_message = str(os_error).lower() if os_error else ""
-    except Exception:  # noqa: BLE001
+    except Exception:
         os_message = repr(os_error).lower() if os_error else ""
 
     combined = f"{error_message} {os_message}"

@@ -291,9 +291,9 @@ async def test_api_get_ap_radio_config_calls_correct_url() -> None:
             api_url="https://api.example.com",
             omada_id="test_omada_id",
             client_id="cid",
-            client_secret="csec",  # noqa: S106
-            access_token="tok",  # noqa: S106
-            refresh_token="rtok",  # noqa: S106
+            client_secret="csec",
+            access_token="tok",
+            refresh_token="rtok",
             token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
         )
         result = await real_client.get_ap_radio_config(TEST_SITE_ID, AP_MAC)
@@ -320,9 +320,9 @@ async def test_api_set_ap_radio_enabled_patches_correct_band() -> None:
             api_url="https://api.example.com",
             omada_id="test_omada_id",
             client_id="cid",
-            client_secret="csec",  # noqa: S106
-            access_token="tok",  # noqa: S106
-            refresh_token="rtok",  # noqa: S106
+            client_secret="csec",
+            access_token="tok",
+            refresh_token="rtok",
             token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
         )
         await real_client.set_ap_radio_enabled(
@@ -387,7 +387,7 @@ async def test_coordinator_fetches_ap_radio_config_for_aps(
         site_name=TEST_SITE_NAME,
     )
 
-    data = await coord._async_update_data()  # noqa: SLF001
+    data = await coord._async_update_data()
 
     assert "ap_radio_config" in data
     ap_mac = SAMPLE_DEVICE_AP["mac"]
@@ -416,6 +416,6 @@ async def test_coordinator_ap_radio_config_empty_on_api_error(
         site_name=TEST_SITE_NAME,
     )
 
-    data = await coord._async_update_data()  # noqa: SLF001
+    data = await coord._async_update_data()
 
     assert data["ap_radio_config"] == {}

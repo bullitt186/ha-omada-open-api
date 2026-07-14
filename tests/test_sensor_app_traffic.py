@@ -93,11 +93,11 @@ def test_app_traffic_sensor_init() -> None:
         metric_type="download",
     )
 
-    assert sensor._attr_unique_id == "11-22-33-44-55-AA_100_download_app_traffic"  # noqa: SLF001
-    assert sensor._attr_translation_key == "app_download"  # noqa: SLF001
-    assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}  # noqa: SLF001
-    assert sensor._attr_icon == "mdi:download-network"  # noqa: SLF001
-    assert sensor._attr_device_info["identifiers"] == {(DOMAIN, "11-22-33-44-55-AA")}  # noqa: SLF001
+    assert sensor._attr_unique_id == "11-22-33-44-55-AA_100_download_app_traffic"
+    assert sensor._attr_translation_key == "app_download"
+    assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}
+    assert sensor._attr_icon == "mdi:download-network"
+    assert sensor._attr_device_info["identifiers"] == {(DOMAIN, "11-22-33-44-55-AA")}
 
 
 def test_app_traffic_sensor_upload_icon() -> None:
@@ -111,9 +111,9 @@ def test_app_traffic_sensor_upload_icon() -> None:
         metric_type="upload",
     )
 
-    assert sensor._attr_icon == "mdi:upload-network"  # noqa: SLF001
-    assert sensor._attr_translation_key == "app_upload"  # noqa: SLF001
-    assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}  # noqa: SLF001
+    assert sensor._attr_icon == "mdi:upload-network"
+    assert sensor._attr_translation_key == "app_upload"
+    assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}
 
 
 def test_app_traffic_sensor_native_value() -> None:
@@ -138,7 +138,7 @@ def test_app_traffic_sensor_native_value() -> None:
     )
 
     assert sensor.native_value == 5.0
-    assert sensor._attr_native_unit_of_measurement == UnitOfInformation.MEGABYTES  # noqa: SLF001
+    assert sensor._attr_native_unit_of_measurement == UnitOfInformation.MEGABYTES
 
 
 def test_app_traffic_sensor_native_value_no_data() -> None:

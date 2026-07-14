@@ -89,7 +89,7 @@ async def test_merge_radio_util_2g_values(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert devices[AP_MAC]["radio_tx_util_2g"] == 45
     assert devices[AP_MAC]["radio_rx_util_2g"] == 30
@@ -104,7 +104,7 @@ async def test_merge_radio_util_5g_values(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert devices[AP_MAC]["radio_tx_util_5g"] == 20
     assert devices[AP_MAC]["radio_rx_util_5g"] == 15
@@ -119,7 +119,7 @@ async def test_merge_radio_util_5g2_values(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert devices[AP_MAC]["radio_tx_util_5g2"] == 0
     assert devices[AP_MAC]["radio_rx_util_5g2"] == 0
@@ -134,7 +134,7 @@ async def test_merge_radio_util_6g_values(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert devices[AP_MAC]["radio_tx_util_6g"] == 10
     assert devices[AP_MAC]["radio_rx_util_6g"] == 8
@@ -159,7 +159,7 @@ async def test_missing_band_leaves_keys_absent(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     # 2.4 GHz keys should be present
     assert "radio_tx_util_2g" in devices[AP_MAC]
@@ -176,7 +176,7 @@ async def test_empty_response_leaves_all_keys_absent(hass: HomeAssistant) -> Non
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert "radio_tx_util_2g" not in devices[AP_MAC]
     assert "radio_tx_util_5g" not in devices[AP_MAC]
@@ -197,7 +197,7 @@ async def test_non_ap_devices_are_skipped(hass: HomeAssistant) -> None:
         "GW-MAC": {"type": "gateway", "mac": "GW-MAC"},
     }
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     api_client.get_ap_radios.assert_not_called()
 
@@ -208,7 +208,7 @@ async def test_no_devices_skips_api(hass: HomeAssistant) -> None:
     api_client.get_ap_radios = AsyncMock(return_value={})
     coordinator = _make_coordinator(hass, api_client)
 
-    await coordinator._merge_ap_radio_utilization({})  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization({})
 
     api_client.get_ap_radios.assert_not_called()
 
@@ -225,7 +225,7 @@ async def test_multiple_aps_each_get_one_call(hass: HomeAssistant) -> None:
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC, AP_MAC_2)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert api_client.get_ap_radios.call_count == 2
     called_macs = {c.args[1] for c in api_client.get_ap_radios.call_args_list}
@@ -245,11 +245,11 @@ async def test_cache_skips_api_within_interval(hass: HomeAssistant) -> None:
     devices = _ap_devices(AP_MAC)
 
     # First call — should hit the API
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
     assert api_client.get_ap_radios.call_count == 1
 
     # Second immediate call — should be a cache hit
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
     assert api_client.get_ap_radios.call_count == 1  # still 1
 
 
@@ -261,11 +261,11 @@ async def test_cache_refetches_after_interval(hass: HomeAssistant) -> None:
     devices = _ap_devices(AP_MAC)
 
     # Simulate the last check being older than the interval
-    coordinator._last_radio_util_check = dt.datetime.now(dt.UTC) - dt.timedelta(  # noqa: SLF001
+    coordinator._last_radio_util_check = dt.datetime.now(dt.UTC) - dt.timedelta(
         seconds=DEFAULT_RADIO_UTIL_INTERVAL + 1
     )
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert api_client.get_ap_radios.call_count == 1
 
@@ -285,7 +285,7 @@ async def test_api_error_logs_warning_and_continues(
     devices = _ap_devices(AP_MAC)
 
     # Must not raise
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert "radio_tx_util_2g" not in devices[AP_MAC]
     assert any(
@@ -308,7 +308,7 @@ async def test_api_error_on_one_ap_does_not_block_others(hass: HomeAssistant) ->
         AP_MAC_2: {"type": "ap", "mac": AP_MAC_2},
     }
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert "radio_tx_util_2g" not in devices[AP_MAC]
     assert devices[AP_MAC_2]["radio_tx_util_2g"] == 45
@@ -345,7 +345,7 @@ async def test_band_with_empty_actual_channel_leaves_keys_absent(
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     # 2.4 GHz should be merged (non-empty actualChannel)
     assert devices[AP_MAC]["radio_tx_util_2g"] == 45
@@ -371,7 +371,7 @@ async def test_band_without_actual_channel_key_is_merged(hass: HomeAssistant) ->
     coordinator = _make_coordinator(hass, api_client)
     devices = _ap_devices(AP_MAC)
 
-    await coordinator._merge_ap_radio_utilization(devices)  # noqa: SLF001
+    await coordinator._merge_ap_radio_utilization(devices)
 
     assert devices[AP_MAC]["radio_tx_util_2g"] == 10
     assert devices[AP_MAC]["radio_busy_util_2g"] == 12

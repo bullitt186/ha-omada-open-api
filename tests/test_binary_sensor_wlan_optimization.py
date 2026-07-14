@@ -176,9 +176,9 @@ async def test_api_get_wlan_optimization_status_calls_correct_url() -> None:
             api_url="https://api.example.com",
             omada_id="test_omada_id",
             client_id="cid",
-            client_secret="csec",  # noqa: S106
-            access_token="tok",  # noqa: S106
-            refresh_token="rtok",  # noqa: S106
+            client_secret="csec",
+            access_token="tok",
+            refresh_token="rtok",
             token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
         )
         result = await real_client.get_wlan_optimization_status("site_001")
@@ -230,7 +230,7 @@ async def test_coordinator_fetches_wlan_optimization(hass: HomeAssistant) -> Non
         site_name=TEST_SITE_NAME,
     )
 
-    data = await coord._async_update_data()  # noqa: SLF001
+    data = await coord._async_update_data()
 
     assert "wlan_optimization" in data
     assert data["wlan_optimization"] == wlan_result
@@ -253,6 +253,6 @@ async def test_coordinator_wlan_optimization_none_on_api_error(
         site_name=TEST_SITE_NAME,
     )
 
-    data = await coord._async_update_data()  # noqa: SLF001
+    data = await coord._async_update_data()
 
     assert data["wlan_optimization"] is None

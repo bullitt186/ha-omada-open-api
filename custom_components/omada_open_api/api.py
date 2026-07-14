@@ -754,7 +754,7 @@ class OmadaApiClient:
                 err,
             )
             return True
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug(
                 "Write-access probe failed for site %s, assuming write access",
                 site_id,

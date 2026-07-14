@@ -86,7 +86,7 @@ async def test_client_binary_sensor_device_info(hass: HomeAssistant) -> None:
         {WIRELESS_MAC: _processed_wireless()},
         "power_save",
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, WIRELESS_MAC) in device_info["identifiers"]
 
 

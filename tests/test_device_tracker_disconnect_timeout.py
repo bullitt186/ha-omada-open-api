@@ -220,7 +220,7 @@ async def test_coordinator_updates_last_seen_on_data_fetch(hass: HomeAssistant) 
     )
 
     before = dt.datetime.now(dt.UTC)
-    await coord._async_update_data()  # noqa: SLF001
+    await coord._async_update_data()
     after = dt.datetime.now(dt.UTC)
 
     assert CLIENT_MAC in coord.last_seen

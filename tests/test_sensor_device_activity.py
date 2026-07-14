@@ -167,11 +167,11 @@ async def test_coordinator_computes_ap_rx_rate_on_second_poll(
     )
 
     # First poll — no rate (no previous data yet)
-    data1 = await coord._async_update_data()  # noqa: SLF001
+    data1 = await coord._async_update_data()
     assert data1["devices"][AP_MAC].get("rx_rate_mbps") is None
 
     # Second poll — rates computed immediately, no cache reset needed
-    data2 = await coord._async_update_data()  # noqa: SLF001
+    data2 = await coord._async_update_data()
     rx_rate = data2["devices"][AP_MAC].get("rx_rate_mbps")
     assert rx_rate is not None
     assert rx_rate >= 0.0
@@ -229,8 +229,8 @@ async def test_coordinator_resets_rate_on_counter_rollback(
         site_name=TEST_SITE_NAME,
     )
 
-    await coord._async_update_data()  # noqa: SLF001  # first poll
-    data2 = await coord._async_update_data()  # noqa: SLF001  # second poll with rollback
+    await coord._async_update_data()  # first poll
+    data2 = await coord._async_update_data()  # second poll with rollback
 
     rx_rate = data2["devices"][AP_MAC].get("rx_rate_mbps", 0.0)
     assert rx_rate == 0.0  # Rollback → rate reset to 0

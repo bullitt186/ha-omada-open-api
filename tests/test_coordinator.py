@@ -616,7 +616,7 @@ async def test_site_coordinator_firmware_info_refreshes_after_interval(
     assert mock_api_client.get_firmware_info.call_count == 3
 
     # Move time forward past the 30 min interval.
-    coordinator._last_firmware_check -= timedelta(minutes=31)  # noqa: SLF001
+    coordinator._last_firmware_check -= timedelta(minutes=31)
 
     await coordinator.async_refresh()
     # Should have fetched firmware info again for all 3 devices.
@@ -709,7 +709,7 @@ async def test_site_coordinator_boosts_polling_during_upgrade(
     await coordinator.async_refresh()
     assert coordinator.last_update_success is True
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_active is True
 
 
 async def test_site_coordinator_restores_polling_after_upgrade(
@@ -742,8 +742,8 @@ async def test_site_coordinator_restores_polling_after_upgrade(
     await coordinator.async_refresh()
     # Still fast polling during cooldown.
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
-    assert coordinator._upgrade_active is True  # noqa: SLF001
-    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+    assert coordinator._upgrade_active is True
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS
 
     # Subsequent refreshes decrement cooldown.
     for _i in range(UPGRADE_COOLDOWN_POLLS):
@@ -751,7 +751,7 @@ async def test_site_coordinator_restores_polling_after_upgrade(
 
     # Cooldown finished — normal polling restored.
     assert coordinator.update_interval == timedelta(seconds=60)
-    assert coordinator._upgrade_active is False  # noqa: SLF001
+    assert coordinator._upgrade_active is False
 
 
 async def test_site_coordinator_firmware_cache_reset_after_upgrade_cooldown(
@@ -819,7 +819,7 @@ async def test_site_coordinator_firmware_info_purged_when_device_disappears(
     # Move past the check interval, then the switch disappears entirely
     # (e.g. unplugged/removed from the controller) rather than just changing
     # status — this is the only case that should purge its cached entry.
-    coordinator._last_firmware_check -= timedelta(minutes=31)  # noqa: SLF001
+    coordinator._last_firmware_check -= timedelta(minutes=31)
     mock_api_client.get_devices = AsyncMock(return_value=[SAMPLE_DEVICE_AP])
 
     await coordinator.async_refresh()
@@ -840,7 +840,7 @@ async def test_site_coordinator_no_boost_without_upgrade(
 
     await coordinator.async_refresh()
     assert coordinator.update_interval == timedelta(seconds=60)
-    assert coordinator._upgrade_active is False  # noqa: SLF001
+    assert coordinator._upgrade_active is False
 
 
 async def test_start_upgrade_polling_activates_fast_polling(
@@ -855,12 +855,12 @@ async def test_start_upgrade_polling_activates_fast_polling(
         scan_interval=60,
     )
 
-    assert coordinator._upgrade_active is False  # noqa: SLF001
+    assert coordinator._upgrade_active is False
     assert coordinator.update_interval == timedelta(seconds=60)
 
     coordinator.start_upgrade_polling()
 
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_active is True
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
 
 
@@ -877,11 +877,11 @@ async def test_start_upgrade_polling_idempotent(
     )
 
     coordinator.start_upgrade_polling()
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_active is True
 
     # Calling again should not error or change state.
     coordinator.start_upgrade_polling()
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_active is True
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
 
 
@@ -903,7 +903,7 @@ async def test_upgrade_cooldown_keeps_fast_polling(
     )
 
     await coordinator.async_refresh()
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_active is True
 
     # Upgrade finishes — cooldown starts.
     normal_switch = {**SAMPLE_DEVICE_SWITCH, "detailStatus": 14}
@@ -914,12 +914,12 @@ async def test_upgrade_cooldown_keeps_fast_polling(
     await coordinator.async_refresh()
     # Fast polling persists during cooldown.
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
-    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS
 
     # Each subsequent poll decrements cooldown but keeps fast interval.
     await coordinator.async_refresh()
     assert coordinator.update_interval == timedelta(seconds=UPGRADE_POLL_INTERVAL)
-    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS - 1  # noqa: SLF001
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS - 1
 
 
 async def test_upgrade_cooldown_resets_if_upgrade_resumes(
@@ -947,7 +947,7 @@ async def test_upgrade_cooldown_resets_if_upgrade_resumes(
         return_value=[SAMPLE_DEVICE_AP, normal_switch]
     )
     await coordinator.async_refresh()
-    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS  # noqa: SLF001
+    assert coordinator._upgrade_cooldown_remaining == UPGRADE_COOLDOWN_POLLS
 
     # Another device starts upgrading during cooldown.
     mock_api_client.get_devices = AsyncMock(
@@ -955,8 +955,8 @@ async def test_upgrade_cooldown_resets_if_upgrade_resumes(
     )
     await coordinator.async_refresh()
     # Cooldown reset, upgrade active.
-    assert coordinator._upgrade_cooldown_remaining == 0  # noqa: SLF001
-    assert coordinator._upgrade_active is True  # noqa: SLF001
+    assert coordinator._upgrade_cooldown_remaining == 0
+    assert coordinator._upgrade_active is True
 
 
 # ---------------------------------------------------------------------------
@@ -1212,14 +1212,14 @@ async def test_app_traffic_coordinator_midnight_reset(
 
     # First fetch sets _last_reset.
     await coordinator.async_refresh()
-    assert coordinator._last_reset is not None  # noqa: SLF001
-    first_reset = coordinator._last_reset  # noqa: SLF001
+    assert coordinator._last_reset is not None
+    first_reset = coordinator._last_reset
 
     # Advance time by 1 day.
     freezer.move_to(dt_util.now() + timedelta(days=1, hours=1))
 
     await coordinator.async_refresh()
-    second_reset = coordinator._last_reset  # noqa: SLF001
+    second_reset = coordinator._last_reset
     assert second_reset > first_reset
 
 

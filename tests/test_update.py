@@ -241,7 +241,7 @@ async def test_update_install(hass: HomeAssistant) -> None:
         TEST_SITE_ID, AP_MAC
     )
     # Fast polling should be activated immediately after install.
-    assert entity.coordinator._upgrade_active is True  # noqa: SLF001
+    assert entity.coordinator._upgrade_active is True
     mock_refresh.assert_awaited_once()
 
 
@@ -343,7 +343,7 @@ async def test_install_sets_in_progress_immediately(hass: HomeAssistant) -> None
         await entity.async_install(version=None, backup=False)
 
     # Flag should be set immediately — no coordinator poll needed.
-    assert entity._is_installing is True  # noqa: SLF001
+    assert entity._is_installing is True
     assert entity.in_progress is True
 
 
@@ -359,7 +359,7 @@ async def test_install_writes_ha_state_immediately(hass: HomeAssistant) -> None:
         await entity.async_install(version=None, backup=False)
 
     mock_write.assert_called_once()
-    assert entity._is_installing is True  # noqa: SLF001
+    assert entity._is_installing is True
 
 
 async def test_install_error_does_not_set_in_progress(hass: HomeAssistant) -> None:
@@ -371,7 +371,7 @@ async def test_install_error_does_not_set_in_progress(hass: HomeAssistant) -> No
     with pytest.raises(HomeAssistantError):
         await entity.async_install(version=None, backup=False)
 
-    assert entity._is_installing is False  # noqa: SLF001
+    assert entity._is_installing is False
     assert entity.in_progress is False
 
 
@@ -383,14 +383,14 @@ async def test_in_progress_cleared_when_coordinator_updates(
     entity = _create_update_entity(hass, devices={AP_MAC: device})
 
     # Simulate the optimistic flag being set after install.
-    entity._is_installing = True  # noqa: SLF001
+    entity._is_installing = True
 
     # Simulate a coordinator update callback (mock write_ha_state — entity not registered).
     with patch.object(entity, "async_write_ha_state"):
-        entity._handle_coordinator_update()  # noqa: SLF001
+        entity._handle_coordinator_update()
 
     # Flag should be cleared; in_progress still True from coordinator data.
-    assert entity._is_installing is False  # noqa: SLF001
+    assert entity._is_installing is False
     assert entity.in_progress is True
 
 
@@ -401,15 +401,15 @@ async def test_in_progress_flag_persists_until_controller_confirms(
     entity = _create_update_entity(hass)
 
     # Simulate: install was called, flag is set with a recent timestamp.
-    entity._is_installing = True  # noqa: SLF001
-    entity._install_started_at = dt_util.utcnow()  # noqa: SLF001
+    entity._is_installing = True
+    entity._install_started_at = dt_util.utcnow()
 
     # Coordinator polls but device is still in normal state (not yet upgrading).
     with patch.object(entity, "async_write_ha_state"):
-        entity._handle_coordinator_update()  # noqa: SLF001
+        entity._handle_coordinator_update()
 
     # Flag must persist — controller hasn't confirmed yet.
-    assert entity._is_installing is True  # noqa: SLF001
+    assert entity._is_installing is True
     assert entity.in_progress is True
 
 
@@ -420,15 +420,15 @@ async def test_in_progress_cleared_on_timeout(
     entity = _create_update_entity(hass)
 
     # Simulate: install was called long ago (past timeout).
-    entity._is_installing = True  # noqa: SLF001
-    entity._install_started_at = (  # noqa: SLF001
-        dt_util.utcnow() - dt.timedelta(seconds=INSTALL_FLAG_TIMEOUT + 10)
+    entity._is_installing = True
+    entity._install_started_at = dt_util.utcnow() - dt.timedelta(
+        seconds=INSTALL_FLAG_TIMEOUT + 10
     )
 
     # Coordinator polls — device is in normal state and timeout has elapsed.
     with patch.object(entity, "async_write_ha_state"):
-        entity._handle_coordinator_update()  # noqa: SLF001
+        entity._handle_coordinator_update()
 
     # Flag should be cleared due to timeout.
-    assert entity._is_installing is False  # noqa: SLF001
+    assert entity._is_installing is False
     assert entity.in_progress is False

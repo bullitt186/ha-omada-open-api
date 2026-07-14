@@ -107,7 +107,7 @@ async def test_client_sensor_device_info_wireless(hass: HomeAssistant) -> None:
         {WIRELESS_MAC: _processed_wireless()},
         "connection_status",
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, WIRELESS_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Phone"
     assert device_info["manufacturer"] == "Apple"
@@ -122,7 +122,7 @@ async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
         {WIRED_MAC: _processed_wired()},
         "connection_status",
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, WIRED_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Desktop"
     assert device_info["manufacturer"] == "Dell"

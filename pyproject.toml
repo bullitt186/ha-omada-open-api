@@ -70,6 +70,7 @@ ignore = [
     "PLR0915",  # Too many statements
     "PLR2004",  # Magic value used in comparison
     "PT011",    # pytest.raises() is too broad
+    "BLE001",   # blind exception catches (intentional in error-resilient code paths)
     "PLC0415",  # import at top-level (lazy imports for circular dep avoidance)
     "S105",     # Possible hardcoded password (false positives for config constants)
     "S106",     # Possible hardcoded password assigned to argument (test false positives)
@@ -77,6 +78,7 @@ ignore = [
     "SIM103",   # Return the condition directly
     "SIM108",   # Use ternary operator
     "TRY003",   # Avoid specifying long messages outside the exception class
+    "TRY300",   # Consider moving statement to else block (style preference)
     "UP031",    # Use format specifiers instead of percent format
     "UP032",    # Use f-string instead of format call
 ]
@@ -109,6 +111,7 @@ convention = "google"
 "tests/**" = [
     "D",       # Don't require docstrings in tests
     "S101",    # Allow assert in tests
+    "SLF001",  # Allow private member access in tests
     "PLR2004", # Allow magic values in tests
     "TC",      # Don't require type-checking blocks in tests
 ]

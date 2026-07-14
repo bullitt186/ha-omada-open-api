@@ -139,7 +139,7 @@ async def test_device_info(hass: HomeAssistant) -> None:
         "daily_upload",
         device_mac=SWITCH_MAC,
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, SWITCH_MAC) in device_info["identifiers"]
 
 

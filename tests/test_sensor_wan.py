@@ -271,7 +271,7 @@ async def test_device_info_links_to_gateway(hass: HomeAssistant) -> None:
         {GATEWAY_MAC: [SAMPLE_WAN_PORT_1]},
         "wan_download_rate",
     )
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, GATEWAY_MAC) in device_info["identifiers"]
 
 
@@ -283,7 +283,7 @@ async def test_translation_placeholders(hass: HomeAssistant) -> None:
         "wan_latency",
         port_name="WAN1",
     )
-    placeholders = sensor._attr_translation_placeholders  # noqa: SLF001
+    placeholders = sensor._attr_translation_placeholders
     assert placeholders == {"port_name": "WAN1"}
 
 

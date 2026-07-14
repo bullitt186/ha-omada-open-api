@@ -63,7 +63,7 @@ def test_assign_clients_basic() -> None:
     devices = _make_devices()
     clients = _make_clients()
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     assert len(devices["AP-MAC-01"]["connected_clients"]) == 1
     assert devices["AP-MAC-01"]["connected_clients"][0]["name"] == "WiFi Laptop"
@@ -80,7 +80,7 @@ def test_assign_clients_orphan_not_added() -> None:
     devices = _make_devices()
     clients = _make_clients()
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     total = sum(len(d["connected_clients"]) for d in devices.values())
     assert total == 3  # Orphan excluded
@@ -90,7 +90,7 @@ def test_assign_clients_empty() -> None:
     """Test assignment with empty client list."""
     devices = _make_devices()
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, [])  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, [])
 
     for dev in devices.values():
         assert dev["connected_clients"] == []
@@ -111,7 +111,7 @@ def test_assign_clients_unknown_device() -> None:
         },
     ]
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     total = sum(len(d["connected_clients"]) for d in devices.values())
     assert total == 0
@@ -142,7 +142,7 @@ def test_gateway_wired_clients_counts_direct_lan_clients() -> None:
         },
     ]
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     # Direct-gateway wired client must land in the gateway bucket.
     assert len(devices["GW-MAC-01"]["connected_clients"]) == 1
@@ -174,7 +174,7 @@ def test_wired_client_via_switch_not_assigned_to_gateway() -> None:
         },
     ]
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     # Client is behind a switch — must go to the switch, not the gateway.
     assert len(devices["SW-MAC-01"]["connected_clients"]) == 1
@@ -196,7 +196,7 @@ def test_assign_clients_wireless_prefers_ap() -> None:
         },
     ]
 
-    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)  # noqa: SLF001
+    OmadaSiteCoordinator._assign_clients_to_devices(devices, clients)
 
     assert len(devices["AP-MAC-01"]["connected_clients"]) == 1
     assert len(devices["SW-MAC-01"]["connected_clients"]) == 0

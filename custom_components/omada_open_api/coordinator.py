@@ -916,7 +916,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 sw_mac: str | None = entry.get("mac")
                 if sw_mac and sw_mac in devices:
                     devices[sw_mac]["has_wired_ports"] = True
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.debug(
                 "Could not fetch switch port details for site %s — skipping "
                 "has_wired_ports stamping for switches",

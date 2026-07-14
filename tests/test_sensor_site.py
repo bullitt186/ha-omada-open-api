@@ -227,7 +227,7 @@ async def test_site_sensor_device_info(hass: HomeAssistant) -> None:
     """Test device_info uses site device identifier."""
     data = _build_site_data()
     sensor = _create_site_sensor(hass, data, "site_total_clients")
-    device_info = sensor._attr_device_info  # noqa: SLF001
+    device_info = sensor._attr_device_info
     assert (DOMAIN, f"site_{TEST_SITE_ID}") in device_info["identifiers"]
 
 

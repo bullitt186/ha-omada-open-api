@@ -55,7 +55,7 @@ def parse_uptime(uptime_str: str | int | None) -> int | None:
         if seconds_match:
             total_seconds += int(seconds_match.group(1))
 
-        return total_seconds if total_seconds > 0 else None  # noqa: TRY300
+        return total_seconds if total_seconds > 0 else None
     except (ValueError, AttributeError) as err:
         _LOGGER.warning("Failed to parse uptime '%s': %s", uptime_str, err)
         return None

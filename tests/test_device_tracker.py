@@ -482,7 +482,7 @@ async def test_device_tracker_device_info(hass: HomeAssistant) -> None:
     """Test device info links tracker to correct device."""
     data = _connected_device(SAMPLE_DEVICE_AP)
     tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
-    info = tracker._attr_device_info  # noqa: SLF001
+    info = tracker._attr_device_info
     assert info is not None
     assert info["identifiers"] == {("omada_open_api", AP_MAC)}
     assert info["name"] == "Office AP"
@@ -495,7 +495,7 @@ async def test_device_tracker_device_info_missing(hass: HomeAssistant) -> None:
     """Test device info returns None when device not in data."""
     tracker = _create_device_tracker(hass, AP_MAC, {})
     assert (
-        not hasattr(tracker, "_attr_device_info") or tracker._attr_device_info is None  # noqa: SLF001
+        not hasattr(tracker, "_attr_device_info") or tracker._attr_device_info is None
     )
 
 
@@ -534,7 +534,7 @@ async def test_device_tracker_handle_coordinator_update(
     tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
     tracker.async_write_ha_state = MagicMock()  # type: ignore[assignment]
 
-    tracker._handle_coordinator_update()  # noqa: SLF001
+    tracker._handle_coordinator_update()
 
     tracker.async_write_ha_state.assert_called_once()
 
@@ -547,6 +547,6 @@ async def test_client_tracker_handle_coordinator_update(
     tracker = _create_tracker(hass, WIRELESS_MAC, clients)
     tracker.async_write_ha_state = MagicMock()  # type: ignore[assignment]
 
-    tracker._handle_coordinator_update()  # noqa: SLF001
+    tracker._handle_coordinator_update()
 
     tracker.async_write_ha_state.assert_called_once()
