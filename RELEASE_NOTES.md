@@ -1,10 +1,13 @@
-## What's New in v1.7.1
+## What's New in v1.8.0
 
-### Bug Fixes
+### Features
 
-- Cloud setup failing with `-7131 Controller ID not exist` now shows a clear, specific message instead of the generic "invalid authentication" error. This happens because free Omada Cloud/Central Essentials accounts don't support Open API at all — no Omada ID will ever resolve there, so re-checking credentials wasn't going to help. The "Select Controller Type" setup screen now also warns about this upfront, along with the fact that OC200 hardware controllers don't support Open API either.
+- **Fusion Gateway support**: Added "Fusion Gateway (Built-in Controller)" as a third controller type in the setup flow. Fusion gateways use web-login authentication (username/password) instead of OAuth client credentials, and can now be monitored alongside traditional Omada controllers in the same Home Assistant instance.
+- **Auth strategy architecture**: Introduced pluggable authentication via `OmadaAuthStrategy` pattern, supporting both `ClientCredentialsAuth` (traditional) and `WebSessionAuth` (Fusion) modes transparently.
+- **v2-to-v1 client endpoint fallback**: The integration now gracefully handles Fusion firmware that returns error `-1600` on the v2 clients endpoint by permanently falling back to the v1 GET-based endpoint.
+- **Single-site auto-detection**: Fusion gateways with a single site are auto-selected during setup, and a runtime fallback handles site ID changes after firmware updates.
 
 ### Improvements
 
-- Reorganized the documentation: the README now focuses on what the integration does and how to set it up, while contributor/development info moved to a new `CONTRIBUTING.md` and the full troubleshooting runbook moved to a new `TROUBLESHOOTING.md`.
-- Expanded the README's Features section with a table mapping each capability to the hardware it requires (gateway, PoE switch, access point, etc.), and documented the Omada Cloud/Central Essentials and OC200 Open API limitations.
+- API client now accepts JSON responses regardless of Content-Type header, improving compatibility with Fusion firmware that omits the header.
+- Config flow uses a dedicated session with unsafe cookie jar for IP-based controller URLs, fixing session persistence issues with self-signed certificates.

@@ -28,8 +28,6 @@ services:
       - ../../ha-world-heatmap-card/dist:/config/www/ha-world-heatmap-card:ro
     ports:
       - "8123:8123"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     environment:
       - TZ=Europe/Berlin
     restart: unless-stopped
