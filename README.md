@@ -93,22 +93,38 @@ Not every feature works on every setup — some need specific hardware:
 
 ## Configuration
 
-### Obtaining API Credentials
+### Obtaining Credentials
 
-1. Log in to the [TP-Link Omada Cloud Portal](https://omada.tplinkcloud.com)
-2. Go to **Settings → Platform Integration → OpenAPI** (or your controller's equivalent)
+#### For Cloud or Local controllers
+
+1. Log in to the [TP-Link Omada Cloud Portal](https://omada.tplinkcloud.com) or your local controller's web UI
+2. Go to **Settings → Platform Integration → OpenAPI**
 3. Create an application to obtain your **Client ID**, **Client Secret**, and note your **Omada ID** (controller ID)
+
+#### For Fusion Gateways
+
+No API credentials needed — use the same **username** and **password** you use to log in to the gateway's web interface. The Omada Controller ID is auto-detected during setup.
 
 ### Setup Flow
 
 The integration guides you through a multi-step configuration:
 
-1. **Controller type** — Cloud or local
-2. **Region** (cloud) or **API URL** (local)
+**Cloud / Local controllers:**
+
+1. **Controller type** — Select `Cloud` or `Local`
+2. **Region** (cloud) or **API URL** (local, e.g. `https://192.168.1.100:8043`)
 3. **Credentials** — Omada ID, Client ID, Client Secret
 4. **Sites** — Select one or more sites to monitor
-5. **Clients** *(optional)* — Select clients for presence detection and detailed monitoring
-6. **Applications** *(optional)* — Select DPI-tracked applications for per-client traffic sensors (requires DPI enabled on your gateway)
+5. **Clients** *(optional)* — Select clients for presence detection
+6. **Applications** *(optional)* — Select DPI-tracked applications for traffic sensors
+
+**Fusion Gateways:**
+
+1. **Controller type** — Select `Fusion Gateway`
+2. **Gateway URL + Credentials** — Enter the gateway URL (e.g. `https://192.168.1.1`), username, and password
+3. **Sites** — Auto-selected (Fusion gateways have a single site)
+4. **Clients** *(optional)* — Select clients for presence detection
+5. **Applications** *(optional)* — Select DPI-tracked applications for traffic sensors
 
 ### Installation Parameters
 
@@ -130,7 +146,8 @@ The following parameters are required during the initial setup flow:
 
 **Network requirements:**
 - Cloud: outbound HTTPS (443) to TP-Link cloud
-- Local: network access to your controller's API port
+- Local: network access to your controller's API port (typically 8043)
+- Fusion: HTTPS access to the gateway's IP (port 443)
 
 ---
 
