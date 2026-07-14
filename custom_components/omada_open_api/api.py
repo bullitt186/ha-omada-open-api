@@ -144,7 +144,7 @@ class OmadaApiClient:
                             )
                         raise OmadaApiError(f"HTTP {response.status}: {response_text}")
 
-                    result = await response.json()
+                    result = await response.json(content_type=None)
                     error_code = result.get("errorCode")
 
                     # Token-related errors: refresh and retry

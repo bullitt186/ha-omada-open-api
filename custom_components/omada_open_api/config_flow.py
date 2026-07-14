@@ -187,6 +187,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         self._fusion_username: str | None = None
         self._fusion_password: str | None = None
         self._fusion_csrf_token: str | None = None
+        self._fusion_session: aiohttp.ClientSession | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -321,10 +322,8 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(f"fusion_{omada_id}")
                     self._abort_if_unique_id_configured()
 
-                    # Fetch sites
-                    sites = await self._get_sites_fusion(
-                        api_url, omada_id, username, password
-                    )
+                    # Fetch sites using existing session/csrf
+                    sites = await self._get_sites_fusion(api_url, omada_id, csrf_token)
                     if not sites:
                         errors["base"] = "no_sites"
                     else:
@@ -338,6 +337,11 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 except TimeoutError:
                     errors["base"] = "timeout"
                 except aiohttp.ClientError as err:
+                    _LOGGER.warning(
+                        "Fusion connection error (%s): %s",
+                        type(err).__name__,
+                        err,
+                    )
                     error_key = _classify_connection_error(err)
                     errors["base"] = error_key
                 except InvalidAuthError:
@@ -366,16 +370,30 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
+    def _get_fusion_session(self) -> aiohttp.ClientSession:
+        """Get or create an aiohttp session with unsafe cookie jar for Fusion.
+
+        Fusion gateways are accessed by IP address, requiring unsafe=True
+        on the cookie jar to persist session cookies.
+        """
+        if self._fusion_session is None:
+            connector = aiohttp.TCPConnector(ssl=False)
+            jar = aiohttp.CookieJar(unsafe=True)
+            self._fusion_session = aiohttp.ClientSession(
+                connector=connector, cookie_jar=jar
+            )
+        return self._fusion_session
+
     async def _get_omada_cid(self, api_url: str) -> str:
         """Auto-detect Omada controller ID from /api/info endpoint."""
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_fusion_session()
         url = f"{api_url}/api/info"
         async with session.get(
             url, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
         ) as response:
             if response.status != 200:
                 raise InvalidAuthError("Failed to reach controller info endpoint")
-            result = await response.json()
+            result = await response.json(content_type=None)
             if result.get("errorCode") != 0:
                 raise InvalidAuthError(
                     f"Controller info error: {result.get('msg', 'Unknown')}"
@@ -389,13 +407,13 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         self, api_url: str, omada_id: str, username: str, password: str
     ) -> str:
         """Perform Fusion web login and return CSRF token."""
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_fusion_session()
         url = f"{api_url}/{omada_id}/api/v2/login"
         data = {"username": username, "password": password}
         async with session.post(
             url, json=data, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
         ) as response:
-            result = await response.json()
+            result = await response.json(content_type=None)
             if result.get("errorCode") != 0:
                 raise InvalidAuthError(
                     f"Login failed: {result.get('msg', 'Unknown error')}",
@@ -404,11 +422,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             return result["result"]["token"]  # type: ignore[no-any-return]
 
     async def _get_sites_fusion(
-        self, api_url: str, omada_id: str, username: str, password: str
+        self, api_url: str, omada_id: str, csrf_token: str
     ) -> list[dict[str, Any]]:
         """Fetch sites using Fusion web-session auth."""
-        session = async_get_clientsession(self.hass, verify_ssl=False)
-        csrf_token = await self._fusion_login(api_url, omada_id, username, password)
+        session = self._get_fusion_session()
         url = f"{api_url}/openapi/v1/{omada_id}/sites"
         headers = {
             "Csrf-Token": csrf_token,
@@ -423,9 +440,15 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
         ) as response:
             if response.status != 200:
+                _LOGGER.warning("Fusion sites: HTTP %s", response.status)
                 return []
-            result = await response.json()
+            result = await response.json(content_type=None)
             if result.get("errorCode") != 0:
+                _LOGGER.warning(
+                    "Fusion sites: errorCode %s: %s",
+                    result.get("errorCode"),
+                    result.get("msg"),
+                )
                 return []
             return result.get("result", {}).get("data", [])  # type: ignore[no-any-return]
 

@@ -6,6 +6,7 @@ import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
+import aiohttp
 from homeassistant.const import Platform
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -225,7 +226,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     _migrate_data_to_options(hass, entry)
 
     # Create API client with injected session and callback.
-    session = async_get_clientsession(hass, verify_ssl=False)
     auth_mode = entry.data.get(
         CONF_AUTH_MODE, AUTH_MODE_WEB_SESSION if CONF_USERNAME in entry.data else None
     )
@@ -233,6 +233,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     try:
         if auth_mode == AUTH_MODE_WEB_SESSION:
             # Fusion Gateway: web-session authentication
+            # Fusion controllers are accessed by IP — aiohttp's default safe
+            # cookie jar refuses to store cookies for IP-based URLs, so we
+            # create a session with unsafe=True.
+            connector = aiohttp.TCPConnector(ssl=False)
+            jar = aiohttp.CookieJar(unsafe=True)
+            session = aiohttp.ClientSession(connector=connector, cookie_jar=jar)
+
             async def _fusion_token_callback(*_args: str) -> None:
                 """No-op for Fusion — session is re-created from credentials."""
 
@@ -258,6 +265,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             )
         else:
             # Traditional OpenAPI: client_credentials authentication
+            session = async_get_clientsession(hass, verify_ssl=False)
             token_expires_at = dt.datetime.fromisoformat(
                 entry.data[CONF_TOKEN_EXPIRES_AT]
             )

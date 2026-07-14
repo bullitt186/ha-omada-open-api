@@ -266,7 +266,7 @@ class WebSessionAuth(OmadaAuthStrategy):
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
-                result = await response.json()
+                result = await response.json(content_type=None)
                 if result.get("errorCode") != 0:
                     raise OmadaApiAuthError(
                         f"Login failed: {result.get('msg', 'Unknown error')}"
