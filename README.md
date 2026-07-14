@@ -321,7 +321,7 @@ Configure how frequently each data type is polled from the Omada controller. Low
 
 All TP-Link Omada SDN devices accessible via the Open API are supported:
 
-- **Controllers**: OC200, OC300, software controllers, cloud-managed controllers
+- **Controllers**: OC300, software controllers, cloud-managed controllers (OC200 is **not** supported — no Open API)
 - **Fusion Gateways**: TP-Link Omada Fusion series (built-in controller, no separate hardware controller required)
 - **Access Points**: EAP series (WiFi 5/6/6E/7, indoor & outdoor)
 - **Switches**: JetStream and Smart Managed switches (PoE and non-PoE)
