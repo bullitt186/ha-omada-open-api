@@ -129,6 +129,26 @@ async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
     assert device_info["via_device"] == (DOMAIN, "AA-BB-CC-DD-EE-02")
 
 
+async def test_client_sensor_device_info_excludes_ip_connection(
+    hass: HomeAssistant,
+) -> None:
+    """Test that client device_info never registers IP as a connection.
+
+    Both SAMPLE_CLIENT_WIRELESS and SAMPLE_CLIENT_WIRED have an "ip" field;
+    it must never end up in connections since DHCP-recycled IPs would
+    otherwise cause HA to silently merge unrelated client devices.
+    """
+    sensor = _create_client_sensor(
+        hass,
+        WIRELESS_MAC,
+        {WIRELESS_MAC: _processed_wireless()},
+        "connection_status",
+    )
+    device_info = sensor._attr_device_info
+    assert ("mac", WIRELESS_MAC) in device_info["connections"]
+    assert not any(conn[0] == "ip" for conn in device_info["connections"])
+
+
 # ---------------------------------------------------------------------------
 # Existing sensors - basic value checks
 # ---------------------------------------------------------------------------

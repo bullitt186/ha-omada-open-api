@@ -58,7 +58,13 @@ from .coordinator import (
     OmadaSiteCoordinator,
     OmadaThreatHeatmapCoordinator,
 )
-from .devices import format_detail_status, format_link_speed, get_device_sort_key
+from .devices import (
+    build_client_device_info,
+    build_infra_device_info,
+    format_detail_status,
+    format_link_speed,
+    get_device_sort_key,
+)
 from .entity import OmadaEntity
 
 PARALLEL_UPDATES = 0
@@ -1480,29 +1486,14 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
 
         # Set device info
         device_data = coordinator.data.get("devices", {}).get(device_mac, {})
-        device_name = device_data.get("name", "Unknown Device")
-
-        # Build connections list for MAC and IP addresses
-        connections = set()
-        if device_mac:
-            connections.add(("mac", device_mac))
-        if device_data.get("ip"):
-            connections.add(("ip", device_data.get("ip")))
 
         # Determine device type and via_device
         device_type = device_data.get("type", "").lower()
         uplink_mac = device_data.get("uplink_device_mac")
 
         # Build device info
-        di = DeviceInfo(
-            identifiers={(DOMAIN, device_mac)},
-            connections=connections,
-            name=device_name,
-            manufacturer="TP-Link",
-            model=device_data.get("model"),
-            serial_number=device_data.get("sn"),
-            sw_version=device_data.get("firmware_version"),
-            configuration_url=coordinator.api_client.api_url,
+        di = build_infra_device_info(
+            device_mac, device_data, coordinator.api_client.api_url
         )
 
         # Only set via_device for non-gateway devices
@@ -1721,16 +1712,6 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
 
         # Set device info
         client_data = coordinator.data.get(client_mac, {})
-        client_name = (
-            client_data.get("name") or client_data.get("host_name") or client_mac
-        )
-
-        # Build connections list for MAC and IP addresses
-        connections = set()
-        if client_mac:
-            connections.add(("mac", client_mac))
-        if client_data.get("ip"):
-            connections.add(("ip", client_data.get("ip")))
 
         # Determine parent device (AP, switch, or gateway)
         parent_device_mac = None
@@ -1751,21 +1732,14 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
             else (DOMAIN, coordinator.site_id)
         )
 
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, client_mac)},
-            "connections": connections,
-            "name": client_name,
-            "manufacturer": client_data.get("vendor") or "Unknown",
-            "model": client_data.get("device_type") or client_data.get("model"),
-            "sw_version": client_data.get("os_name"),
-            "configuration_url": coordinator.api_client.api_url,
-            "via_device": via_device,
-        }
+        self._attr_device_info = build_client_device_info(
+            client_mac, client_data, coordinator.api_client.api_url, via_device
+        )
         # Only log device info once per client (for signal strength sensor)
         if description.key == "signal_strength":
             _LOGGER.debug(
                 "Client device %s: parent=%s, via_device=%s",
-                client_name,
+                self._attr_device_info["name"],
                 parent_device_mac,
                 via_device,
             )

@@ -18,7 +18,7 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
 
 from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
-from .devices import get_device_sort_key
+from .devices import build_infra_device_info, get_device_sort_key
 from .entity import OmadaEntity
 
 PARALLEL_UPDATES = 0
@@ -220,29 +220,14 @@ class OmadaDeviceBinarySensor(
 
         # Set device info
         device_data = coordinator.data.get("devices", {}).get(device_mac, {})
-        device_name = device_data.get("name", "Unknown Device")
-
-        # Build connections list for MAC and IP addresses
-        connections = set()
-        if device_mac:
-            connections.add(("mac", device_mac))
-        if device_data.get("ip"):
-            connections.add(("ip", device_data.get("ip")))
 
         # Determine device type and via_device
         device_type = device_data.get("type", "").lower()
         uplink_mac = device_data.get("uplink_device_mac")
 
         # Build device info
-        di = DeviceInfo(
-            identifiers={(DOMAIN, device_mac)},
-            connections=connections,
-            name=device_name,
-            manufacturer="TP-Link",
-            model=device_data.get("model"),
-            serial_number=device_data.get("sn"),
-            sw_version=device_data.get("firmware_version"),
-            configuration_url=coordinator.api_client.api_url,
+        di = build_infra_device_info(
+            device_mac, device_data, coordinator.api_client.api_url
         )
 
         # Only set via_device for non-gateway devices

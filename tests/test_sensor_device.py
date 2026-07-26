@@ -286,6 +286,22 @@ async def test_device_sensor_device_info_gateway(hass: HomeAssistant) -> None:
     assert "via_device" not in device_info
 
 
+async def test_device_sensor_device_info_excludes_ip_connection(
+    hass: HomeAssistant,
+) -> None:
+    """Test that device_info never registers the device's IP as a connection.
+
+    SAMPLE_DEVICE_AP has an "ip" field; HA's device registry merges any two
+    devices sharing a connection tuple, and DHCP-assigned IPs get reassigned
+    across physical devices, so IP must never appear in connections.
+    """
+    data = process_device(SAMPLE_DEVICE_AP)
+    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "client_num")
+    device_info = sensor._attr_device_info
+    assert ("mac", AP_MAC) in device_info["connections"]
+    assert not any(conn[0] == "ip" for conn in device_info["connections"])
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------

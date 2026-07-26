@@ -591,6 +591,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    _setup_stale_infra_device_pruning(hass, entry, coordinators)
+
     # Set up config entry update listener (skips reload on token-only changes)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
@@ -797,6 +799,15 @@ async def _cleanup_entities(hass: HomeAssistant, entry: OmadaConfigEntry) -> Non
         )
 
 
+def _active_infra_device_macs(rd: OmadaRuntimeData) -> set[str]:
+    """Collect infra device MACs currently reported by any site coordinator."""
+    return {
+        mac.upper()
+        for coordinator in rd.coordinators.values()
+        for mac in (coordinator.data.get("devices", {}) if coordinator.data else {})
+    }
+
+
 async def async_remove_config_entry_device(
     hass: HomeAssistant, entry: OmadaConfigEntry, device_entry: dr.DeviceEntry
 ) -> bool:
@@ -829,13 +840,8 @@ async def async_remove_config_entry_device(
     # Collect all infrastructure device MACs still reported by coordinators.
     # Blocking removal of live devices prevents accidental deletion of
     # devices that would immediately reappear on the next poll.
-    active_device_macs: set[str] = set()
     rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
-    if rd:
-        for coordinator in rd.coordinators.values():
-            if coordinator.data:
-                for mac in coordinator.data.get("devices", {}):
-                    active_device_macs.add(mac.upper())
+    active_device_macs: set[str] = _active_infra_device_macs(rd) if rd else set()
 
     # Check if this device is still in the selected lists
     for identifier in device_entry.identifiers:
@@ -870,3 +876,74 @@ async def async_remove_config_entry_device(
     # Device is not in any selected list, allow removal
     _LOGGER.info("Allowing removal of device %s", device_entry.name)
     return True
+
+
+def _setup_stale_infra_device_pruning(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> None:
+    """Prune infra devices now, then re-prune after every successful poll."""
+    _prune_stale_infra_devices(hass, entry)
+    for coordinator in coordinators.values():
+        entry.async_on_unload(
+            coordinator.async_add_listener(
+                lambda: _prune_stale_infra_devices(hass, entry)
+            )
+        )
+
+
+def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
+    """Remove infra devices whose MAC no longer appears in coordinator data.
+
+    A MAC missing from every site coordinator's data means the device was
+    unadopted/removed on the Omada controller. Skips entirely if any site
+    coordinator hasn't completed a successful update, so a transient poll
+    failure can never look like "device gone" — DataUpdateCoordinator
+    leaves .data untouched on a failed refresh.
+    """
+    rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
+    if not rd:
+        return
+
+    if any(not c.last_update_success for c in rd.coordinators.values()):
+        return
+
+    active_macs = _active_infra_device_macs(rd)
+    selected_client_macs = {
+        normalize_client_mac(m) for m in entry.options.get(CONF_SELECTED_CLIENTS, [])
+    }
+
+    device_registry = dr.async_get(hass)
+    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+
+    removed_count = 0
+    for device in devices:
+        for identifier in device.identifiers:
+            if identifier[0] != DOMAIN:
+                continue
+            device_id = identifier[1].upper()
+
+            # Site devices are managed by site selection, not this pass.
+            if device_id.startswith("SITE_"):
+                break
+
+            # Selected clients are managed by _cleanup_devices, not this
+            # pass — a client not currently connected is not the same as a
+            # device removed from the controller.
+            if device_id in selected_client_macs:
+                break
+
+            # Infra device candidate: prune if it's no longer reported.
+            if device_id not in active_macs:
+                _LOGGER.info(
+                    "Removing stale infrastructure device: %s (%s)",
+                    device.name,
+                    device_id,
+                )
+                device_registry.async_remove_device(device.id)
+                removed_count += 1
+            break
+
+    if removed_count > 0:
+        _LOGGER.info("Pruned %d stale infrastructure device(s)", removed_count)

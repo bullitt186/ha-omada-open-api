@@ -19,6 +19,7 @@ from custom_components.omada_open_api import (
     _cleanup_devices,
     _cleanup_entities,
     _migrate_data_to_options,
+    _prune_stale_infra_devices,
     async_remove_config_entry_device,
 )
 from custom_components.omada_open_api.api import OmadaApiAuthError, OmadaApiError
@@ -1069,3 +1070,148 @@ async def test_remove_device_blocks_active_infrastructure(
 
     result = await async_remove_config_entry_device(hass, entry, ap_device)
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _prune_stale_infra_devices tests
+# ---------------------------------------------------------------------------
+
+
+async def test_prune_removes_vanished_infra_device(hass: HomeAssistant) -> None:
+    """Test that an infra device whose MAC vanishes from the API is pruned.
+
+    Simulates a device being unadopted/removed from the Omada controller
+    (e.g. the user's decommissioned old "Technikkeller" AP): once a
+    successful poll no longer reports it, the device and its entities must
+    be removed from the registries automatically.
+    """
+    entry = _build_entry(hass)
+    patcher, mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    switch_mac = "AA-BB-CC-DD-EE-02"
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    switch_device = dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)})
+    assert switch_device is not None
+    assert er.async_entries_for_device(ent_reg, switch_device.id)
+
+    # Switch is unadopted from the controller — it no longer appears in
+    # get_devices() at all (not just marked offline).
+    mock_client.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_GATEWAY]
+    )
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is None
+    assert er.async_entries_for_device(ent_reg, switch_device.id) == []
+
+
+async def test_prune_skips_when_coordinator_unhealthy(hass: HomeAssistant) -> None:
+    """Test that a transient poll failure never triggers pruning.
+
+    A failed poll must never look like "device gone" — coordinator.data is
+    left untouched by DataUpdateCoordinator on failure, so pruning based on
+    it would misinterpret a network blip as a device removal.
+    """
+    entry = _build_entry(hass)
+    patcher, mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    switch_mac = "AA-BB-CC-DD-EE-02"
+    dev_reg = dr.async_get(hass)
+    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is not None
+
+    mock_client.get_devices = AsyncMock(side_effect=OmadaApiError("Connection lost"))
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.last_update_success is False
+    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is not None
+
+
+async def test_prune_does_not_touch_selected_client_or_site_devices(
+    hass: HomeAssistant,
+) -> None:
+    """Test that selected-client and site devices survive a prune pass.
+
+    Client devices live in a separate OmadaClientCoordinator and are never
+    present in a site coordinator's data["devices"], so a naive diff would
+    misclassify a currently-selected client as "vanished infra". Their
+    lifecycle stays owned by _cleanup_devices, not this pass.
+    """
+    client_mac = "11-22-33-44-55-AA"
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: [client_mac]},
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    client_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, client_mac)},
+        name="Phone",
+    )
+    site_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"site_{TEST_SITE_ID}")},
+        name="Test Site",
+    )
+
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert dev_reg.async_get(client_device.id) is not None
+    assert dev_reg.async_get(site_device.id) is not None
+
+
+async def test_prune_no_runtime_data_is_safe(hass: HomeAssistant) -> None:
+    """Test that pruning is safe when runtime_data is missing."""
+    entry = _build_entry(hass)
+    # Don't set up the entry — no runtime_data exists.
+    _prune_stale_infra_devices(hass, entry)
+
+
+async def test_prune_ignores_non_domain_identifiers(hass: HomeAssistant) -> None:
+    """Test that devices with a non-DOMAIN identifier are left untouched.
+
+    Mirrors the real-world merged-device case: a device can carry
+    identifiers from another integration (e.g. "fritz") alongside ours —
+    those identifiers must be skipped, not misread as an infra MAC.
+    """
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    other_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={("other_domain", "some_id")},
+        name="Other Domain Device",
+    )
+
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert dev_reg.async_get(other_device.id) is not None

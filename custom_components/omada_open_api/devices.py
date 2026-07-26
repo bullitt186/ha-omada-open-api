@@ -6,6 +6,10 @@ import logging
 import re
 from typing import Any
 
+from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
+
+from .const import DOMAIN
+
 
 def normalize_site_id(site_id: str) -> str:
     """Normalize site IDs for registry comparisons."""
@@ -133,6 +137,51 @@ def format_detail_status(status_code: int | None) -> str | None:
     if status_code is None:
         return None
     return DETAIL_STATUS_MAP.get(status_code, f"Unknown ({status_code})")
+
+
+def build_infra_device_info(
+    device_mac: str,
+    device_data: dict[str, Any],
+    api_url: str,
+) -> DeviceInfo:
+    """Build DeviceInfo for an infrastructure device (AP/switch/gateway).
+
+    connections contains ONLY the device's own MAC — never an IP address.
+    IP addresses are DHCP-assigned and routinely get reassigned to different
+    physical devices; HA's device registry merges any two DeviceInfo
+    submissions that share a connection tuple, so including IP here would
+    silently and permanently fold unrelated devices into one.
+    """
+    return DeviceInfo(
+        identifiers={(DOMAIN, device_mac)},
+        connections={("mac", device_mac)},
+        name=device_data.get("name", "Unknown Device"),
+        manufacturer="TP-Link",
+        model=device_data.get("model"),
+        serial_number=device_data.get("sn"),
+        sw_version=device_data.get("firmware_version"),
+        configuration_url=api_url,
+    )
+
+
+def build_client_device_info(
+    client_mac: str,
+    client_data: dict[str, Any],
+    api_url: str,
+    via_device: tuple[str, str],
+) -> DeviceInfo:
+    """Build DeviceInfo for a network client device (MAC-only connections)."""
+    client_name = client_data.get("name") or client_data.get("host_name") or client_mac
+    return DeviceInfo(
+        identifiers={(DOMAIN, client_mac)},
+        connections={("mac", client_mac)},
+        name=client_name,
+        manufacturer=client_data.get("vendor") or "Unknown",
+        model=client_data.get("device_type") or client_data.get("model"),
+        sw_version=client_data.get("os_name"),
+        configuration_url=api_url,
+        via_device=via_device,
+    )
 
 
 def process_device(device: dict[str, Any]) -> dict[str, Any]:

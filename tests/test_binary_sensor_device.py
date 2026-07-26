@@ -111,6 +111,21 @@ async def test_device_info(hass: HomeAssistant) -> None:
     assert device_info["name"] == "Core Switch"
 
 
+async def test_device_info_excludes_ip_connection(hass: HomeAssistant) -> None:
+    """Test that device_info never registers the device's IP as a connection.
+
+    SAMPLE_DEVICE_AP has an "ip" field; it must never end up in connections
+    since HA's device registry merges any two devices sharing a connection
+    tuple, and DHCP-recycled IPs would otherwise cause unrelated devices to
+    silently merge.
+    """
+    data = process_device(SAMPLE_DEVICE_AP)
+    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, "status")
+    device_info = sensor._attr_device_info
+    assert ("mac", AP_MAC) in device_info["connections"]
+    assert not any(conn[0] == "ip" for conn in device_info["connections"])
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------

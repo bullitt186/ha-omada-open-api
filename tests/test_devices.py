@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.devices import (
+    build_client_device_info,
+    build_infra_device_info,
     format_detail_status,
     format_link_speed,
     get_device_sort_key,
@@ -152,3 +155,103 @@ def test_process_device_ipv6_multiple_addresses() -> None:
     addrs = ["fe80::1", "2001:db8::1"]
     result = process_device({"ipv6": addrs, "mac": "aa:bb:cc:dd:ee:ff"})
     assert result["ipv6"] == addrs
+
+
+# ---------------------------------------------------------------------------
+# build_infra_device_info
+# ---------------------------------------------------------------------------
+
+
+def test_build_infra_device_info_excludes_ip_connection() -> None:
+    """Test that IP addresses are never registered as a device connection.
+
+    HA's device registry merges any two devices sharing a connection tuple.
+    Since IP is DHCP-assigned and gets reassigned across physical devices,
+    including it here would cause unrelated devices to silently merge.
+    """
+    device_data = {
+        "name": "Office AP",
+        "model": "EAP660 HD",
+        "sn": "SN123",
+        "firmware_version": "1.0.0",
+        "ip": "192.168.0.50",
+    }
+    result = build_infra_device_info(
+        "AA-BB-CC-DD-EE-FF", device_data, "https://omada.example"
+    )
+    assert ("mac", "AA-BB-CC-DD-EE-FF") in result["connections"]
+    assert ("ip", "192.168.0.50") not in result["connections"]
+    assert not any(conn[0] == "ip" for conn in result["connections"])
+
+
+def test_build_infra_device_info_fields() -> None:
+    """Test that build_infra_device_info populates the expected fields."""
+    device_data = {
+        "name": "Office AP",
+        "model": "EAP660 HD",
+        "sn": "SN123",
+        "firmware_version": "1.0.0",
+    }
+    result = build_infra_device_info(
+        "AA-BB-CC-DD-EE-FF", device_data, "https://omada.example"
+    )
+    assert (DOMAIN, "AA-BB-CC-DD-EE-FF") in result["identifiers"]
+    assert result["name"] == "Office AP"
+    assert result["manufacturer"] == "TP-Link"
+    assert result["model"] == "EAP660 HD"
+    assert result["serial_number"] == "SN123"
+    assert result["sw_version"] == "1.0.0"
+    assert result["configuration_url"] == "https://omada.example"
+
+
+def test_build_infra_device_info_no_ip_field() -> None:
+    """Test that a device with no ip field still builds valid connections."""
+    result = build_infra_device_info("AA-BB-CC-DD-EE-FF", {}, "https://omada.example")
+    assert result["connections"] == {("mac", "AA-BB-CC-DD-EE-FF")}
+
+
+# ---------------------------------------------------------------------------
+# build_client_device_info
+# ---------------------------------------------------------------------------
+
+
+def test_build_client_device_info_excludes_ip_connection() -> None:
+    """Test that client IP addresses are never registered as a connection."""
+    client_data = {
+        "name": "Laptop",
+        "vendor": "Acme",
+        "device_type": "Laptop",
+        "os_name": "macOS",
+        "ip": "192.168.0.99",
+    }
+    result = build_client_device_info(
+        "11-22-33-44-55-66",
+        client_data,
+        "https://omada.example",
+        (DOMAIN, "site_1"),
+    )
+    assert ("mac", "11-22-33-44-55-66") in result["connections"]
+    assert ("ip", "192.168.0.99") not in result["connections"]
+    assert not any(conn[0] == "ip" for conn in result["connections"])
+
+
+def test_build_client_device_info_fields() -> None:
+    """Test that build_client_device_info populates the expected fields."""
+    client_data = {
+        "name": "Laptop",
+        "vendor": "Acme",
+        "device_type": "Laptop",
+        "os_name": "macOS",
+    }
+    result = build_client_device_info(
+        "11-22-33-44-55-66",
+        client_data,
+        "https://omada.example",
+        (DOMAIN, "AA-BB-CC-DD-EE-FF"),
+    )
+    assert (DOMAIN, "11-22-33-44-55-66") in result["identifiers"]
+    assert result["name"] == "Laptop"
+    assert result["manufacturer"] == "Acme"
+    assert result["model"] == "Laptop"
+    assert result["sw_version"] == "macOS"
+    assert result["via_device"] == (DOMAIN, "AA-BB-CC-DD-EE-FF")
