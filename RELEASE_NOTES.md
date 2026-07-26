@@ -1,13 +1,8 @@
-## What's New in v1.8.0
+## What's New in v1.8.1
 
-### Features
+### Bug Fixes
 
-- **Fusion Gateway support**: Added "Fusion Gateway (Built-in Controller)" as a third controller type in the setup flow. Fusion gateways use web-login authentication (username/password) instead of OAuth client credentials, and can now be monitored alongside traditional Omada controllers in the same Home Assistant instance.
-- **Auth strategy architecture**: Introduced pluggable authentication via `OmadaAuthStrategy` pattern, supporting both `ClientCredentialsAuth` (traditional) and `WebSessionAuth` (Fusion) modes transparently.
-- **v2-to-v1 client endpoint fallback**: The integration now gracefully handles Fusion firmware that returns error `-1600` on the v2 clients endpoint by permanently falling back to the v1 GET-based endpoint.
-- **Single-site auto-detection**: Fusion gateways with a single site are auto-selected during setup, and a runtime fallback handles site ID changes after firmware updates.
+- Fixed a bug where Home Assistant could silently merge unrelated Omada devices (access points, switches, gateways, clients) into a single device entry, producing devices with dozens of duplicate or mismatched entities. This was caused by the integration registering a device's IP address as part of its device identity — since IP addresses are reassigned by DHCP over time, this could fold a completely different physical device into an existing one, especially after replacing, renaming, or relocating hardware (e.g. swapping access points between rooms).
+- Infrastructure devices (access points, switches, gateways) that are unadopted or removed from the Omada controller are now automatically cleaned up, along with all of their entities. Previously, such devices lingered indefinitely in Home Assistant as "unavailable" until manually deleted.
 
-### Improvements
-
-- API client now accepts JSON responses regardless of Content-Type header, improving compatibility with Fusion firmware that omits the header.
-- Config flow uses a dedicated session with unsafe cookie jar for IP-based controller URLs, fixing session persistence issues with self-signed certificates.
+**Note:** If you were already affected by the device-merging issue before upgrading, the existing merged device will not repair itself automatically — this fix only prevents new merges. Delete the affected device from Settings → Devices & Services after upgrading, and Home Assistant will recreate clean, correctly-separated devices on the next update.
