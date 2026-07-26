@@ -19,6 +19,7 @@ from custom_components.omada_open_api import (
     _cleanup_devices,
     _cleanup_entities,
     _migrate_data_to_options,
+    _migrate_merged_devices,
     _prune_stale_infra_devices,
     async_remove_config_entry_device,
 )
@@ -1215,3 +1216,149 @@ async def test_prune_ignores_non_domain_identifiers(hass: HomeAssistant) -> None
     await hass.async_block_till_done()
 
     assert dev_reg.async_get(other_device.id) is not None
+
+
+# ---------------------------------------------------------------------------
+# _migrate_merged_devices tests
+# ---------------------------------------------------------------------------
+
+
+async def test_migrate_merged_devices_removes_multi_mac_device(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a device with 2+ non-site DOMAIN identifiers is removed.
+
+    This mirrors the structural signature left by the pre-v1.8.1 IP-
+    connections merge bug: a single HA device carrying multiple distinct
+    Omada MACs. No legitimate code path creates this today, so it's always
+    safe to remove — clean per-MAC devices get recreated on setup.
+    """
+    entry = _build_entry(hass)
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+
+    mac_a = "AA-BB-CC-DD-EE-01"
+    mac_b = "AA-BB-CC-DD-EE-02"
+    merged_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, mac_a), (DOMAIN, mac_b)},
+        name="Merged Device",
+    )
+    entity_entry = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{mac_a}_cpu_util",
+        config_entry=entry,
+        device_id=merged_device.id,
+    )
+
+    _migrate_merged_devices(hass, entry)
+
+    assert dev_reg.async_get(merged_device.id) is None
+    assert ent_reg.async_get(entity_entry.entity_id) is None
+
+
+async def test_migrate_merged_devices_leaves_single_identifier_devices_alone(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a normal single-MAC device is untouched."""
+    entry = _build_entry(hass)
+    dev_reg = dr.async_get(hass)
+    device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
+    _migrate_merged_devices(hass, entry)
+
+    assert dev_reg.async_get(device.id) is not None
+
+
+async def test_migrate_merged_devices_ignores_site_identifier(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a site device (single site identifier) is untouched."""
+    entry = _build_entry(hass)
+    dev_reg = dr.async_get(hass)
+    site_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, f"site_{TEST_SITE_ID}")},
+        name="Test Site",
+    )
+
+    _migrate_merged_devices(hass, entry)
+
+    assert dev_reg.async_get(site_device.id) is not None
+
+
+async def test_setup_entry_recreates_clean_devices_after_merge(
+    hass: HomeAssistant,
+) -> None:
+    """Test that setup migrates a merged device before platforms load.
+
+    Registering the merged device before calling async_setup simulates the
+    real-world case: a device that was already merged by the old bug before
+    the user upgraded. After setup, it must be gone and replaced by clean,
+    separate per-MAC devices — with no manual UI action required.
+    """
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client()
+
+    ap_mac = "AA-BB-CC-DD-EE-01"
+    switch_mac = "AA-BB-CC-DD-EE-02"
+
+    dev_reg = dr.async_get(hass)
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, ap_mac), (DOMAIN, switch_mac)},
+        name="Wohnzimmer",
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+
+    # Each MAC now has its own device carrying exactly one identifier — the
+    # merge is gone, replaced by clean, separate per-MAC devices.
+    ap_device = dev_reg.async_get_device(identifiers={(DOMAIN, ap_mac)})
+    switch_device = dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)})
+    assert ap_device is not None
+    assert switch_device is not None
+    assert ap_device.identifiers == {(DOMAIN, ap_mac)}
+    assert switch_device.identifiers == {(DOMAIN, switch_mac)}
+
+
+# ---------------------------------------------------------------------------
+# async_remove_config_entry_device — merged device fallback
+# ---------------------------------------------------------------------------
+
+
+async def test_remove_device_allows_merged_device(hass: HomeAssistant) -> None:
+    """Test that a merged device can be manually removed even though one of
+    its MACs is still actively reported by the coordinator.
+
+    This is the defensive fallback for async_remove_config_entry_device:
+    the "still active" block that protects normal single-MAC devices must
+    never prevent removal of a device carrying multiple merged identifiers.
+    """
+    entry = _build_entry(hass)
+    patcher, _ = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    # AA-BB-CC-DD-EE-01 is the live AP MAC (still in coordinator data);
+    # FF-FF-FF-FF-FF-FF is a bogus second identifier simulating the merge.
+    merged_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01"), (DOMAIN, "FF-FF-FF-FF-FF-FF")},
+        name="Merged Device",
+    )
+
+    result = await async_remove_config_entry_device(hass, entry, merged_device)
+    assert result is True

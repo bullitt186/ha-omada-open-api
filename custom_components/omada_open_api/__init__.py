@@ -206,6 +206,50 @@ def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> No
     )
 
 
+def _non_site_domain_idents(identifiers: set[tuple[str, str]]) -> list[str]:
+    """Return this integration's device MACs, excluding site identifiers.
+
+    More than one entry means the device carries multiple distinct Omada
+    MACs — the structural signature of a historical registry merge.
+    """
+    return [
+        identifier[1].upper()
+        for identifier in identifiers
+        if identifier[0] == DOMAIN and not identifier[1].upper().startswith("SITE_")
+    ]
+
+
+def _migrate_merged_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
+    """Remove devices carrying more than one non-site (DOMAIN, mac) identifier.
+
+    This is the structural signature left by the pre-v1.8.1 IP-connections
+    merge bug: a single HA device incorrectly carrying multiple distinct
+    Omada MACs. No legitimate code path in this integration creates that
+    today — every device_info construction site sets exactly one identifier
+    — so any device found with more than one is always safe to remove.
+    Clean per-MAC devices are recreated when platforms set up immediately
+    afterward, now that connections are MAC-only and can't re-merge.
+    """
+    device_registry = dr.async_get(hass)
+    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+
+    removed_count = 0
+    for device in devices:
+        non_site_idents = _non_site_domain_idents(device.identifiers)
+        if len(non_site_idents) > 1:
+            _LOGGER.info(
+                "Removing merged device %s (identifiers: %s) from a "
+                "historical registry merge — clean devices will be recreated",
+                device.name,
+                non_site_idents,
+            )
+            device_registry.async_remove_device(device.id)
+            removed_count += 1
+
+    if removed_count > 0:
+        _LOGGER.info("Migrated %d merged device(s)", removed_count)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
     """Set up Omada Open API from a config entry.
 
@@ -224,6 +268,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
 
     # Migrate legacy config: move user-preference keys from data to options.
     _migrate_data_to_options(hass, entry)
+
+    # Migrate away historical multi-MAC merged devices (pre-v1.8.1 bug) —
+    # must run before platforms load so clean per-MAC devices are recreated
+    # in this same setup pass.
+    _migrate_merged_devices(hass, entry)
 
     # Create API client with injected session and callback.
     auth_mode = entry.data.get(
@@ -825,6 +874,23 @@ async def async_remove_config_entry_device(
         True if the device can be removed, False otherwise
 
     """
+    # A device carrying more than one non-site (DOMAIN, mac) identifier is
+    # always a historical registry merge (see _migrate_merged_devices) — no
+    # legitimate code path creates that today. Always allow removing it,
+    # bypassing the "still active" block below, which exists to protect
+    # normal single-MAC devices and would otherwise block this every time
+    # (a merged device is, by definition, still linked to at least one
+    # live MAC).
+    non_site_idents = _non_site_domain_idents(device_entry.identifiers)
+    if len(non_site_idents) > 1:
+        _LOGGER.info(
+            "Allowing removal of merged device %s (identifiers: %s) — "
+            "clean per-device entries will be recreated",
+            device_entry.name,
+            non_site_idents,
+        )
+        return True
+
     # Get the list of selected clients and sites
     selected_client_macs = entry.options.get(CONF_SELECTED_CLIENTS, [])
     selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
