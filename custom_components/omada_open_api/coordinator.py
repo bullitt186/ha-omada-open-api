@@ -70,6 +70,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # Radio utilization cache — fetched every DEFAULT_RADIO_UTIL_INTERVAL seconds.
         self._last_radio_util_check: dt.datetime | None = None
+        self._radio_util_cache: dict[str, dict[str, Any]] = {}
 
         # Traffic byte counters from previous poll — used to compute rate deltas.
         # Keyed by device MAC, value is {"rx": int, "tx": int, "ts": datetime}
@@ -522,18 +523,22 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             devices: Processed devices dict keyed by MAC.
 
         """
+        ap_macs = [
+            mac for mac, dev in devices.items() if dev.get("type", "").lower() == "ap"
+        ]
+        if not ap_macs:
+            return
+
         now = dt_util.utcnow()
         if (
             self._last_radio_util_check is not None
             and (now - self._last_radio_util_check).total_seconds()
             < DEFAULT_RADIO_UTIL_INTERVAL
         ):
-            return
-
-        ap_macs = [
-            mac for mac, dev in devices.items() if dev.get("type", "").lower() == "ap"
-        ]
-        if not ap_macs:
+            for ap_mac in ap_macs:
+                cached = self._radio_util_cache.get(ap_mac)
+                if cached:
+                    devices[ap_mac].update(cached)
             return
 
         band_map = {"wp2g": "2g", "wp5g": "5g", "wp5g2": "5g2", "wp6g": "6g"}
@@ -541,17 +546,22 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for ap_mac in ap_macs:
             try:
                 radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
+                cached_values: dict[str, Any] = {}
                 for band_key, suffix in band_map.items():
                     band = radio_data.get(band_key)
                     if band and band.get("actualChannel") != "":
-                        devices[ap_mac][f"radio_tx_util_{suffix}"] = band.get("txUtil")
-                        devices[ap_mac][f"radio_rx_util_{suffix}"] = band.get("rxUtil")
-                        devices[ap_mac][f"radio_inter_util_{suffix}"] = band.get(
+                        cached_values[f"radio_tx_util_{suffix}"] = band.get("txUtil")
+                        cached_values[f"radio_rx_util_{suffix}"] = band.get("rxUtil")
+                        cached_values[f"radio_inter_util_{suffix}"] = band.get(
                             "interUtil"
                         )
-                        devices[ap_mac][f"radio_busy_util_{suffix}"] = band.get(
+                        cached_values[f"radio_busy_util_{suffix}"] = band.get(
                             "busyUtil"
                         )
+
+                if cached_values:
+                    self._radio_util_cache[ap_mac] = cached_values
+                    devices[ap_mac].update(cached_values)
 
             except OmadaApiError as err:
                 _LOGGER.warning(
@@ -560,6 +570,16 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.site_name,
                     err,
                 )
+                cached = self._radio_util_cache.get(ap_mac)
+                if cached:
+                    devices[ap_mac].update(cached)
+
+        # Remove cache entries for APs no longer present.
+        self._radio_util_cache = {
+            ap_mac: cached
+            for ap_mac, cached in self._radio_util_cache.items()
+            if ap_mac in ap_macs
+        }
 
         self._last_radio_util_check = now
 

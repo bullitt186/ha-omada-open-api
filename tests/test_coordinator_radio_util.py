@@ -253,6 +253,28 @@ async def test_cache_skips_api_within_interval(hass: HomeAssistant) -> None:
     assert api_client.get_ap_radios.call_count == 1  # still 1
 
 
+async def test_cache_hit_reapplies_values_to_fresh_devices(
+    hass: HomeAssistant,
+) -> None:
+    """Test cache-hit poll reuses values when device dict is rebuilt."""
+    api_client = MagicMock()
+    api_client.get_ap_radios = AsyncMock(return_value=SAMPLE_RADIO_RESPONSE)
+    coordinator = _make_coordinator(hass, api_client)
+
+    first_devices = _ap_devices(AP_MAC)
+    await coordinator._merge_ap_radio_utilization(first_devices)
+    assert api_client.get_ap_radios.call_count == 1
+    assert first_devices[AP_MAC]["radio_busy_util_2g"] == 55
+
+    # Simulate a fresh coordinator poll where devices dict is rebuilt.
+    second_devices = _ap_devices(AP_MAC)
+    await coordinator._merge_ap_radio_utilization(second_devices)
+
+    # Still cache-hit (no API call), but values should remain available.
+    assert api_client.get_ap_radios.call_count == 1
+    assert second_devices[AP_MAC]["radio_busy_util_2g"] == 55
+
+
 async def test_cache_refetches_after_interval(hass: HomeAssistant) -> None:
     """Test that a call after the interval expires re-fetches from the API."""
     api_client = MagicMock()
