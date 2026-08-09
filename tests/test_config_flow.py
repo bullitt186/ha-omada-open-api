@@ -1,7 +1,7 @@
 """Tests for Omada Open API config flow."""
 
 import datetime as dt
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 from homeassistant import config_entries
@@ -10,7 +10,11 @@ from homeassistant.data_entry_flow import FlowResultType
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.omada_open_api.config_flow import InvalidAuthError
+from custom_components.omada_open_api.config_flow import (
+    InvalidAuthError,
+    OmadaConfigFlow,
+    OmadaOptionsFlowHandler,
+)
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
@@ -2823,3 +2827,145 @@ async def test_reconfigure_connection_refused_error(
         assert result["type"] == FlowResultType.FORM
         assert result["step_id"] == "reconfigure"
         assert result["errors"]["base"] == "connection_refused"
+
+
+# ---------------------------------------------------------------------------
+# Fusion firmware quirk: JSON body returned without a Content-Type header.
+#
+# Real Fusion gateways sometimes respond with HTTP 200 and a JSON payload
+# but no (or a non-JSON) Content-Type header. aiohttp's response.json()
+# raises ContentTypeError unless called with content_type=None. Reproduced
+# live against 192.168.0.1 while verifying the clients/applications fetch
+# helpers.
+# ---------------------------------------------------------------------------
+
+
+def _mock_session_with_missing_content_type(method: str, json_result: dict):
+    """Build a mock aiohttp session whose response.json() requires content_type=None."""
+
+    async def fake_json(*args, **kwargs):
+        if kwargs.get("content_type", "missing") is None:
+            return json_result
+        raise aiohttp.ContentTypeError(
+            request_info=MagicMock(real_url="https://192.168.0.1"),
+            history=(),
+        )
+
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(side_effect=fake_json)
+
+    mock_session = MagicMock()
+    getattr(mock_session, method).return_value.__aenter__ = AsyncMock(
+        return_value=mock_response
+    )
+    getattr(mock_session, method).return_value.__aexit__ = AsyncMock(return_value=False)
+    return mock_session
+
+
+async def test_get_clients_handles_missing_content_type(
+    hass: HomeAssistant,
+) -> None:
+    """OmadaConfigFlow._get_clients must tolerate Fusion's missing Content-Type."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    mock_session = _mock_session_with_missing_content_type(
+        "post",
+        {"errorCode": 0, "msg": "Success", "result": {"data": MOCK_CLIENTS}},
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        result = await flow._get_clients("site123")
+
+    assert result == MOCK_CLIENTS
+
+
+async def test_get_applications_handles_missing_content_type(
+    hass: HomeAssistant,
+) -> None:
+    """OmadaConfigFlow._get_applications must tolerate Fusion's missing Content-Type."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    mock_session = _mock_session_with_missing_content_type(
+        "get",
+        {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {"data": MOCK_APPLICATIONS, "totalRows": len(MOCK_APPLICATIONS)},
+        },
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        result = await flow._get_applications("site123")
+
+    assert result == MOCK_APPLICATIONS
+
+
+async def test_options_get_clients_handles_missing_content_type(
+    hass: HomeAssistant,
+) -> None:
+    """OmadaOptionsFlowHandler._get_clients must tolerate missing Content-Type."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    mock_session = _mock_session_with_missing_content_type(
+        "post",
+        {"errorCode": 0, "msg": "Success", "result": {"data": MOCK_CLIENTS}},
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        result = await flow._get_clients("site123")
+
+    assert result == MOCK_CLIENTS
+
+
+async def test_options_get_applications_handles_missing_content_type(
+    hass: HomeAssistant,
+) -> None:
+    """OmadaOptionsFlowHandler._get_applications must tolerate missing Content-Type."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    mock_session = _mock_session_with_missing_content_type(
+        "get",
+        {
+            "errorCode": 0,
+            "msg": "Success",
+            "result": {"data": MOCK_APPLICATIONS, "totalRows": len(MOCK_APPLICATIONS)},
+        },
+    )
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        result = await flow._get_applications("site123")
+
+    assert result == MOCK_APPLICATIONS

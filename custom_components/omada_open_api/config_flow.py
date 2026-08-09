@@ -924,7 +924,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     return []
                 response.raise_for_status()
 
-            result = await response.json()
+            result = await response.json(content_type=None)
 
             if result.get("errorCode") != 0:
                 error_msg = result.get("msg", "Unknown error")
@@ -987,7 +987,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                         return []
                     response.raise_for_status()
 
-                result = await response.json()
+                result = await response.json(content_type=None)
 
                 if result.get("errorCode") != 0:
                     error_msg = result.get("msg", "Unknown error")
@@ -1896,7 +1896,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     return []
                 response.raise_for_status()
 
-            result = await response.json()
+            result = await response.json(content_type=None)
 
             if result.get("errorCode") != 0:
                 error_msg = result.get("msg", "Unknown error")
@@ -1962,7 +1962,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                         return []
                     response.raise_for_status()
 
-                result = await response.json()
+                result = await response.json(content_type=None)
 
                 if result.get("errorCode") != 0:
                     error_msg = result.get("msg", "Unknown error")
