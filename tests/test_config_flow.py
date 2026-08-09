@@ -16,18 +16,22 @@ from custom_components.omada_open_api.config_flow import (
     OmadaOptionsFlowHandler,
 )
 from custom_components.omada_open_api.const import (
+    AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_AUTH_MODE,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
     CONF_OMADA_ID,
+    CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_REGION,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
@@ -2969,3 +2973,93 @@ async def test_options_get_applications_handles_missing_content_type(
         result = await flow._get_applications("site123")
 
     assert result == MOCK_APPLICATIONS
+
+
+# ---------------------------------------------------------------------------
+# Options flow: Fusion (web_session) config entries have no access_token.
+#
+# The options flow's client/application selection steps unconditionally read
+# config_entry.data[CONF_ACCESS_TOKEN], which Fusion entries never store
+# (they store auth_mode/username/password instead). Reproduced live against
+# a real Fusion gateway (500 Internal Server Error / KeyError).
+# ---------------------------------------------------------------------------
+
+
+def _fusion_options_entry() -> MockConfigEntry:
+    """Build a MockConfigEntry mimicking a Fusion (web_session) config entry."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://192.168.0.1",
+            CONF_OMADA_ID: "cid123",
+            CONF_AUTH_MODE: AUTH_MODE_WEB_SESSION,
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+            CONF_SELECTED_SITES: ["site123"],
+        },
+        options={CONF_SELECTED_CLIENTS: [], CONF_SELECTED_APPLICATIONS: []},
+    )
+
+
+async def test_options_client_selection_fusion_mode(hass: HomeAssistant) -> None:
+    """Options flow client selection must not crash for Fusion entries."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_fusion_login",
+            new=AsyncMock(return_value="csrf-token-123"),
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_get_clients",
+            new=AsyncMock(return_value=MOCK_CLIENTS),
+        ),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "client_selection"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "client_selection"
+
+
+async def test_options_application_selection_fusion_mode(hass: HomeAssistant) -> None:
+    """Options flow application selection must not crash for Fusion entries."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_fusion_login",
+            new=AsyncMock(return_value="csrf-token-123"),
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_get_applications",
+            new=AsyncMock(return_value=MOCK_APPLICATIONS),
+        ),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "application_selection"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "application_selection"

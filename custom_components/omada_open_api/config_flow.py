@@ -1411,6 +1411,68 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         self._available_clients: list[dict[str, Any]] = []
         self._available_applications: list[dict[str, Any]] = []
         self._ssid_filter: list[str] = []
+        # Fusion (web_session) support: these entries store no access_token,
+        # so a fresh login is required each time the options flow needs to
+        # call the clients/applications endpoints.
+        self._fusion_csrf_token: str | None = None
+        self._fusion_session: aiohttp.ClientSession | None = None
+
+    def _get_fusion_session(self) -> aiohttp.ClientSession:
+        """Get or create an aiohttp session with unsafe cookie jar for Fusion.
+
+        Fusion gateways are accessed by IP address, requiring unsafe=True
+        on the cookie jar to persist session cookies.
+        """
+        if self._fusion_session is None:
+            connector = aiohttp.TCPConnector(ssl=False)
+            jar = aiohttp.CookieJar(unsafe=True)
+            self._fusion_session = aiohttp.ClientSession(
+                connector=connector, cookie_jar=jar
+            )
+        return self._fusion_session
+
+    async def _fusion_login(self) -> str:
+        """Log in to a Fusion gateway using stored credentials, return CSRF token.
+
+        Fusion sessions are invalidated on each new login, and the config
+        entry does not persist a token, so this must be called fresh each
+        time the options flow needs authenticated access.
+        """
+        session = self._get_fusion_session()
+        username = self.config_entry.data[CONF_USERNAME]
+        password = self.config_entry.data[CONF_PASSWORD]
+        url = f"{self._api_url}/{self._omada_id}/api/v2/login"
+        async with session.post(
+            url,
+            json={"username": username, "password": password},
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            result = await response.json(content_type=None)
+            if result.get("errorCode") != 0:
+                raise InvalidAuthError(
+                    f"Fusion login failed: {result.get('msg', 'Unknown error')}",
+                    error_code=result.get("errorCode"),
+                )
+            return result["result"]["token"]  # type: ignore[no-any-return]
+
+    async def _ensure_fusion_auth(self) -> None:
+        """Perform a fresh Fusion login if this entry uses web_session auth."""
+        auth_mode = self.config_entry.data.get(CONF_AUTH_MODE, AUTH_MODE_OPENAPI)
+        if auth_mode == AUTH_MODE_WEB_SESSION:
+            self._fusion_csrf_token = await self._fusion_login()
+
+    def _build_api_headers(self) -> dict[str, str]:
+        """Build API headers based on current auth mode."""
+        if self._fusion_csrf_token:
+            return {
+                "Csrf-Token": self._fusion_csrf_token,
+                "Omada-Request-Source": "web-local",
+                "Content-Type": "application/json",
+            }
+        return {
+            "Authorization": f"AccessToken={self._access_token}",
+            "Content-Type": "application/json",
+        }
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -1675,12 +1737,14 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # Get credentials from config entry
         self._api_url = self.config_entry.data[CONF_API_URL]
         self._omada_id = self.config_entry.data[CONF_OMADA_ID]
-        self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
         self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
 
         # Fetch all clients only if not already loaded
         if not self._available_clients:
             try:
+                await self._ensure_fusion_auth()
+                if self._fusion_csrf_token is None:
+                    self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
                 all_clients = []
                 for site_id in self._selected_site_ids:
                     clients_data = await self._get_clients(site_id)
@@ -1778,11 +1842,13 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # Get credentials from config entry
         self._api_url = self.config_entry.data[CONF_API_URL]
         self._omada_id = self.config_entry.data[CONF_OMADA_ID]
-        self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
         self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
 
         # Fetch applications from the first selected site
         try:
+            await self._ensure_fusion_auth()
+            if self._fusion_csrf_token is None:
+                self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
             if self._selected_site_ids:
                 first_site_id = self._selected_site_ids[0]
                 self._available_applications = await self._get_applications(
@@ -1857,10 +1923,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         """
         session = async_get_clientsession(self.hass, verify_ssl=False)
         url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = self._build_api_headers()
 
         # scope=0 is intentional here: the config / options flow must
         # show all known clients (including offline) so the user can
@@ -1919,10 +1982,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         """
         session = async_get_clientsession(self.hass, verify_ssl=False)
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
-        headers = {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
+        headers = self._build_api_headers()
 
         _LOGGER.debug("Fetching applications from site %s", site_id)
 
