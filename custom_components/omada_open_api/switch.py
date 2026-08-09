@@ -40,107 +40,110 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
     coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
 
     # --- Static entities (one per site, don't change dynamically) ---
+    # The write probe is based on site LED settings, which may be denied
+    # for least-privilege users even when device-level controls are allowed.
+    # Keep LED switch gated, but do not use this gate for PoE/SSID controls.
     if has_write_access:
         static_entities: list[SwitchEntity] = [
             OmadaLedSwitch(coordinator) for coordinator in coordinators.values()
         ]
         if static_entities:
             async_add_entities(static_entities)
-
-    # --- Dynamic PoE + SSID + AP SSID switches (per-device/per-config) ---
-    if has_write_access:
-        known_poe_ports: set[str] = set()
-        known_ssid_keys: set[str] = set()
-        known_ap_ssid_keys: set[str] = set()
-
-        for site_id, site_coord in coordinators.items():
-
-            @callback
-            def _async_check_new_device_switches(  # pylint: disable=too-many-locals
-                coord: OmadaSiteCoordinator = site_coord,
-                sid: str = site_id,
-            ) -> None:
-                """Add switches for newly discovered PoE ports and AP SSID overrides."""
-                new_entities: list[SwitchEntity] = []
-
-                # PoE switches for new ports.
-                poe_ports = coord.data.get("poe_ports", {})
-                new_poe = set(poe_ports.keys()) - known_poe_ports
-                if new_poe:
-                    known_poe_ports.update(new_poe)
-                    new_entities.extend(
-                        OmadaPoeSwitch(coordinator=coord, port_key=pk) for pk in new_poe
-                    )
-
-                # Site-wide SSID switches for new SSIDs.
-                ssids = coord.data.get("ssids", [])
-                site_device_identifier = f"site_{sid}"
-                for ssid in ssids:
-                    ssid_id = ssid.get("ssidId")
-                    wlan_id = ssid.get("wlanId")
-                    if not ssid_id or not wlan_id:
-                        continue
-                    key = f"{sid}_{ssid_id}"
-                    if key not in known_ssid_keys:
-                        if sid not in rd.site_devices:
-                            continue
-                        known_ssid_keys.add(key)
-                        new_entities.append(
-                            OmadaSsidSwitch(
-                                coordinator=coord,
-                                site_device_id=site_device_identifier,
-                                ssid_data=ssid,
-                            )
-                        )
-
-                # Per-AP SSID switches for new AP+SSID combos.
-                ap_overrides = coord.data.get("ap_ssid_overrides", {})
-                devices = coord.data.get("devices", {})
-                for ap_mac, override_data in ap_overrides.items():
-                    ap_device = devices.get(ap_mac, {})
-                    ap_name = ap_device.get("name", ap_mac)
-                    for ssid_override in override_data.get("ssidOverrides", []):
-                        entry_id = ssid_override.get("ssidEntryId")
-                        if entry_id is not None:
-                            ap_key = f"{ap_mac}_{entry_id}"
-                            if ap_key not in known_ap_ssid_keys:
-                                known_ap_ssid_keys.add(ap_key)
-                                new_entities.append(
-                                    OmadaApSsidSwitch(
-                                        coordinator=coord,
-                                        ap_mac=ap_mac,
-                                        ap_name=ap_name,
-                                        ssid_data=ssid_override,
-                                    )
-                                )
-
-                # Per-AP radio band switches.
-                ap_radio_config = coord.data.get("ap_radio_config", {})
-                for ap_mac, radio_config in ap_radio_config.items():
-                    for band, setting_key in _BAND_TO_SETTING_KEY.items():
-                        if setting_key in radio_config:
-                            radio_key = f"{ap_mac}_radio_{band}"
-                            if radio_key not in known_ap_ssid_keys:
-                                known_ap_ssid_keys.add(radio_key)
-                                new_entities.append(
-                                    OmadaApRadioSwitch(
-                                        coordinator=coord,
-                                        ap_mac=ap_mac,
-                                        band=band,
-                                        radio_setting_key=setting_key,
-                                    )
-                                )
-
-                if new_entities:
-                    async_add_entities(new_entities)
-
-            _async_check_new_device_switches()
-            entry.async_on_unload(
-                site_coord.async_add_listener(_async_check_new_device_switches)
-            )
     else:
         _LOGGER.info(
-            "Skipping PoE/LED/SSID switches — API credentials have viewer-only access"
+            "Skipping LED switches — site LED write probe denied; "
+            "continuing with device-level controls"
+        )
+
+    # --- Dynamic PoE + SSID + AP SSID switches (per-device/per-config) ---
+    known_poe_ports: set[str] = set()
+    known_ssid_keys: set[str] = set()
+    known_ap_ssid_keys: set[str] = set()
+
+    for site_id, site_coord in coordinators.items():
+
+        @callback
+        def _async_check_new_device_switches(  # pylint: disable=too-many-locals
+            coord: OmadaSiteCoordinator = site_coord,
+            sid: str = site_id,
+        ) -> None:
+            """Add switches for newly discovered PoE ports and AP SSID overrides."""
+            new_entities: list[SwitchEntity] = []
+
+            # PoE switches for new ports.
+            poe_ports = coord.data.get("poe_ports", {})
+            new_poe = set(poe_ports.keys()) - known_poe_ports
+            if new_poe:
+                known_poe_ports.update(new_poe)
+                new_entities.extend(
+                    OmadaPoeSwitch(coordinator=coord, port_key=pk) for pk in new_poe
+                )
+
+            # Site-wide SSID switches for new SSIDs.
+            ssids = coord.data.get("ssids", [])
+            site_device_identifier = f"site_{sid}"
+            for ssid in ssids:
+                ssid_id = ssid.get("ssidId")
+                wlan_id = ssid.get("wlanId")
+                if not ssid_id or not wlan_id:
+                    continue
+                key = f"{sid}_{ssid_id}"
+                if key not in known_ssid_keys:
+                    if sid not in rd.site_devices:
+                        continue
+                    known_ssid_keys.add(key)
+                    new_entities.append(
+                        OmadaSsidSwitch(
+                            coordinator=coord,
+                            site_device_id=site_device_identifier,
+                            ssid_data=ssid,
+                        )
+                    )
+
+            # Per-AP SSID switches for new AP+SSID combos.
+            ap_overrides = coord.data.get("ap_ssid_overrides", {})
+            devices = coord.data.get("devices", {})
+            for ap_mac, override_data in ap_overrides.items():
+                ap_device = devices.get(ap_mac, {})
+                ap_name = ap_device.get("name", ap_mac)
+                for ssid_override in override_data.get("ssidOverrides", []):
+                    entry_id = ssid_override.get("ssidEntryId")
+                    if entry_id is not None:
+                        ap_key = f"{ap_mac}_{entry_id}"
+                        if ap_key not in known_ap_ssid_keys:
+                            known_ap_ssid_keys.add(ap_key)
+                            new_entities.append(
+                                OmadaApSsidSwitch(
+                                    coordinator=coord,
+                                    ap_mac=ap_mac,
+                                    ap_name=ap_name,
+                                    ssid_data=ssid_override,
+                                )
+                            )
+
+            # Per-AP radio band switches.
+            ap_radio_config = coord.data.get("ap_radio_config", {})
+            for ap_mac, radio_config in ap_radio_config.items():
+                for band, setting_key in _BAND_TO_SETTING_KEY.items():
+                    if setting_key in radio_config:
+                        radio_key = f"{ap_mac}_radio_{band}"
+                        if radio_key not in known_ap_ssid_keys:
+                            known_ap_ssid_keys.add(radio_key)
+                            new_entities.append(
+                                OmadaApRadioSwitch(
+                                    coordinator=coord,
+                                    ap_mac=ap_mac,
+                                    band=band,
+                                    radio_setting_key=setting_key,
+                                )
+                            )
+
+            if new_entities:
+                async_add_entities(new_entities)
+
+        _async_check_new_device_switches()
+        entry.async_on_unload(
+            site_coord.async_add_listener(_async_check_new_device_switches)
         )
 
     # --- Dynamic client block/unblock switches ---

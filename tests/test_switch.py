@@ -662,14 +662,14 @@ async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Viewer-only access — no PoE / LED switches
+# LED-probe denied access should not hide non-LED control entities
 # ---------------------------------------------------------------------------
 
 
-async def test_setup_entry_viewer_only_skips_poe_and_led(
+async def test_setup_entry_led_probe_denied_still_creates_poe(
     hass: HomeAssistant,
 ) -> None:
-    """Test that PoE and LED switches are not created with viewer-only access."""
+    """Test that LED probe denial still allows PoE switch creation."""
     coordinator = OmadaSiteCoordinator(
         hass=hass,
         api_client=MagicMock(),
@@ -693,6 +693,6 @@ async def test_setup_entry_viewer_only_skips_poe_and_led(
 
     await async_setup_entry(hass, entry, capture_entities)
 
-    # No PoE or LED switches should be created.
-    assert not any(isinstance(e, OmadaPoeSwitch) for e in added_entities)
+    # LED switch should stay hidden, but PoE controls should remain available.
+    assert any(isinstance(e, OmadaPoeSwitch) for e in added_entities)
     assert not any(isinstance(e, OmadaLedSwitch) for e in added_entities)
