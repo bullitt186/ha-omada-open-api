@@ -29,6 +29,30 @@ _LOGGER = logging.getLogger(__name__)
 PARALLEL_UPDATES = 1
 
 
+def _new_ap_led_entities(
+    coord: OmadaSiteCoordinator,
+    devices: dict[str, dict[str, Any]],
+    known_ap_led_keys: set[str],
+) -> list[SwitchEntity]:
+    """Return new AP LED switch entities for APs not yet tracked."""
+    new_entities: list[SwitchEntity] = []
+    for ap_mac, ap_device in devices.items():
+        if ap_device.get("type", "").lower() != "ap":
+            continue
+        led_key = f"{ap_mac}_led"
+        if led_key in known_ap_led_keys:
+            continue
+        known_ap_led_keys.add(led_key)
+        new_entities.append(
+            OmadaApLedSwitch(
+                coordinator=coord,
+                ap_mac=ap_mac,
+                ap_name=ap_device.get("name", ap_mac),
+            )
+        )
+    return new_entities
+
+
 async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-statements
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
@@ -123,22 +147,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
                             )
 
             # Per-AP LED switches.
-            for ap_mac, ap_device in devices.items():
-                if ap_device.get("type", "").lower() != "ap":
-                    continue
-
-                led_key = f"{ap_mac}_led"
-                if led_key in known_ap_led_keys:
-                    continue
-
-                known_ap_led_keys.add(led_key)
-                new_entities.append(
-                    OmadaApLedSwitch(
-                        coordinator=coord,
-                        ap_mac=ap_mac,
-                        ap_name=ap_device.get("name", ap_mac),
-                    )
-                )
+            new_entities.extend(_new_ap_led_entities(coord, devices, known_ap_led_keys))
 
             # Per-AP radio band switches.
             ap_radio_config = coord.data.get("ap_radio_config", {})
@@ -512,7 +521,7 @@ class OmadaApLedSwitch(
         led_setting = ap_data.get("led_setting")
         if led_setting is None:
             return None
-        return led_setting == 1
+        return bool(led_setting == 1)
 
     @property
     def available(self) -> bool:

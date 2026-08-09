@@ -24,6 +24,16 @@ from custom_components.omada_open_api.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
+    CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
+    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+    CONF_ENABLE_CLIENT_RECONNECT_BUTTON,
+    CONF_ENABLE_CLIENT_SIGNAL_SENSORS,
+    CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
+    CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
@@ -3097,9 +3107,7 @@ async def test_options_client_selection_fusion_reuses_live_session(
         await hass.async_block_till_done()
 
     mock_auth = _mock_live_auth()
-    entry.runtime_data = SimpleNamespace(
-        api_client=SimpleNamespace(auth=mock_auth)
-    )
+    entry.runtime_data = SimpleNamespace(api_client=SimpleNamespace(auth=mock_auth))
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
@@ -3137,9 +3145,7 @@ async def test_options_application_selection_fusion_reuses_live_session(
         await hass.async_block_till_done()
 
     mock_auth = _mock_live_auth()
-    entry.runtime_data = SimpleNamespace(
-        api_client=SimpleNamespace(auth=mock_auth)
-    )
+    entry.runtime_data = SimpleNamespace(api_client=SimpleNamespace(auth=mock_auth))
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
@@ -3163,3 +3169,261 @@ async def test_options_application_selection_fusion_reuses_live_session(
     mock_auth.ensure_valid_session.assert_awaited_once()
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "application_selection"
+
+
+# ---------------------------------------------------------------------------
+# Options flow: Fusion login fallback (entry not currently loaded).
+# ---------------------------------------------------------------------------
+
+
+async def test_options_fusion_login_success(hass: HomeAssistant) -> None:
+    """_fusion_login performs the real login POST and returns the CSRF token."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+
+    mock_response = AsyncMock()
+    mock_response.json = AsyncMock(
+        return_value={"errorCode": 0, "result": {"token": "fresh-token"}}
+    )
+    mock_session = MagicMock()
+    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with patch.object(flow, "_get_fusion_session", return_value=mock_session):
+        token = await flow._fusion_login()
+
+    assert token == "fresh-token"
+
+
+async def test_options_fusion_login_failure(hass: HomeAssistant) -> None:
+    """_fusion_login raises InvalidAuthError when the API reports an error."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+
+    mock_response = AsyncMock()
+    mock_response.json = AsyncMock(
+        return_value={"errorCode": -1, "msg": "Invalid credentials"}
+    )
+    mock_session = MagicMock()
+    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch.object(flow, "_get_fusion_session", return_value=mock_session),
+        pytest.raises(InvalidAuthError),
+    ):
+        await flow._fusion_login()
+
+
+async def test_options_get_fusion_session_creates_and_caches(
+    hass: HomeAssistant,
+) -> None:
+    """_get_fusion_session lazily creates a session and reuses it thereafter."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+
+    session = flow._get_fusion_session()
+    try:
+        assert flow._get_fusion_session() is session
+    finally:
+        await session.close()
+
+
+async def test_options_ensure_fusion_auth_falls_back_without_runtime_data(
+    hass: HomeAssistant,
+) -> None:
+    """_ensure_fusion_auth logs in independently when the entry isn't loaded."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+
+    with patch.object(
+        flow, "_fusion_login", new=AsyncMock(return_value="fallback-token")
+    ) as mock_login:
+        await flow._ensure_fusion_auth()
+
+    mock_login.assert_awaited_once()
+    assert flow._fusion_csrf_token == "fallback-token"
+
+
+def test_options_build_api_headers_live_auth(hass: HomeAssistant) -> None:
+    """_build_api_headers delegates to the reused live auth strategy."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._live_auth = _mock_live_auth()
+
+    headers = flow._build_api_headers()
+
+    assert headers["Csrf-Token"] == "live-token"
+
+
+def test_options_build_api_headers_fusion_csrf(hass: HomeAssistant) -> None:
+    """_build_api_headers builds CSRF headers from an independent login."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._fusion_csrf_token = "csrf-abc"
+
+    headers = flow._build_api_headers()
+
+    assert headers["Csrf-Token"] == "csrf-abc"
+    assert headers["Omada-Request-Source"] == "web-local"
+
+
+def test_options_build_api_headers_bearer(hass: HomeAssistant) -> None:
+    """_build_api_headers falls back to a bearer AccessToken header."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._access_token = "bearer-token"
+
+    headers = flow._build_api_headers()
+
+    assert headers["Authorization"] == "AccessToken=bearer-token"
+
+
+# ---------------------------------------------------------------------------
+# Options flow: simple entity-toggle settings steps (show form + submit).
+# ---------------------------------------------------------------------------
+
+
+def _openapi_options_entry() -> MockConfigEntry:
+    """Build a MockConfigEntry mimicking a regular (non-Fusion) config entry."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "cid123",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        options={},
+    )
+
+
+async def test_options_tracker_settings_step(hass: HomeAssistant) -> None:
+    """Options flow tracker_settings step shows a form and saves on submit."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "tracker_settings"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "tracker_settings"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_DISCONNECT_TIMEOUT: 10}
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_DISCONNECT_TIMEOUT] == 10
+
+
+async def test_options_device_entity_settings_step(hass: HomeAssistant) -> None:
+    """Options flow device_entity_settings step shows a form and saves on submit."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "device_entity_settings"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "device_entity_settings"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS: False,
+            CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: True,
+            CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: True,
+            CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: True,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS] is False
+
+
+async def test_options_client_entity_settings_step(hass: HomeAssistant) -> None:
+    """Options flow client_entity_settings step shows a form and saves on submit."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "client_entity_settings"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "client_entity_settings"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS: True,
+            CONF_ENABLE_CLIENT_SIGNAL_SENSORS: False,
+            CONF_ENABLE_CLIENT_BLOCK_SWITCH: True,
+            CONF_ENABLE_CLIENT_RECONNECT_BUTTON: True,
+        },
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_CLIENT_SIGNAL_SENSORS] is False
+
+
+async def test_options_site_entity_settings_step(hass: HomeAssistant) -> None:
+    """Options flow site_entity_settings step shows a form and saves on submit."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "site_entity_settings"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "site_entity_settings"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_ENABLE_THREAT_HEATMAP_SENSORS: False}
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False

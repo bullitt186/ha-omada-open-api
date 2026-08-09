@@ -711,6 +711,36 @@ async def test_ap_led_switch_turn_off(hass: HomeAssistant) -> None:
     )
 
 
+async def test_ap_led_switch_turn_on(hass: HomeAssistant) -> None:
+    """Test turning AP LED switch on calls API with ledSetting=1."""
+    switch = _create_ap_led_switch(hass)
+    switch.hass = hass
+    with patch.object(switch, "async_write_ha_state"):
+        await switch.async_turn_on()
+    switch.coordinator.api_client.set_ap_led_setting.assert_called_once_with(
+        TEST_SITE_ID,
+        "AA-BB-CC-DD-EE-01",
+        led_setting=1,
+    )
+    assert switch.is_on is True
+
+
+async def test_ap_led_switch_turn_on_api_error(hass: HomeAssistant) -> None:
+    """Test AP LED switch raises HomeAssistantError on turn-on API failure."""
+    switch = _create_ap_led_switch(hass)
+    switch.coordinator.api_client.set_ap_led_setting.side_effect = OmadaApiError("fail")
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_on()
+
+
+async def test_ap_led_switch_turn_off_api_error(hass: HomeAssistant) -> None:
+    """Test AP LED switch raises HomeAssistantError on turn-off API failure."""
+    switch = _create_ap_led_switch(hass)
+    switch.coordinator.api_client.set_ap_led_setting.side_effect = OmadaApiError("fail")
+    with pytest.raises(HomeAssistantError):
+        await switch.async_turn_off()
+
+
 async def test_setup_entry_creates_ap_led_switch(hass: HomeAssistant) -> None:
     """Test switch setup creates AP LED switch entities for AP devices."""
     coordinator = OmadaSiteCoordinator(

@@ -1760,9 +1760,7 @@ async def test_set_ap_led_setting(hass: HomeAssistant, mock_config_entry) -> Non
 
     mock_patch = mock_session.patch
     mock_patch.return_value.__aenter__.return_value = mock_response
-    await api_client.set_ap_led_setting(
-        "site_001", "AA-BB-CC-DD-EE-01", led_setting=0
-    )
+    await api_client.set_ap_led_setting("site_001", "AA-BB-CC-DD-EE-01", led_setting=0)
 
     call_url = mock_patch.call_args[0][0]
     assert "/sites/site_001/aps/AA-BB-CC-DD-EE-01/general-config" in call_url

@@ -182,7 +182,7 @@ async def test_fetch_site_clients_includes_radio_id(
         site_name=TEST_SITE_NAME,
     )
 
-    clients = await coordinator._fetch_site_clients()  # noqa: SLF001
+    clients = await coordinator._fetch_site_clients()
 
     assert len(clients) == 1
     assert clients[0]["radio_id"] == 1

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from homeassistant.config_entries import (
@@ -68,6 +68,9 @@ from .const import (
     MIN_SCAN_INTERVAL,
     REGIONS,
 )
+
+if TYPE_CHECKING:
+    from .auth import OmadaAuthStrategy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1419,7 +1422,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # Reused live auth strategy from the entry's running api_client, when
         # available (see _ensure_fusion_auth). Avoids an independent Fusion
         # login racing with the coordinator's active session.
-        self._live_auth: Any | None = None
+        self._live_auth: OmadaAuthStrategy | None = None
 
     def _get_fusion_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session with unsafe cookie jar for Fusion.

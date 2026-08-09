@@ -478,4 +478,3 @@ async def test_coordinator_led_setting_absent_on_api_error(
 
     ap_mac = SAMPLE_DEVICE_AP["mac"]
     assert data["devices"][ap_mac]["led_setting"] is None
-
