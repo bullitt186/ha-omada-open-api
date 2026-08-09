@@ -1416,6 +1416,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # call the clients/applications endpoints.
         self._fusion_csrf_token: str | None = None
         self._fusion_session: aiohttp.ClientSession | None = None
+        # Reused live auth strategy from the entry's running api_client, when
+        # available (see _ensure_fusion_auth). Avoids an independent Fusion
+        # login racing with the coordinator's active session.
+        self._live_auth: Any | None = None
 
     def _get_fusion_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session with unsafe cookie jar for Fusion.
@@ -1456,13 +1460,30 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             return result["result"]["token"]  # type: ignore[no-any-return]
 
     async def _ensure_fusion_auth(self) -> None:
-        """Perform a fresh Fusion login if this entry uses web_session auth."""
+        """Ensure a valid Fusion (web_session) auth is available, if needed.
+
+        Fusion gateways allow only one active session at a time. Logging in
+        independently from the options flow would invalidate the
+        coordinator's already-active session (and vice versa), which
+        surfaces as an API "logged out of the controller" error. Reuse the
+        entry's live api_client auth strategy when the entry is currently
+        loaded; only fall back to an independent login if it is not.
+        """
         auth_mode = self.config_entry.data.get(CONF_AUTH_MODE, AUTH_MODE_OPENAPI)
-        if auth_mode == AUTH_MODE_WEB_SESSION:
+        if auth_mode != AUTH_MODE_WEB_SESSION:
+            return
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        if runtime_data is not None:
+            await runtime_data.api_client.auth.ensure_valid_session()
+            self._live_auth = runtime_data.api_client.auth
+        else:
             self._fusion_csrf_token = await self._fusion_login()
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
+        headers = {"Content-Type": "application/json"}
+        if self._live_auth is not None:
+            return self._live_auth.decorate_request(headers)
         if self._fusion_csrf_token:
             return {
                 "Csrf-Token": self._fusion_csrf_token,
@@ -1743,7 +1764,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         if not self._available_clients:
             try:
                 await self._ensure_fusion_auth()
-                if self._fusion_csrf_token is None:
+                if self._fusion_csrf_token is None and self._live_auth is None:
                     self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
                 all_clients = []
                 for site_id in self._selected_site_ids:
@@ -1847,7 +1868,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # Fetch applications from the first selected site
         try:
             await self._ensure_fusion_auth()
-            if self._fusion_csrf_token is None:
+            if self._fusion_csrf_token is None and self._live_auth is None:
                 self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
             if self._selected_site_ids:
                 first_site_id = self._selected_site_ids[0]

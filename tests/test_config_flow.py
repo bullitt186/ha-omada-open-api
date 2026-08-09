@@ -1,6 +1,7 @@
 """Tests for Omada Open API config flow."""
 
 import datetime as dt
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -3061,5 +3062,104 @@ async def test_options_application_selection_fusion_mode(hass: HomeAssistant) ->
             {"next_step_id": "application_selection"},
         )
 
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "application_selection"
+
+
+# ---------------------------------------------------------------------------
+# Options flow: Fusion entries must reuse the live coordinator session rather
+# than logging in independently. Fusion allows only one active session per
+# gateway account — an independent login from the options flow invalidates
+# the coordinator's session (and vice versa), which was reproduced live as
+# an "You have been logged out of the controller" API error.
+# ---------------------------------------------------------------------------
+
+
+def _mock_live_auth() -> MagicMock:
+    """Build a mock auth strategy mimicking the live api_client's auth object."""
+    mock_auth = MagicMock()
+    mock_auth.ensure_valid_session = AsyncMock()
+    mock_auth.decorate_request = MagicMock(
+        side_effect=lambda headers: {**headers, "Csrf-Token": "live-token"}
+    )
+    return mock_auth
+
+
+async def test_options_client_selection_fusion_reuses_live_session(
+    hass: HomeAssistant,
+) -> None:
+    """Options flow reuses the entry's live api_client auth, not a fresh login."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_auth = _mock_live_auth()
+    entry.runtime_data = SimpleNamespace(
+        api_client=SimpleNamespace(auth=mock_auth)
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_fusion_login",
+            new=AsyncMock(side_effect=AssertionError("must not log in independently")),
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_get_clients",
+            new=AsyncMock(return_value=MOCK_CLIENTS),
+        ),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "client_selection"},
+        )
+
+    mock_auth.ensure_valid_session.assert_awaited_once()
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "client_selection"
+
+
+async def test_options_application_selection_fusion_reuses_live_session(
+    hass: HomeAssistant,
+) -> None:
+    """Options flow application selection reuses the live api_client auth."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_auth = _mock_live_auth()
+    entry.runtime_data = SimpleNamespace(
+        api_client=SimpleNamespace(auth=mock_auth)
+    )
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_fusion_login",
+            new=AsyncMock(side_effect=AssertionError("must not log in independently")),
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+            "_get_applications",
+            new=AsyncMock(return_value=MOCK_APPLICATIONS),
+        ),
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "application_selection"},
+        )
+
+    mock_auth.ensure_valid_session.assert_awaited_once()
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "application_selection"
