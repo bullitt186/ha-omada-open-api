@@ -2262,6 +2262,41 @@ async def test_options_clients_http_error(hass: HomeAssistant, aioclient_mock) -
     assert result["errors"]["base"] == "cannot_connect"
 
 
+async def test_options_clients_http_404_returns_empty_selection(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Test options flow treats 404 clients endpoint as unsupported, not failure."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: _CLOUD_URL,
+            CONF_OMADA_ID: "test_omada",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site123"],
+        },
+        options={CONF_SELECTED_CLIENTS: ["AA-BB-CC-DD-EE-01"]},
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    _register_clients_endpoint(aioclient_mock, status=404)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "client_selection"},
+    )
+
+    # Unsupported endpoint should degrade gracefully to no selection.
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+
+
 async def test_options_clients_api_error(hass: HomeAssistant, aioclient_mock) -> None:
     """Test options flow _get_clients with API error code."""
     entry = MockConfigEntry(
@@ -2329,6 +2364,41 @@ async def test_options_apps_http_error(hass: HomeAssistant, aioclient_mock) -> N
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"]["base"] == "cannot_connect"
+
+
+async def test_options_apps_http_404_returns_empty_selection(
+    hass: HomeAssistant, aioclient_mock
+) -> None:
+    """Test options flow treats 404 applications endpoint as unsupported."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: _CLOUD_URL,
+            CONF_OMADA_ID: "test_omada",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site123"],
+        },
+        options={CONF_SELECTED_APPLICATIONS: ["100"]},
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    _register_apps_endpoint(aioclient_mock, status=404)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"next_step_id": "application_selection"},
+    )
+
+    # Unsupported endpoint should degrade gracefully to no selection.
+    assert result["type"] == FlowResultType.CREATE_ENTRY
 
 
 async def test_options_apps_api_error(hass: HomeAssistant, aioclient_mock) -> None:

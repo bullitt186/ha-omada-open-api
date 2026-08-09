@@ -915,6 +915,13 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 _LOGGER.error(
                     "Clients API error %s: %s", response.status, response_text
                 )
+                if response.status == 404:
+                    _LOGGER.warning(
+                        "Clients endpoint not supported for site %s; "
+                        "skipping client selection",
+                        site_id,
+                    )
+                    return []
                 response.raise_for_status()
 
             result = await response.json()
@@ -971,6 +978,13 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     _LOGGER.error(
                         "Applications API error %s: %s", response.status, response_text
                     )
+                    if response.status == 404:
+                        _LOGGER.warning(
+                            "Applications endpoint not supported for site %s; "
+                            "skipping application selection",
+                            site_id,
+                        )
+                        return []
                     response.raise_for_status()
 
                 result = await response.json()
@@ -1873,6 +1887,13 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 _LOGGER.error(
                     "Clients API error %s: %s", response.status, response_text
                 )
+                if response.status == 404:
+                    _LOGGER.warning(
+                        "Clients endpoint not supported for site %s; "
+                        "skipping client selection",
+                        site_id,
+                    )
+                    return []
                 response.raise_for_status()
 
             result = await response.json()
@@ -1932,6 +1953,13 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     _LOGGER.error(
                         "Applications API error %s: %s", response.status, response_text
                     )
+                    if response.status == 404:
+                        _LOGGER.warning(
+                            "Applications endpoint not supported for site %s; "
+                            "skipping application selection",
+                            site_id,
+                        )
+                        return []
                     response.raise_for_status()
 
                 result = await response.json()
