@@ -2578,3 +2578,28 @@ async def test_get_threat_management_404_raises(
         await api_client.get_threat_management(
             site_id="site_001", start_time=1000, end_time=2000
         )
+
+
+async def test_session_property_returns_injected_session(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test the session property returns the exact session the client was built with.
+
+    Config/options flows need this to reuse the Fusion cookie-jar session
+    (rather than HA's cookie-less shared session) for endpoints that
+    validate the session cookie alongside the CSRF token.
+    """
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    assert api_client.session is mock_session

@@ -863,6 +863,17 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             return result["result"]["data"]  # type: ignore[no-any-return]
 
+    def _get_http_session(self) -> aiohttp.ClientSession:
+        """Return the session to use for authenticated HTTP calls.
+
+        Fusion endpoints validate the session cookie together with the CSRF
+        token, so Fusion mode must reuse the flow's own cookie-jar session
+        rather than HA's cookie-less shared session.
+        """
+        if self._controller_type == CONTROLLER_TYPE_FUSION:
+            return self._get_fusion_session()
+        return async_get_clientsession(self.hass, verify_ssl=False)
+
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
         if self._controller_type == CONTROLLER_TYPE_FUSION and self._fusion_csrf_token:
@@ -889,7 +900,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_http_session()
         url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
         headers = self._build_api_headers()
 
@@ -948,7 +959,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_http_session()
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
         headers = self._build_api_headers()
 
@@ -1423,6 +1434,12 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # available (see _ensure_fusion_auth). Avoids an independent Fusion
         # login racing with the coordinator's active session.
         self._live_auth: OmadaAuthStrategy | None = None
+        # Reused live cookie-jar session from the entry's running api_client.
+        # Required alongside _live_auth: some Fusion endpoints (clients,
+        # applications) validate the session cookie together with the CSRF
+        # token, so HA's cookie-less shared session gets rejected even with
+        # a valid token.
+        self._live_session: aiohttp.ClientSession | None = None
 
     def _get_fusion_session(self) -> aiohttp.ClientSession:
         """Get or create an aiohttp session with unsafe cookie jar for Fusion.
@@ -1479,8 +1496,22 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         if runtime_data is not None:
             await runtime_data.api_client.auth.ensure_valid_session()
             self._live_auth = runtime_data.api_client.auth
+            self._live_session = runtime_data.api_client.session
         else:
             self._fusion_csrf_token = await self._fusion_login()
+
+    def _get_http_session(self) -> aiohttp.ClientSession:
+        """Return the session to use for authenticated HTTP calls.
+
+        Reuses the live coordinator's cookie-jar session when available,
+        falls back to the flow's own Fusion session for an independent
+        login, or HA's shared session for non-Fusion (OpenAPI) auth.
+        """
+        if self._live_session is not None:
+            return self._live_session
+        if self._fusion_csrf_token:
+            return self._get_fusion_session()
+        return async_get_clientsession(self.hass, verify_ssl=False)
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
@@ -1945,7 +1976,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_http_session()
         url = f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients"
         headers = self._build_api_headers()
 
@@ -2004,7 +2035,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = self._get_http_session()
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
         headers = self._build_api_headers()
 

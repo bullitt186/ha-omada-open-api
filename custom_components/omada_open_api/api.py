@@ -1462,6 +1462,11 @@ class OmadaApiClient:
         """Return the auth strategy."""
         return self._auth
 
+    @property
+    def session(self) -> aiohttp.ClientSession:
+        """Return the underlying aiohttp session (carries the Fusion cookie jar)."""
+        return self._session
+
 
 class OmadaApiError(Exception):
     """General API exception."""

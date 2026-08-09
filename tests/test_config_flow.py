@@ -44,6 +44,7 @@ from custom_components.omada_open_api.const import (
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
+    CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
 )
@@ -3107,7 +3108,10 @@ async def test_options_client_selection_fusion_reuses_live_session(
         await hass.async_block_till_done()
 
     mock_auth = _mock_live_auth()
-    entry.runtime_data = SimpleNamespace(api_client=SimpleNamespace(auth=mock_auth))
+    live_session = MagicMock()
+    entry.runtime_data = SimpleNamespace(
+        api_client=SimpleNamespace(auth=mock_auth, session=live_session)
+    )
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
@@ -3145,7 +3149,10 @@ async def test_options_application_selection_fusion_reuses_live_session(
         await hass.async_block_till_done()
 
     mock_auth = _mock_live_auth()
-    entry.runtime_data = SimpleNamespace(api_client=SimpleNamespace(auth=mock_auth))
+    live_session = MagicMock()
+    entry.runtime_data = SimpleNamespace(
+        api_client=SimpleNamespace(auth=mock_auth, session=live_session)
+    )
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
@@ -3300,6 +3307,95 @@ def test_options_build_api_headers_bearer(hass: HomeAssistant) -> None:
     headers = flow._build_api_headers()
 
     assert headers["Authorization"] == "AccessToken=bearer-token"
+
+
+# ---------------------------------------------------------------------------
+# Options flow: _get_http_session must reuse the Fusion cookie-jar session,
+# not HA's cookie-less shared session, or the Omada controller rejects
+# clients/applications requests with a "logged out" error even though the
+# CSRF token is valid (the cookie jar mismatch is the real root cause).
+# ---------------------------------------------------------------------------
+
+
+def test_options_get_http_session_reuses_live_session(hass: HomeAssistant) -> None:
+    """_get_http_session returns the live coordinator's cookie-jar session."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    live_session = MagicMock()
+    flow._live_session = live_session
+
+    assert flow._get_http_session() is live_session
+
+
+def test_options_get_http_session_falls_back_to_fusion_session(
+    hass: HomeAssistant,
+) -> None:
+    """_get_http_session falls back to the flow's own Fusion session."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._fusion_csrf_token = "csrf-abc"
+    fusion_session = MagicMock()
+
+    with patch.object(flow, "_get_fusion_session", return_value=fusion_session):
+        assert flow._get_http_session() is fusion_session
+
+
+def test_options_get_http_session_uses_shared_session_for_openapi(
+    hass: HomeAssistant,
+) -> None:
+    """_get_http_session falls back to HA's shared session for OpenAPI (bearer) auth."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow._access_token = "bearer-token"
+    shared_session = MagicMock()
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=shared_session,
+    ):
+        assert flow._get_http_session() is shared_session
+
+
+# ---------------------------------------------------------------------------
+# Config flow (initial setup): _get_http_session must route Fusion mode
+# through the flow's own cookie-jar session, same reasoning as the options
+# flow above. There is no live entry to reuse during initial setup.
+# ---------------------------------------------------------------------------
+
+
+def test_config_flow_get_http_session_uses_fusion_session_for_fusion(
+    hass: HomeAssistant,
+) -> None:
+    """_get_http_session uses the Fusion cookie-jar session in Fusion mode."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow._controller_type = CONTROLLER_TYPE_FUSION
+    fusion_session = MagicMock()
+
+    with patch.object(flow, "_get_fusion_session", return_value=fusion_session):
+        assert flow._get_http_session() is fusion_session
+
+
+def test_config_flow_get_http_session_uses_shared_session_for_openapi(
+    hass: HomeAssistant,
+) -> None:
+    """_get_http_session falls back to HA's shared session for non-Fusion auth."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow._controller_type = CONTROLLER_TYPE_LOCAL
+    shared_session = MagicMock()
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=shared_session,
+    ):
+        assert flow._get_http_session() is shared_session
 
 
 # ---------------------------------------------------------------------------
