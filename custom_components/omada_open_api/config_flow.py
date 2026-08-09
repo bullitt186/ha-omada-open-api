@@ -1425,6 +1425,11 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         self._available_clients: list[dict[str, Any]] = []
         self._available_applications: list[dict[str, Any]] = []
         self._ssid_filter: list[str] = []
+        # Working client selection, tracked across SSID filter changes so
+        # narrowing the visible list doesn't invalidate (or drop) selections
+        # belonging to currently-hidden SSIDs. None until first initialized
+        # from the persisted entry options.
+        self._working_client_macs: list[str] | None = None
         # Fusion (web_session) support: these entries store no access_token,
         # so a fresh login is required each time the options flow needs to
         # call the clients/applications endpoints.
@@ -1772,20 +1777,42 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         """Handle client selection in options flow."""
         errors: dict[str, str] = {}
 
+        if self._working_client_macs is None:
+            self._working_client_macs = list(
+                self.config_entry.options.get(CONF_SELECTED_CLIENTS, [])
+            )
+
         if user_input is not None:
+            # Merge the just-submitted (currently visible) selection into the
+            # working set. Only overwrite the MACs that were actually shown
+            # as options on the previous render — anything hidden behind the
+            # SSID filter at that time is left untouched, so narrowing the
+            # view doesn't silently drop selections on other SSIDs.
+            previously_visible_macs = {
+                c.get("mac", "")
+                for c in filter_clients_by_ssids(
+                    self._available_clients, self._ssid_filter
+                )[:200]
+            }
+            submitted_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
+            self._working_client_macs = [
+                mac
+                for mac in self._working_client_macs
+                if mac not in previously_visible_macs
+            ] + submitted_macs
+
             # If SSID filter was submitted, re-show with filtered list
             new_ssid_filter = user_input.get(CONF_SSID_FILTER, [])
             if new_ssid_filter != self._ssid_filter and self._available_clients:
                 self._ssid_filter = new_ssid_filter
                 # Fall through to re-show the form with filtered clients
             else:
-                selected_client_macs = user_input.get(CONF_SELECTED_CLIENTS, [])
                 # Return merged options — HA sets entry.options from data param
                 return self.async_create_entry(
                     title="",
                     data={
                         **self.config_entry.options,
-                        CONF_SELECTED_CLIENTS: selected_client_macs,
+                        CONF_SELECTED_CLIENTS: self._working_client_macs,
                     },
                 )
 
@@ -1814,9 +1841,6 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             # No clients available, return with empty selection
             return self.async_create_entry(title="", data=self.config_entry.options)
 
-        # Get currently selected clients
-        current_selection = self.config_entry.options.get(CONF_SELECTED_CLIENTS, [])
-
         # Extract available SSIDs for the filter
         available_ssids = extract_ssids_from_clients(self._available_clients)
         ssid_options = [
@@ -1830,18 +1854,27 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         # Create client selection options
         client_options = []
+        visible_macs: set[str] = set()
         for client in display_clients[:200]:  # Limit to 200
             name = client.get("name") or client.get("hostName") or "Unknown"
             mac = client.get("mac", "")
             ip = client.get("ip", "N/A")
             online = "🟢" if client.get("active") else "🔴"
 
+            visible_macs.add(mac)
             client_options.append(
                 SelectOptionDict(
                     value=mac,
                     label=f"{online} {name} - {ip} ({mac})",
                 )
             )
+
+        # The field's default must only contain currently-valid options —
+        # the full working selection (including SSIDs hidden by the current
+        # filter) is preserved in self._working_client_macs regardless.
+        field_default = [
+            mac for mac in self._working_client_macs if mac in visible_macs
+        ]
 
         schema_fields: dict[Any, Any] = {}
         if ssid_options:
@@ -1854,13 +1887,13 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     )
                 )
             )
-        schema_fields[
-            vol.Optional(CONF_SELECTED_CLIENTS, default=current_selection)
-        ] = SelectSelector(
-            SelectSelectorConfig(
-                options=client_options,
-                multiple=True,
-                mode=SelectSelectorMode.DROPDOWN,
+        schema_fields[vol.Optional(CONF_SELECTED_CLIENTS, default=field_default)] = (
+            SelectSelector(
+                SelectSelectorConfig(
+                    options=client_options,
+                    multiple=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
             )
         )
 
@@ -1872,7 +1905,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             errors=errors,
             description_placeholders={
                 "client_count": str(len(display_clients)),
-                "selected_count": str(len(current_selection)),
+                "selected_count": str(len(self._working_client_macs)),
             },
         )
 

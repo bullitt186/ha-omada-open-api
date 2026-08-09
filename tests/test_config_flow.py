@@ -41,6 +41,7 @@ from custom_components.omada_open_api.const import (
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
+    CONF_SSID_FILTER,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
@@ -80,6 +81,37 @@ MOCK_CLIENTS = [
         "ip": "192.168.1.50",
         "active": True,
     },
+]
+
+# Multi-SSID client fixtures for exercising the SSID filter in the options
+# flow's client selection step (see test_options_client_selection_ssid_filter_*).
+SSID_FILTER_HOME_CLIENT = {
+    "mac": "AA-BB-CC-DD-EE-11",
+    "name": "HomePhone",
+    "ip": "192.168.1.11",
+    "active": True,
+    "wireless": True,
+    "ssid": "Home",
+}
+SSID_FILTER_IOT_CLIENT = {
+    "mac": "AA-BB-CC-DD-EE-12",
+    "name": "SmartBulb",
+    "ip": "192.168.1.12",
+    "active": True,
+    "wireless": True,
+    "ssid": "IoT",
+}
+SSID_FILTER_WIRED_CLIENT = {
+    "mac": "AA-BB-CC-DD-EE-13",
+    "name": "Desktop",
+    "ip": "192.168.1.13",
+    "active": True,
+    "wireless": False,
+}
+SSID_FILTER_MULTI_SSID_CLIENTS = [
+    SSID_FILTER_HOME_CLIENT,
+    SSID_FILTER_IOT_CLIENT,
+    SSID_FILTER_WIRED_CLIENT,
 ]
 
 MOCK_APPLICATIONS = [
@@ -1267,6 +1299,125 @@ async def test_options_client_selection(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_SELECTED_CLIENTS] == ["AA-BB-CC-DD-EE-01"]
+
+
+async def test_options_client_selection_ssid_filter_preserves_other_ssid_clients(
+    hass: HomeAssistant,
+) -> None:
+    """Filtering by SSID must not crash and must preserve hidden selections.
+
+    Reproduces the two symptoms of the bug: (1) applying an SSID filter
+    while other-SSID clients are already tracked must not raise a schema
+    validation error, and (2) saving afterwards must not silently drop the
+    tracked clients that are hidden behind the filter.
+    """
+    home_mac = SSID_FILTER_HOME_CLIENT["mac"]
+    iot_mac = SSID_FILTER_IOT_CLIENT["mac"]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "opt_ssid_filter",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        options={CONF_SELECTED_CLIENTS: [home_mac, iot_mac]},
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler._get_clients",
+        return_value=SSID_FILTER_MULTI_SSID_CLIENTS,
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "client_selection"},
+        )
+
+    assert result["type"] == FlowResultType.FORM
+
+    # Frontend round-trips the still-full, untouched client selection
+    # alongside the newly picked SSID filter.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SSID_FILTER: ["Home"], CONF_SELECTED_CLIENTS: [home_mac, iot_mac]},
+    )
+    assert result["type"] == FlowResultType.FORM
+
+    # Frontend echoes back its unchanged widget state. Once the field's
+    # default is correctly clamped to currently-valid options (the fix),
+    # that state is just the visible Home client — the widget could never
+    # have shown iot_mac as checked once the options narrowed to Home only.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SSID_FILTER: ["Home"], CONF_SELECTED_CLIENTS: [home_mac]},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert set(entry.options[CONF_SELECTED_CLIENTS]) == {home_mac, iot_mac}
+
+
+async def test_options_client_selection_ssid_filter_deselect_while_filtered(
+    hass: HomeAssistant,
+) -> None:
+    """Deselecting a visible client while filtered must not drop hidden ones."""
+    home_mac = SSID_FILTER_HOME_CLIENT["mac"]
+    iot_mac = SSID_FILTER_IOT_CLIENT["mac"]
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "opt_ssid_filter_deselect",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        options={CONF_SELECTED_CLIENTS: [home_mac, iot_mac]},
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler._get_clients",
+        return_value=SSID_FILTER_MULTI_SSID_CLIENTS,
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {"next_step_id": "client_selection"},
+        )
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SSID_FILTER: ["Home"], CONF_SELECTED_CLIENTS: [home_mac, iot_mac]},
+    )
+    assert result["type"] == FlowResultType.FORM
+
+    # User explicitly unchecks the one visible (Home) client and saves.
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SSID_FILTER: ["Home"], CONF_SELECTED_CLIENTS: []},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_SELECTED_CLIENTS] == [iot_mac]
 
 
 async def test_options_client_selection_no_clients(hass: HomeAssistant) -> None:
