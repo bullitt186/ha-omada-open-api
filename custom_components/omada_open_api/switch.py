@@ -59,6 +59,7 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
     known_poe_ports: set[str] = set()
     known_ssid_keys: set[str] = set()
     known_ap_ssid_keys: set[str] = set()
+    known_ap_led_keys: set[str] = set()
 
     for site_id, site_coord in coordinators.items():
 
@@ -120,6 +121,24 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
                                     ssid_data=ssid_override,
                                 )
                             )
+
+            # Per-AP LED switches.
+            for ap_mac, ap_device in devices.items():
+                if ap_device.get("type", "").lower() != "ap":
+                    continue
+
+                led_key = f"{ap_mac}_led"
+                if led_key in known_ap_led_keys:
+                    continue
+
+                known_ap_led_keys.add(led_key)
+                new_entities.append(
+                    OmadaApLedSwitch(
+                        coordinator=coord,
+                        ap_mac=ap_mac,
+                        ap_name=ap_device.get("name", ap_mac),
+                    )
+                )
 
             # Per-AP radio band switches.
             ap_radio_config = coord.data.get("ap_radio_config", {})
@@ -455,6 +474,85 @@ class OmadaLedSwitch(
         except OmadaApiError as err:
             raise HomeAssistantError(
                 f"Failed to disable LED for site {self.coordinator.site_id}"
+            ) from err
+
+
+class OmadaApLedSwitch(
+    OmadaEntity[OmadaSiteCoordinator],
+    SwitchEntity,
+):
+    """Switch entity to control an individual AP LED setting."""
+
+    _attr_icon = "mdi:led-on"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        ap_mac: str,
+        ap_name: str,
+    ) -> None:
+        """Initialize the AP LED switch."""
+        super().__init__(coordinator)
+        self._ap_mac = ap_mac
+        self._attr_translation_key = "ap_led"
+        self._attr_translation_placeholders = {"ap_name": ap_name}
+        self._attr_unique_id = f"{ap_mac}_led"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, ap_mac)},
+        }
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if LED is explicitly enabled for this AP."""
+        ap_data = self.coordinator.data.get("devices", {}).get(self._ap_mac)
+        if ap_data is None:
+            return None
+
+        led_setting = ap_data.get("led_setting")
+        if led_setting is None:
+            return None
+        return led_setting == 1
+
+    @property
+    def available(self) -> bool:
+        """Return whether this entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._ap_mac in self.coordinator.data.get("devices", {})
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the AP LED."""
+        try:
+            await self.coordinator.api_client.set_ap_led_setting(
+                self.coordinator.site_id,
+                self._ap_mac,
+                led_setting=1,
+            )
+            ap_data = self.coordinator.data.get("devices", {}).get(self._ap_mac)
+            if ap_data is not None:
+                ap_data["led_setting"] = 1
+            self.async_write_ha_state()
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to enable LED for AP {self._ap_mac}"
+            ) from err
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the AP LED."""
+        try:
+            await self.coordinator.api_client.set_ap_led_setting(
+                self.coordinator.site_id,
+                self._ap_mac,
+                led_setting=0,
+            )
+            ap_data = self.coordinator.data.get("devices", {}).get(self._ap_mac)
+            if ap_data is not None:
+                ap_data["led_setting"] = 0
+            self.async_write_ha_state()
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to disable LED for AP {self._ap_mac}"
             ) from err
         self.async_write_ha_state()
 

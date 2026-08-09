@@ -718,6 +718,62 @@ class OmadaApiClient:
         )
         return result.get("result", {})  # type: ignore[no-any-return]
 
+    async def get_ap_led_setting(self, site_id: str, ap_mac: str) -> dict[str, Any]:
+        """Get LED setting for a specific AP.
+
+        Args:
+            site_id: Site ID
+            ap_mac: AP MAC address
+
+        Returns:
+            AP general config payload containing ledSetting
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/general-config"
+        )
+        _LOGGER.debug("Fetching AP LED setting for %s in site %s", ap_mac, site_id)
+        result = await self._authenticated_request("get", url)
+        return result.get("result", {})  # type: ignore[no-any-return]
+
+    async def set_ap_led_setting(
+        self, site_id: str, ap_mac: str, *, led_setting: int
+    ) -> dict[str, Any]:
+        """Set LED setting for a specific AP.
+
+        Args:
+            site_id: Site ID
+            ap_mac: AP MAC address
+            led_setting: 0=off, 1=on, 2=follow site setting
+
+        Returns:
+            API response payload
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/aps/{ap_mac}/general-config"
+        )
+        _LOGGER.debug(
+            "Setting AP LED mode %s for %s in site %s",
+            led_setting,
+            ap_mac,
+            site_id,
+        )
+        result = await self._authenticated_request(
+            "patch",
+            url,
+            json_data={"ledSetting": led_setting},
+        )
+        return result.get("result", {})  # type: ignore[no-any-return]
+
     async def check_write_access(self, site_id: str) -> bool:
         """Check if the API credentials have write access to a site.
 

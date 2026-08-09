@@ -1706,6 +1706,69 @@ async def test_set_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
     assert mock_put.call_args[1]["json"] == {"enable": False}
 
 
+async def test_get_ap_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_ap_led_setting reads AP general-config from correct endpoint."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"ledSetting": 1},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_ap_led_setting("site_001", "AA-BB-CC-DD-EE-01")
+
+    call_url = mock_get.call_args[0][0]
+    assert "/sites/site_001/aps/AA-BB-CC-DD-EE-01/general-config" in call_url
+    assert result.get("ledSetting") == 1
+
+
+async def test_set_ap_led_setting(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test set_ap_led_setting sends PATCH with ledSetting payload."""
+    mock_session = MagicMock()
+    mock_callback = AsyncMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=mock_callback,
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {"errorCode": 0}
+
+    mock_patch = mock_session.patch
+    mock_patch.return_value.__aenter__.return_value = mock_response
+    await api_client.set_ap_led_setting(
+        "site_001", "AA-BB-CC-DD-EE-01", led_setting=0
+    )
+
+    call_url = mock_patch.call_args[0][0]
+    assert "/sites/site_001/aps/AA-BB-CC-DD-EE-01/general-config" in call_url
+    assert mock_patch.call_args[1]["json"] == {"ledSetting": 0}
+
+
 async def test_locate_device(hass: HomeAssistant, mock_config_entry) -> None:
     """Test locate_device sends POST with locateEnable payload."""
     mock_session = MagicMock()

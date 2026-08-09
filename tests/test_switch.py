@@ -20,6 +20,7 @@ from custom_components.omada_open_api.coordinator import (
     OmadaSiteCoordinator,
 )
 from custom_components.omada_open_api.switch import (
+    OmadaApLedSwitch,
     OmadaClientBlockSwitch,
     OmadaLedSwitch,
     OmadaPoeSwitch,
@@ -659,6 +660,95 @@ async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
     with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
         await switch.async_update()
     assert switch.is_on is None
+
+
+def _create_ap_led_switch(hass: HomeAssistant) -> OmadaApLedSwitch:
+    """Create an AP LED switch backed by a single AP device payload."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = {
+        "devices": {
+            "AA-BB-CC-DD-EE-01": {
+                "type": "ap",
+                "mac": "AA-BB-CC-DD-EE-01",
+                "name": "Office AP",
+                "led_setting": 1,
+            }
+        },
+        "poe_budget": {},
+        "poe_ports": {},
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+    }
+    coordinator.api_client.set_ap_led_setting = AsyncMock(return_value={})
+    return OmadaApLedSwitch(
+        coordinator=coordinator,
+        ap_mac="AA-BB-CC-DD-EE-01",
+        ap_name="Office AP",
+    )
+
+
+async def test_ap_led_switch_is_on(hass: HomeAssistant) -> None:
+    """Test AP LED switch state from led_setting value."""
+    switch = _create_ap_led_switch(hass)
+    assert switch.is_on is True
+
+
+async def test_ap_led_switch_turn_off(hass: HomeAssistant) -> None:
+    """Test turning AP LED switch off calls API with ledSetting=0."""
+    switch = _create_ap_led_switch(hass)
+    switch.hass = hass
+    with patch.object(switch, "async_write_ha_state"):
+        await switch.async_turn_off()
+    switch.coordinator.api_client.set_ap_led_setting.assert_called_once_with(
+        TEST_SITE_ID,
+        "AA-BB-CC-DD-EE-01",
+        led_setting=0,
+    )
+
+
+async def test_setup_entry_creates_ap_led_switch(hass: HomeAssistant) -> None:
+    """Test switch setup creates AP LED switch entities for AP devices."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = {
+        "devices": {
+            "AA-BB-CC-DD-EE-01": {
+                "type": "ap",
+                "mac": "AA-BB-CC-DD-EE-01",
+                "name": "Office AP",
+                "led_setting": 1,
+            }
+        },
+        "poe_ports": {},
+        "poe_budget": {},
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+    }
+
+    entry = MagicMock()
+    entry.runtime_data = MagicMock()
+    entry.runtime_data.coordinators = {TEST_SITE_ID: coordinator}
+    entry.runtime_data.client_coordinators = []
+    entry.runtime_data.site_devices = {TEST_SITE_ID: object()}
+    entry.runtime_data.has_write_access = True
+
+    added_entities: list = []
+
+    def capture_entities(entities: list) -> None:
+        added_entities.extend(entities)
+
+    await async_setup_entry(hass, entry, capture_entities)
+
+    assert any(isinstance(e, OmadaApLedSwitch) for e in added_entities)
 
 
 # ---------------------------------------------------------------------------

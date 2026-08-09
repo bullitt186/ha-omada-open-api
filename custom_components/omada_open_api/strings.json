@@ -484,6 +484,9 @@
             "led": {
                 "name": "{site_name} LED"
             },
+            "ap_led": {
+                "name": "{ap_name} LED"
+            },
             "ssid_broadcast": {
                 "name": "{ssid_name} broadcast"
             },

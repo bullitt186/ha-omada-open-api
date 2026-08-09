@@ -46,6 +46,12 @@
             "uplink_device": {
                 "default": "mdi:ethernet"
             },
+            "ap_led": {
+                "default": "mdi:led-on",
+                "state": {
+                    "off": "mdi:led-off"
+                }
+            },
             "uplink_port": {
                 "default": "mdi:ethernet"
             },
