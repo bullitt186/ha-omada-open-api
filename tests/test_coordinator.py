@@ -153,6 +153,41 @@ async def test_site_coordinator_empty_device_list(
     mock_api_client.get_device_uplink_info.assert_not_called()
 
 
+async def test_fetch_site_clients_includes_radio_id(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test that lightweight client payload includes radio_id for band attrs."""
+    mock_api_client.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "active": True,
+                    "wireless": True,
+                    "radioId": 1,
+                    "mac": "11-22-33-44-55-AA",
+                    "name": "Phone",
+                    "ip": "10.0.0.50",
+                    "apMac": "AA-BB-CC-DD-EE-01",
+                }
+            ],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    clients = await coordinator._fetch_site_clients()  # noqa: SLF001
+
+    assert len(clients) == 1
+    assert clients[0]["radio_id"] == 1
+
+
 async def test_site_coordinator_fetches_poe_ports(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:
