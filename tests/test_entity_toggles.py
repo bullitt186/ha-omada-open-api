@@ -137,6 +137,7 @@ def _build_mock_api(devices: list) -> AsyncMock:
     mock.get_firmware_info = AsyncMock(return_value={})
     mock.get_switch_port_details = AsyncMock(return_value=[])
     mock.get_ap_radio_config = AsyncMock(return_value={})
+    mock.get_ap_led_setting = AsyncMock(return_value={})
     mock.set_ap_radio_enabled = AsyncMock()
     mock.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}

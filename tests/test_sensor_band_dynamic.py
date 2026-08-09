@@ -91,6 +91,7 @@ def _patch_api_client(**overrides) -> tuple:
     mock.get_ap_radios = AsyncMock(return_value={})
     mock.get_switch_port_details = AsyncMock(return_value=[])
     mock.get_ap_radio_config = AsyncMock(return_value={})
+    mock.get_ap_led_setting = AsyncMock(return_value={})
     mock.set_ap_radio_enabled = AsyncMock()
     mock.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}

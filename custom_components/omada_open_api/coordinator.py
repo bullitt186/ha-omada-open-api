@@ -130,6 +130,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Fetch gateway temperature data
             await self._merge_gateway_temperature(devices)
 
+            # Fetch per-AP LED setting so the AP LED switch reflects real state.
+            await self._merge_ap_led_settings(devices)
+
             # Fetch site SSIDs
             ssids = await self._fetch_site_ssids()
 
@@ -893,6 +896,29 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     err,
                 )
         return ap_radio_config
+
+    async def _merge_ap_led_settings(self, devices: dict[str, dict[str, Any]]) -> None:
+        """Fetch and merge each AP's LED setting into its device entry.
+
+        Args:
+            devices: Processed devices dict keyed by MAC (mutated in place).
+
+        """
+        for mac, device in devices.items():
+            if device.get("type", "").lower() != "ap":
+                continue
+            try:
+                config = await self.api_client.get_ap_led_setting(self.site_id, mac)
+                led_setting = config.get("ledSetting")
+                if led_setting is not None:
+                    device["led_setting"] = led_setting
+            except OmadaApiError as err:
+                _LOGGER.debug(
+                    "Failed to fetch LED setting for AP %s in site %s: %s",
+                    mac,
+                    self.site_name,
+                    err,
+                )
 
     async def _fetch_wlan_optimization(self) -> dict[str, Any] | None:
         """Fetch WLAN optimization status for the site.

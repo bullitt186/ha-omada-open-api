@@ -366,6 +366,7 @@ def _build_minimal_mock_api() -> MagicMock:
     mock_api.get_wlan_optimization_status = AsyncMock(
         return_value={"status": 0, "beforeIndex": 55, "afterIndex": 80}
     )
+    mock_api.get_ap_led_setting = AsyncMock(return_value={})
     return mock_api
 
 
@@ -419,3 +420,62 @@ async def test_coordinator_ap_radio_config_empty_on_api_error(
     data = await coord._async_update_data()
 
     assert data["ap_radio_config"] == {}
+
+
+# ---------------------------------------------------------------------------
+# Coordinator: AP led_setting is fetched and merged into devices dict
+# ---------------------------------------------------------------------------
+
+
+async def test_coordinator_fetches_led_setting_for_aps(
+    hass: HomeAssistant,
+) -> None:
+    """Coordinator merges led_setting into each AP device's data."""
+    mock_api = _build_minimal_mock_api()
+    mock_api.get_devices = AsyncMock(
+        return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]
+    )
+    mock_api.get_device_uplink_info = AsyncMock(return_value=[])
+    mock_api.get_ap_radio_config = AsyncMock(return_value={})
+    mock_api.get_ap_led_setting = AsyncMock(return_value={"ledSetting": 1})
+
+    coord = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    data = await coord._async_update_data()
+
+    ap_mac = SAMPLE_DEVICE_AP["mac"]
+    assert data["devices"][ap_mac]["led_setting"] == 1
+    # Switch device should not have a live led_setting merged in.
+    sw_mac = SAMPLE_DEVICE_SWITCH["mac"]
+    assert data["devices"][sw_mac]["led_setting"] is None
+
+
+async def test_coordinator_led_setting_absent_on_api_error(
+    hass: HomeAssistant,
+) -> None:
+    """led_setting is absent from AP device data when the API call fails."""
+    mock_api = _build_minimal_mock_api()
+    mock_api.get_devices = AsyncMock(return_value=[SAMPLE_DEVICE_AP])
+    mock_api.get_device_uplink_info = AsyncMock(return_value=[])
+    mock_api.get_ap_radio_config = AsyncMock(return_value={})
+    mock_api.get_ap_led_setting = AsyncMock(
+        side_effect=OmadaApiError("LED setting unavailable")
+    )
+
+    coord = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    data = await coord._async_update_data()
+
+    ap_mac = SAMPLE_DEVICE_AP["mac"]
+    assert data["devices"][ap_mac]["led_setting"] is None
+
