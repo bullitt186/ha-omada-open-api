@@ -773,7 +773,7 @@ async def _cleanup_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None
         for identifier in device.identifiers:
             if identifier[0] != DOMAIN:
                 continue
-            device_id = identifier[1].upper()
+            device_id = normalize_client_mac(identifier[1])
 
             # Remove deselected client devices
             if device_id in deselected_clients:
@@ -851,7 +851,7 @@ async def _cleanup_entities(hass: HomeAssistant, entry: OmadaConfigEntry) -> Non
 def _active_infra_device_macs(rd: OmadaRuntimeData) -> set[str]:
     """Collect infra device MACs currently reported by any site coordinator."""
     return {
-        mac.upper()
+        normalize_client_mac(mac)
         for coordinator in rd.coordinators.values()
         for mac in (coordinator.data.get("devices", {}) if coordinator.data else {})
     }
@@ -912,7 +912,7 @@ async def async_remove_config_entry_device(
     # Check if this device is still in the selected lists
     for identifier in device_entry.identifiers:
         if identifier[0] == DOMAIN:
-            device_id = identifier[1].upper()
+            device_id = normalize_client_mac(identifier[1])
 
             # Check if it's a selected client (client devices use MAC format)
             if device_id in selected_client_macs_normalized:
@@ -988,7 +988,7 @@ def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> 
         for identifier in device.identifiers:
             if identifier[0] != DOMAIN:
                 continue
-            device_id = identifier[1].upper()
+            device_id = normalize_client_mac(identifier[1])
 
             # Site devices are managed by site selection, not this pass.
             if device_id.startswith("SITE_"):

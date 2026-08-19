@@ -66,6 +66,9 @@ config/
 # macOS
 .DS_Store
 
+# Git worktrees
+.worktrees/
+
 # Project specific
 *.pyc
 .mypy_cache/

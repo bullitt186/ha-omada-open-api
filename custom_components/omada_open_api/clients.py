@@ -6,8 +6,14 @@ from typing import Any
 
 
 def normalize_client_mac(mac: str) -> str:
-    """Normalize client MAC for registry comparisons."""
-    return mac.replace(":", "-").upper()
+    """Normalize client MAC to a separator-agnostic canonical form.
+
+    Strips both colon and hyphen separators before uppercasing, so MACs
+    stored with either style (or device registry identifiers, which are
+    built from the raw colon-separated MAC the Omada API returns) compare
+    equal regardless of which separator each side happens to use.
+    """
+    return mac.replace(":", "").replace("-", "").upper()
 
 
 def process_client(client: dict[str, Any]) -> dict[str, Any]:
