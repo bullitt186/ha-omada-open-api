@@ -451,6 +451,18 @@
             },
             "threat_heatmap_monthly": {
                 "name": "Threat heatmap monthly"
+            },
+            "vpn_uptime": {
+                "name": "{tunnel_name} uptime"
+            },
+            "vpn_download": {
+                "name": "{tunnel_name} download"
+            },
+            "vpn_upload": {
+                "name": "{tunnel_name} upload"
+            },
+            "vpn_remote_peer": {
+                "name": "{tunnel_name} remote peer"
             }
         },
         "binary_sensor": {
@@ -471,6 +483,13 @@
                 "state": {
                     "off": "Idle",
                     "on": "Running"
+                }
+            },
+            "vpn_connected": {
+                "name": "{tunnel_name} connected",
+                "state": {
+                    "off": "Disconnected",
+                    "on": "Connected"
                 }
             }
         },

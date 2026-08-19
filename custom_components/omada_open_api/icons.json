@@ -219,6 +219,18 @@
             },
             "daily_upload": {
                 "default": "mdi:arrow-up-bold-circle"
+            },
+            "vpn_uptime": {
+                "default": "mdi:clock-outline"
+            },
+            "vpn_download": {
+                "default": "mdi:download"
+            },
+            "vpn_upload": {
+                "default": "mdi:upload"
+            },
+            "vpn_remote_peer": {
+                "default": "mdi:server-network"
             }
         },
         "binary_sensor": {
@@ -236,6 +248,12 @@
             },
             "wlan_optimization_running": {
                 "default": "mdi:wifi-cog"
+            },
+            "vpn_connected": {
+                "default": "mdi:vpn",
+                "state": {
+                    "off": "mdi:vpn-off"
+                }
             }
         },
         "switch": {
