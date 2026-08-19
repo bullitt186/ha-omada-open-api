@@ -1457,6 +1457,78 @@ class OmadaApiClient:
         )
         return all_rows
 
+    async def get_vpn_s2s_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get site-to-site VPN tunnel status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of S2S VPN tunnel status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/s2s"
+        )
+        _LOGGER.debug("Fetching S2S VPN stats for site %s", site_id)
+        result = await self._authenticated_request(
+            "get", url, params={"page": 1, "pageSize": 1000}
+        )
+        tunnels: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return tunnels
+
+    async def get_vpn_server_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get VPN server status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of VPN server status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/server"
+        )
+        _LOGGER.debug("Fetching VPN server stats for site %s", site_id)
+        result = await self._authenticated_request(
+            "get", url, params={"page": 1, "pageSize": 1000}
+        )
+        servers: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return servers
+
+    async def get_vpn_client_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get VPN client status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of VPN client status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/client"
+        )
+        _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
+        result = await self._authenticated_request(
+            "get", url, params={"page": 1, "pageSize": 1000}
+        )
+        clients: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return clients
+
     @property
     def auth(self) -> OmadaAuthStrategy:
         """Return the auth strategy."""
