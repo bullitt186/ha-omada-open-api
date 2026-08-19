@@ -412,6 +412,40 @@ async def test_sensor(hass: HomeAssistant) -> None:
 4. Follow semantic commit messages
 5. After merging, deploy and verify inside the devcontainer (`make deploy`)
 
+### Agent Environment Notes
+
+Read this before starting any worktree-based or devcontainer-based task — these are
+non-obvious environment gotchas discovered the hard way, not things you'll infer from
+the code:
+
+- **Git worktrees MUST live at `.worktrees/<name>` inside the repo, never as sibling
+  directories** (e.g. never `git worktree add ../ha-omada-open-api-<name>`). Both the
+  VS Code devcontainer and the `make devcontainer` compose stack only bind-mount the
+  repo root itself — a sibling worktree directory is invisible inside either container.
+  `.worktrees/` is already gitignored.
+- **Two independent devcontainer entry points exist and don't share state:**
+  VS Code's Dev Containers extension launches straight from `devcontainer.json`
+  (plain image, no HA instance). `make devcontainer` launches the
+  `docker-compose.yml` stack (a `devcontainer` service plus a `homeassistant`
+  service with HA on `localhost:8123`). Both provision their own `.venv`
+  independently — use whichever one you're already in; you don't need both running.
+  (`devcontainer.json` was deliberately reverted from `dockerComposeFile` back to a
+  plain `image` in commit `93b54e7` because the compose switch broke VS Code's
+  rebuild — don't re-attempt that merge without verifying a full rebuild first.)
+- **A host-side `.venv`, if one exists, is not usable.** Its symlinks resolve to
+  container-only paths (e.g. `/usr/local/bin/python3.14`) and fail with a bare
+  "No such file or directory" on the host. Always run Python tooling (`pytest`,
+  `ruff`, `mypy`, `pylint`, `pre-commit`, and therefore `git commit` since
+  pre-commit hooks depend on it) via `docker exec <container> ...`, never directly
+  on the host.
+- **A worktree's `.git` file breaks across host/container path boundaries.** It
+  points at a host-absolute gitdir (`<repo>/.git/worktrees/<name>`). If the
+  container mounts the repo at a different absolute path than the host does (e.g.
+  `/workspaces/ha-omada-open-api` vs `/home/<user>/.../ha-omada-open-api`), git
+  commands run inside the container against that worktree fail with "not a git
+  repository" until you add a symlink inside the container mapping the host path
+  to the container path.
+
 ### Deploying and Verifying (devcontainer only)
 
 **IMPORTANT:** All development, deployment, and testing MUST happen inside the devcontainer.

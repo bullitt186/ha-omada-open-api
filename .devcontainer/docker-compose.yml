@@ -8,7 +8,22 @@ services:
       - ../../ha-world-heatmap-card:/workspaces/ha-world-heatmap-card:cached
       - ha-config:/config
     working_dir: /workspaces/ha-omada-open-api
-    command: sleep infinity
+    # Mirrors devcontainer.json's postCreateCommand so this compose-only
+    # service (used by `make devcontainer`, not by VS Code's Dev Containers
+    # extension — see commit 93b54e7 for why those two stay separate) also
+    # gets a working .venv. Skipped if .venv already exists so repeated
+    # `docker compose up` calls don't rebuild it every time. Keep this in
+    # sync with devcontainer.json's postCreateCommand if either changes.
+    command: >
+      bash -c "
+        if [ ! -d .venv ]; then
+          pip3 install --upgrade pip uv &&
+          python3 -m venv --clear .venv &&
+          .venv/bin/pip install -r requirements_dev.txt &&
+          .venv/bin/pre-commit install
+        fi &&
+        sleep infinity
+      "
     environment:
       - HASS_TOKEN=${HASS_TOKEN:-}
       - HASS_SERVER=http://homeassistant:8123
