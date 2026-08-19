@@ -134,6 +134,9 @@ def _build_mock_api(devices: list) -> AsyncMock:
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     mock.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock.get_vpn_client_stats = AsyncMock(return_value=[])
     mock.get_firmware_info = AsyncMock(return_value={})
     mock.get_switch_port_details = AsyncMock(return_value=[])
     mock.get_ap_radio_config = AsyncMock(return_value={})

@@ -204,6 +204,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ssids": ssids,
                 "ap_ssid_overrides": ap_ssid_overrides,
                 "wan_status": await self._fetch_wan_status(devices),
+                "vpn_status": await self._fetch_vpn_status(),
                 "all_clients": all_clients,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
@@ -867,6 +868,40 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Continue without WAN status - not critical
 
         return wan_status
+
+    async def _fetch_vpn_status(self) -> dict[str, list[dict[str, Any]]]:
+        """Fetch VPN status across all VPN types.
+
+        Returns:
+            Dictionary with keys "s2s", "server", "client", each containing
+            a list of VPN tunnel/connection status dicts.
+
+        """
+        vpn_status: dict[str, list[dict[str, Any]]] = {}
+
+        try:
+            vpn_status["s2s"] = await self.api_client.get_vpn_s2s_stats(self.site_id)
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch S2S VPN stats: %s", err)
+            vpn_status["s2s"] = []
+
+        try:
+            vpn_status["server"] = await self.api_client.get_vpn_server_stats(
+                self.site_id
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch VPN server stats: %s", err)
+            vpn_status["server"] = []
+
+        try:
+            vpn_status["client"] = await self.api_client.get_vpn_client_stats(
+                self.site_id
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch VPN client stats: %s", err)
+            vpn_status["client"] = []
+
+        return vpn_status
 
     async def _fetch_ap_radio_config(
         self, devices: dict[str, dict[str, Any]]

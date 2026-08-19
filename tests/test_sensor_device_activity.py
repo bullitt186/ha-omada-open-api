@@ -130,6 +130,9 @@ async def test_coordinator_computes_ap_rx_rate_on_second_poll(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     mock_api.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_api.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock_api.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_api.get_vpn_client_stats = AsyncMock(return_value=[])
     mock_api.get_firmware_info = AsyncMock(return_value={})
     mock_api.get_switch_port_details = AsyncMock(return_value=[])
     mock_api.get_ap_radio_config = AsyncMock(return_value={})
@@ -207,6 +210,9 @@ async def test_coordinator_resets_rate_on_counter_rollback(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     mock_api.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_api.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock_api.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_api.get_vpn_client_stats = AsyncMock(return_value=[])
     mock_api.get_firmware_info = AsyncMock(return_value={})
     mock_api.get_switch_port_details = AsyncMock(return_value=[])
     mock_api.get_ap_radio_config = AsyncMock(return_value={})

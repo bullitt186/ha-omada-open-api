@@ -113,6 +113,9 @@ def _patch_api_client(**overrides):
     mock_instance.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_instance.update_ap_ssid_override = AsyncMock()
     mock_instance.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_instance.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock_instance.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_instance.get_vpn_client_stats = AsyncMock(return_value=[])
     mock_instance.get_device_stats = AsyncMock(return_value=[])
     mock_instance.get_firmware_info = AsyncMock(return_value={})
     mock_instance.start_online_upgrade = AsyncMock(return_value={})
@@ -178,6 +181,9 @@ async def test_setup_entry_creates_wan_and_traffic_sensors(
     patcher, _mock_client = _patch_api_client(
         get_gateway_wan_status=AsyncMock(return_value=[wan_port]),
     )
+    _mock_client.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    _mock_client.get_vpn_server_stats = AsyncMock(return_value=[])
+    _mock_client.get_vpn_client_stats = AsyncMock(return_value=[])
 
     with patcher:
         await hass.config_entries.async_setup(entry.entry_id)
