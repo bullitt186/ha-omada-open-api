@@ -2399,6 +2399,7 @@ async def test_get_vpn_s2s_stats(hass: HomeAssistant, mock_config_entry) -> None
     call_params = mock_get.call_args[1]["params"]
     assert call_params["page"] == 1
     assert call_params["pageSize"] == 100
+    assert call_params["filters.vpnType"] == 4
 
 
 async def test_get_vpn_s2s_stats_empty(hass: HomeAssistant, mock_config_entry) -> None:
@@ -2502,6 +2503,10 @@ async def test_get_vpn_server_stats(hass: HomeAssistant, mock_config_entry) -> N
     assert result == servers
     call_url = mock_get.call_args[0][0]
     assert "/setting/vpn/stats/server" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert call_params["filters.vpnType"] == 4
 
 
 # ---------------------------------------------------------------------------
@@ -2548,6 +2553,10 @@ async def test_get_vpn_client_stats(hass: HomeAssistant, mock_config_entry) -> N
     assert result == clients
     call_url = mock_get.call_args[0][0]
     assert "/setting/vpn/stats/client" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert call_params["filters.vpnType"] == 4
 
 
 # ---------------------------------------------------------------------------

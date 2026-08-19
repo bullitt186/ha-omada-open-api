@@ -1457,11 +1457,15 @@ class OmadaApiClient:
         )
         return all_rows
 
-    async def get_vpn_s2s_stats(self, site_id: str) -> list[dict[str, Any]]:
+    async def get_vpn_s2s_stats(
+        self, site_id: str, vpn_type: int = 4
+    ) -> list[dict[str, Any]]:
         """Get site-to-site VPN tunnel status list.
 
         Args:
             site_id: Site ID to query
+            vpn_type: VPN type to filter on (default WireGuard=4). Mapping:
+                0=L2TP, 1=PPTP, 2=IPsec, 3=OpenVPN, 4=WireGuard, 5=SSL VPN
 
         Returns:
             List of S2S VPN tunnel status dictionaries.
@@ -1476,16 +1480,22 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching S2S VPN stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 100}
+            "get",
+            url,
+            params={"page": 1, "pageSize": 100, "filters.vpnType": vpn_type},
         )
         tunnels: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return tunnels
 
-    async def get_vpn_server_stats(self, site_id: str) -> list[dict[str, Any]]:
+    async def get_vpn_server_stats(
+        self, site_id: str, vpn_type: int = 4
+    ) -> list[dict[str, Any]]:
         """Get VPN server status list.
 
         Args:
             site_id: Site ID to query
+            vpn_type: VPN type to filter on (default WireGuard=4). Mapping:
+                0=L2TP, 1=PPTP, 2=IPsec, 3=OpenVPN, 4=WireGuard, 5=SSL VPN
 
         Returns:
             List of VPN server status dictionaries.
@@ -1500,16 +1510,22 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching VPN server stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 100}
+            "get",
+            url,
+            params={"page": 1, "pageSize": 100, "filters.vpnType": vpn_type},
         )
         servers: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return servers
 
-    async def get_vpn_client_stats(self, site_id: str) -> list[dict[str, Any]]:
+    async def get_vpn_client_stats(
+        self, site_id: str, vpn_type: int = 4
+    ) -> list[dict[str, Any]]:
         """Get VPN client status list.
 
         Args:
             site_id: Site ID to query
+            vpn_type: VPN type to filter on (default WireGuard=4). Mapping:
+                0=L2TP, 1=PPTP, 2=IPsec, 3=OpenVPN, 4=WireGuard, 5=SSL VPN
 
         Returns:
             List of VPN client status dictionaries.
@@ -1524,7 +1540,9 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 100}
+            "get",
+            url,
+            params={"page": 1, "pageSize": 100, "filters.vpnType": vpn_type},
         )
         clients: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return clients
