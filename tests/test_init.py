@@ -1184,6 +1184,44 @@ async def test_prune_does_not_touch_selected_client_or_site_devices(
     assert dev_reg.async_get(site_device.id) is not None
 
 
+async def test_prune_does_not_touch_selected_client_with_colon_format_mac(
+    hass: HomeAssistant,
+) -> None:
+    """Test that a selected client survives a prune pass in real-world MAC format.
+
+    Regression test for GH #25: the config flow stores CONF_SELECTED_CLIENTS
+    using the raw colon-separated MAC exactly as returned by the Omada API
+    (e.g. "0C:C4:13:1B:30:2F"), and client device identifiers are built from
+    that same raw string. Comparing a hyphen-normalized selected-client set
+    against a colon-format device identifier always misses, so a freshly
+    created client device was immediately pruned as "stale infrastructure"
+    on every setup.
+    """
+    client_mac = "0C:C4:13:1B:30:2F"
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: [client_mac]},
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    dev_reg = dr.async_get(hass)
+    client_device = dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, client_mac)},
+        name="Pixel-6",
+    )
+
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert dev_reg.async_get(client_device.id) is not None
+
+
 async def test_prune_no_runtime_data_is_safe(hass: HomeAssistant) -> None:
     """Test that pruning is safe when runtime_data is missing."""
     entry = _build_entry(hass)
