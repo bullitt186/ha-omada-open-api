@@ -1467,10 +1467,11 @@ class OmadaApiClient:
             Dict containing speed test status/results
 
         """
-        return await self._authenticated_request(
-            "get",
-            f"sites/{site_id}/statistics/speedTest",
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/statistics/speedTest"
         )
+        return await self._authenticated_request("get", url)
 
     async def trigger_wan_speed_test(
         self,
@@ -1487,14 +1488,14 @@ class OmadaApiClient:
             Dict containing trigger result
 
         """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/statistics/speedTest"
+        )
         payload: dict[str, Any] = {}
         if wan_id is not None:
             payload["id"] = wan_id
-        return await self._authenticated_request(
-            "post",
-            f"sites/{site_id}/statistics/speedTest",
-            json_data=payload,
-        )
+        return await self._authenticated_request("post", url, json_data=payload)
 
     @property
     def auth(self) -> OmadaAuthStrategy:
