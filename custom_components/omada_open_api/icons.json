@@ -219,6 +219,18 @@
             },
             "daily_upload": {
                 "default": "mdi:arrow-up-bold-circle"
+            },
+            "wan_speed_download": {
+                "default": "mdi:download"
+            },
+            "wan_speed_upload": {
+                "default": "mdi:upload"
+            },
+            "wan_speed_latency": {
+                "default": "mdi:clock-outline"
+            },
+            "wan_speed_last_test": {
+                "default": "mdi:clock"
             }
         },
         "binary_sensor": {
@@ -303,6 +315,9 @@
             },
             "locate": {
                 "default": "mdi:crosshairs-gps"
+            },
+            "wan_speed_test_trigger": {
+                "default": "mdi:speedometer"
             }
         }
     }

@@ -3,7 +3,7 @@
         "step": {
             "user": {
                 "title": "Select Controller Type",
-                "description": "Choose whether your Omada controller is self-hosted (local) or cloud-hosted.\n\nCloud requires a paid Omada Cloud/Central Standard plan or higher — the free Essentials tier does not support Open API.\n\nLocal requires a software controller or a supported hardware controller; the OC200 does not support Open API due to hardware limitations.",
+                "description": "Choose whether your Omada controller is self-hosted (local) or cloud-hosted.\n\nCloud requires a paid Omada Cloud/Central Standard plan or higher \u2014 the free Essentials tier does not support Open API.\n\nLocal requires a software controller or a supported hardware controller; the OC200 does not support Open API due to hardware limitations.",
                 "data": {
                     "controller_type": "Controller Type"
                 },
@@ -76,12 +76,12 @@
                     "ssid_filter": "Filter by SSID (optional)"
                 },
                 "data_description": {
-                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown"
+                    "ssid_filter": "Select SSIDs to restrict the client list \u2014 wired clients always shown"
                 }
             },
             "clients": {
                 "title": "Select Clients to Track (Optional)",
-                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.\n\n\u26a0\ufe0f Showing first 200 clients only to prevent UI issues.",
                 "data": {
                     "selected_clients": "Clients to Track"
                 },
@@ -135,7 +135,7 @@
             "cannot_connect": "Failed to connect to Omada API. Check network connectivity between Home Assistant and the controller. Enable debug logging for detailed diagnostics.",
             "cannot_resolve_host": "Cannot resolve hostname. Check that the URL is correct and DNS is working on your Home Assistant host.",
             "connection_refused": "Connection refused. Verify the controller is running and the port is correct (default HTTPS port is usually 8043 for local controllers).",
-            "controller_id_not_found_free_tier": "This Omada ID was not found via the cloud Open API. Omada Cloud/Central Essentials (the free tier) does not support Open API at all, so no Omada ID will ever resolve here — re-checking the ID will not help. Upgrade to Omada Cloud/Central Standard, or use a self-hosted Omada Software/Hardware Controller (not OC200) with the Local controller type instead.",
+            "controller_id_not_found_free_tier": "This Omada ID was not found via the cloud Open API. Omada Cloud/Central Essentials (the free tier) does not support Open API at all, so no Omada ID will ever resolve here \u2014 re-checking the ID will not help. Upgrade to Omada Cloud/Central Standard, or use a self-hosted Omada Software/Hardware Controller (not OC200) with the Local controller type instead.",
             "invalid_auth": "Invalid authentication credentials. Verify your Omada ID matches the MSP/Customer ID shown in Settings > Platform Integration > Open API. Also check Client ID and Client Secret.",
             "invalid_url": "Invalid URL format. Please use http:// or https://",
             "no_sites": "No sites found on this controller. Please ensure at least one site is configured.",
@@ -164,13 +164,13 @@
             },
             "client_selection": {
                 "title": "Modify Client Tracking",
-                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n\u26a0\ufe0f Showing first 200 clients only to prevent UI issues.",
                 "data": {
                     "ssid_filter": "Filter by SSID (optional)",
                     "selected_clients": "Clients to Track"
                 },
                 "data_description": {
-                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown"
+                    "ssid_filter": "Select SSIDs to restrict the client list \u2014 wired clients always shown"
                 }
             },
             "application_selection": {
@@ -182,7 +182,7 @@
             },
             "update_intervals": {
                 "title": "Update Intervals",
-                "description": "Configure how frequently each data type is polled from the Omada controller (in seconds). Lower values provide more responsive updates but increase API load.\n\nValid range: 10–3600 seconds.",
+                "description": "Configure how frequently each data type is polled from the Omada controller (in seconds). Lower values provide more responsive updates but increase API load.\n\nValid range: 10\u20133600 seconds.",
                 "data": {
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",
@@ -191,12 +191,12 @@
             },
             "tracker_settings": {
                 "title": "Device Tracker Settings",
-                "description": "Configure presence detection behavior for client device trackers.\n\nThe disconnect timeout adds a grace period before a client is marked as away. This prevents false 'away' events caused by brief Wi-Fi disconnections.\n\nRange: 0–60 minutes. Default: 0 (immediate, current behavior).",
+                "description": "Configure presence detection behavior for client device trackers.\n\nThe disconnect timeout adds a grace period before a client is marked as away. This prevents false 'away' events caused by brief Wi-Fi disconnections.\n\nRange: 0\u201360 minutes. Default: 0 (immediate, current behavior).",
                 "data": {
                     "disconnect_timeout": "Client disconnect timeout (minutes)"
                 },
                 "data_description": {
-                    "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network."
+                    "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1\u201360 keep the device marked as home for this many minutes after it disappears from the network."
                 }
             },
             "device_entity_settings": {
@@ -451,6 +451,18 @@
             },
             "threat_heatmap_monthly": {
                 "name": "Threat heatmap monthly"
+            },
+            "wan_speed_download": {
+                "name": "Download speed"
+            },
+            "wan_speed_upload": {
+                "name": "Upload speed"
+            },
+            "wan_speed_latency": {
+                "name": "Latency"
+            },
+            "wan_speed_last_test": {
+                "name": "Last test time"
             }
         },
         "binary_sensor": {
@@ -521,6 +533,9 @@
             },
             "locate": {
                 "name": "Locate"
+            },
+            "wan_speed_test_trigger": {
+                "name": "Trigger speed test"
             }
         },
         "update": {

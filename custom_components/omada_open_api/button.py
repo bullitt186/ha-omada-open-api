@@ -66,6 +66,11 @@ async def async_setup_entry(
             for mac in new_macs:
                 new_entities.append(OmadaDeviceRebootButton(coord, mac))
                 new_entities.append(OmadaDeviceLocateButton(coord, mac))
+
+                # WAN speed test button for gateway devices.
+                device = devices.get(mac, {})
+                if device.get("type", "").lower() == "gateway":
+                    new_entities.append(OmadaWanSpeedTestButton(coord, mac))
             if new_entities:
                 async_add_entities(new_entities)
 
@@ -312,4 +317,49 @@ class OmadaDeviceLocateButton(
         except OmadaApiError as err:
             raise HomeAssistantError(
                 f"Failed to locate device {self._device_mac}"
+            ) from err
+
+
+class OmadaWanSpeedTestButton(
+    OmadaEntity[OmadaSiteCoordinator],
+    ButtonEntity,
+):
+    """Button entity to trigger WAN speed test for a gateway."""
+
+    _attr_icon = "mdi:speedometer"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        gateway_mac: str,
+    ) -> None:
+        """Initialize the WAN speed test button."""
+        super().__init__(coordinator)
+        self._gateway_mac = gateway_mac
+        self._attr_translation_key = "wan_speed_test_trigger"
+        self._attr_unique_id = f"{gateway_mac}_wan_speed_test_trigger"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    @property
+    def available(self) -> bool:
+        """Return True if entity is available."""
+        return bool(self.coordinator.last_update_success)
+
+    async def async_press(self) -> None:
+        """Handle the button press to trigger WAN speed test."""
+        try:
+            await self.coordinator.api_client.trigger_wan_speed_test(
+                self.coordinator.site_id,
+            )
+            _LOGGER.info(
+                "WAN speed test triggered for site %s",
+                self.coordinator.site_name,
+            )
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                f"Failed to trigger WAN speed test for site "
+                f"{self.coordinator.site_name}"
             ) from err

@@ -209,6 +209,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "site_name": self.site_name,
                 "ap_radio_config": await self._fetch_ap_radio_config(devices),
                 "wlan_optimization": await self._fetch_wlan_optimization(),
+                "wan_speed_test": await self._fetch_wan_speed_test(),
             }
 
         except OmadaApiError as err:
@@ -825,6 +826,18 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             # Continue without PoE budget - not critical
         return poe_budget
+
+    async def _fetch_wan_speed_test(self) -> dict[str, Any]:
+        """Fetch WAN speed test results for the site."""
+        try:
+            return await self.api_client.get_wan_speed_test_stats(self.site_id)
+        except (OmadaApiError, AttributeError, TypeError) as err:
+            _LOGGER.debug(
+                "Failed to fetch WAN speed test results for site %s: %s",
+                self.site_name,
+                err,
+            )
+            return {}
 
     async def _fetch_wan_status(
         self, devices: dict[str, dict[str, Any]]

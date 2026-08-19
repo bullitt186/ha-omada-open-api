@@ -924,6 +924,52 @@ WAN_PORT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
+
+# WAN speed test sensor descriptions (one set per gateway)
+WAN_SPEED_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="wan_speed_download",
+        translation_key="wan_speed_download",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda st: st.get("downloadSpeed"),
+        available_fn=lambda st: st.get("downloadSpeed") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_speed_upload",
+        translation_key="wan_speed_upload",
+        device_class=SensorDeviceClass.DATA_RATE,
+        native_unit_of_measurement=UnitOfDataRate.MEGABITS_PER_SECOND,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda st: st.get("uploadSpeed"),
+        available_fn=lambda st: st.get("uploadSpeed") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_speed_latency",
+        translation_key="wan_speed_latency",
+        native_unit_of_measurement=UnitOfTime.MILLISECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=0,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda st: st.get("latency"),
+        available_fn=lambda st: st.get("latency") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="wan_speed_last_test",
+        translation_key="wan_speed_last_test",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda st: st.get("testTime"),
+        available_fn=lambda st: st.get("testTime") is not None,
+    ),
+)
+
 # Device daily traffic sensor descriptions
 DEVICE_TRAFFIC_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
@@ -1285,6 +1331,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     known_poe_ports: set[str] = set()
     known_poe_budget_switches: set[str] = set()
     known_wan_port_keys: set[str] = set()
+    known_wan_speed_keys: set[str] = set()
 
     for coordinator in coordinators.values():
 
@@ -1360,6 +1407,23 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             new_entities.extend(
                 _build_wan_sensors(coord, wan_status, known_wan_port_keys)
             )
+
+            # WAN speed test sensors for gateway devices.
+            wan_speed_test = coord.data.get("wan_speed_test", {})
+            if wan_speed_test:
+                for gw_mac_key, gw_dev in devices.items():
+                    if gw_dev.get("type", "").lower() == "gateway":
+                        for desc in WAN_SPEED_SENSORS:
+                            ent_key = f"{gw_mac_key}_{desc.key}"
+                            if ent_key not in known_wan_speed_keys:
+                                known_wan_speed_keys.add(ent_key)
+                                new_entities.append(
+                                    OmadaWanSpeedSensor(
+                                        coordinator=coord,
+                                        description=desc,
+                                        gateway_mac=gw_mac_key,
+                                    )
+                                )
 
             if new_entities:
                 async_add_entities(new_entities)
@@ -2139,6 +2203,46 @@ class OmadaWanSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         if port_data is None:
             return False
         return self.entity_description.available_fn(port_data)
+
+
+class OmadaWanSpeedSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
+    """Sensor for a WAN speed test metric on a gateway device."""
+
+    entity_description: OmadaSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSensorEntityDescription,
+        gateway_mac: str,
+    ) -> None:
+        """Initialize the WAN speed test sensor."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._attr_unique_id = f"{gateway_mac}_{description.key}"
+        self._attr_translation_key = description.key
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        speed_data = self.coordinator.data.get("wan_speed_test", {})
+        if not speed_data:
+            return None
+        return self.entity_description.value_fn(speed_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        speed_data = self.coordinator.data.get("wan_speed_test", {})
+        if not speed_data:
+            return False
+        return self.entity_description.available_fn(speed_data)
 
 
 class OmadaDeviceTrafficSensor(OmadaEntity[OmadaDeviceStatsCoordinator], SensorEntity):
