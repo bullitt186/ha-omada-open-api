@@ -1029,6 +1029,49 @@ def _build_wan_sensors(
     return entities
 
 
+def _build_vpn_sensors(
+    coordinator: OmadaSiteCoordinator,
+    devices: dict[str, Any],
+    vpn_status: dict[str, list[dict[str, Any]]],
+    known_vpn_keys: set[str],
+) -> list[SensorEntity]:
+    """Create VPN tunnel sensor entities for all new tunnels.
+
+    Args:
+        coordinator: Site coordinator providing VPN data
+        devices: Devices dict from coordinator data
+        vpn_status: VPN status dict with "s2s", "server", "client" keys
+        known_vpn_keys: Set of already-known VPN entity keys (mutated)
+
+    Returns:
+        List of new VPN sensor entities
+
+    """
+    entities: list[SensorEntity] = []
+    gateway_macs = [
+        mac for mac, dev in devices.items() if dev.get("type", "").lower() == "gateway"
+    ]
+    for gw_mac in gateway_macs:
+        for vpn_type in ("s2s", "server", "client"):
+            for tunnel in vpn_status.get(vpn_type, []):
+                tunnel_id = tunnel.get("id", "")
+                for desc in VPN_SENSORS:
+                    ent_key = f"{gw_mac}_{vpn_type}_{tunnel_id}_{desc.key}"
+                    if ent_key not in known_vpn_keys:
+                        known_vpn_keys.add(ent_key)
+                        entities.append(
+                            OmadaVpnSensor(
+                                coordinator=coordinator,
+                                description=desc,
+                                gateway_mac=gw_mac,
+                                vpn_type=vpn_type,
+                                tunnel_id=tunnel_id,
+                                tunnel_name=tunnel.get("name", ""),
+                            )
+                        )
+    return entities
+
+
 # ---------------------------------------------------------------------------
 # Site-level aggregation sensors
 # ---------------------------------------------------------------------------
@@ -1329,6 +1372,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     known_poe_ports: set[str] = set()
     known_poe_budget_switches: set[str] = set()
     known_wan_port_keys: set[str] = set()
+    known_vpn_sensor_keys: set[str] = set()
 
     for coordinator in coordinators.values():
 
@@ -1403,6 +1447,12 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             wan_status = coord.data.get("wan_status", {})
             new_entities.extend(
                 _build_wan_sensors(coord, wan_status, known_wan_port_keys)
+            )
+
+            # VPN tunnel sensors for gateway devices.
+            vpn_status = coord.data.get("vpn_status", {})
+            new_entities.extend(
+                _build_vpn_sensors(coord, devices, vpn_status, known_vpn_sensor_keys)
             )
 
             if new_entities:
