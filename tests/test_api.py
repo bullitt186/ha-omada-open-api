@@ -2398,7 +2398,7 @@ async def test_get_vpn_s2s_stats(hass: HomeAssistant, mock_config_entry) -> None
     assert "/setting/vpn/stats/s2s" in call_url
     call_params = mock_get.call_args[1]["params"]
     assert call_params["page"] == 1
-    assert call_params["pageSize"] == 1000
+    assert call_params["pageSize"] == 100
 
 
 async def test_get_vpn_s2s_stats_empty(hass: HomeAssistant, mock_config_entry) -> None:

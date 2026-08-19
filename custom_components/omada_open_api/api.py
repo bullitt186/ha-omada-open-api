@@ -1476,7 +1476,7 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching S2S VPN stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 1000}
+            "get", url, params={"page": 1, "pageSize": 100}
         )
         tunnels: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return tunnels
@@ -1500,7 +1500,7 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching VPN server stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 1000}
+            "get", url, params={"page": 1, "pageSize": 100}
         )
         servers: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return servers
@@ -1524,7 +1524,7 @@ class OmadaApiClient:
         )
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
         result = await self._authenticated_request(
-            "get", url, params={"page": 1, "pageSize": 1000}
+            "get", url, params={"page": 1, "pageSize": 100}
         )
         clients: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return clients
