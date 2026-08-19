@@ -1457,6 +1457,45 @@ class OmadaApiClient:
         )
         return all_rows
 
+    async def get_wan_speed_test_stats(self, site_id: str) -> dict[str, Any]:
+        """Get WAN speed test statistics.
+
+        Args:
+            site_id: The site identifier
+
+        Returns:
+            Dict containing speed test status/results
+
+        """
+        return await self._authenticated_request(
+            "get",
+            f"sites/{site_id}/statistics/speedTest",
+        )
+
+    async def trigger_wan_speed_test(
+        self,
+        site_id: str,
+        wan_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Trigger a WAN speed test.
+
+        Args:
+            site_id: The site identifier
+            wan_id: Optional WAN port ID to test
+
+        Returns:
+            Dict containing trigger result
+
+        """
+        payload: dict[str, Any] = {}
+        if wan_id is not None:
+            payload["id"] = wan_id
+        return await self._authenticated_request(
+            "post",
+            f"sites/{site_id}/statistics/speedTest",
+            json_data=payload,
+        )
+
     @property
     def auth(self) -> OmadaAuthStrategy:
         """Return the auth strategy."""
