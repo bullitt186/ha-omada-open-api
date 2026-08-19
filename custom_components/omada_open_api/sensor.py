@@ -1031,6 +1031,44 @@ def _build_wan_sensors(
     return entities
 
 
+def _build_wan_speed_sensors(
+    coordinator: OmadaSiteCoordinator,
+    wan_speed_test: dict[str, Any],
+    devices: dict[str, Any],
+    known_wan_speed_keys: set[str],
+) -> list[SensorEntity]:
+    """Create WAN speed test sensor entities for gateway devices.
+
+    Args:
+        coordinator: Site coordinator providing WAN data
+        wan_speed_test: WAN speed test result dict keyed by gateway MAC
+        devices: Device data dict keyed by MAC
+        known_wan_speed_keys: Set of already-known WAN speed keys (mutated)
+
+    Returns:
+        List of new WAN speed sensor entities
+
+    """
+    entities: list[SensorEntity] = []
+    if not wan_speed_test:
+        return entities
+    for gw_mac_key, gw_dev in devices.items():
+        if gw_dev.get("type", "").lower() != "gateway":
+            continue
+        for desc in WAN_SPEED_SENSORS:
+            ent_key = f"{gw_mac_key}_{desc.key}"
+            if ent_key not in known_wan_speed_keys:
+                known_wan_speed_keys.add(ent_key)
+                entities.append(
+                    OmadaWanSpeedSensor(
+                        coordinator=coordinator,
+                        description=desc,
+                        gateway_mac=gw_mac_key,
+                    )
+                )
+    return entities
+
+
 # ---------------------------------------------------------------------------
 # Site-level aggregation sensors
 # ---------------------------------------------------------------------------
@@ -1409,21 +1447,14 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             )
 
             # WAN speed test sensors for gateway devices.
-            wan_speed_test = coord.data.get("wan_speed_test", {})
-            if wan_speed_test:
-                for gw_mac_key, gw_dev in devices.items():
-                    if gw_dev.get("type", "").lower() == "gateway":
-                        for desc in WAN_SPEED_SENSORS:
-                            ent_key = f"{gw_mac_key}_{desc.key}"
-                            if ent_key not in known_wan_speed_keys:
-                                known_wan_speed_keys.add(ent_key)
-                                new_entities.append(
-                                    OmadaWanSpeedSensor(
-                                        coordinator=coord,
-                                        description=desc,
-                                        gateway_mac=gw_mac_key,
-                                    )
-                                )
+            new_entities.extend(
+                _build_wan_speed_sensors(
+                    coord,
+                    coord.data.get("wan_speed_test", {}),
+                    devices,
+                    known_wan_speed_keys,
+                )
+            )
 
             if new_entities:
                 async_add_entities(new_entities)
