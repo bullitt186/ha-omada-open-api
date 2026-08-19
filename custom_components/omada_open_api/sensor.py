@@ -924,6 +924,50 @@ WAN_PORT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
+# VPN tunnel sensor descriptions (applied per tunnel across all VPN types).
+VPN_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
+    OmadaSensorEntityDescription(
+        key="vpn_uptime",
+        translation_key="vpn_uptime",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda tunnel: tunnel.get("uptime"),
+        available_fn=lambda tunnel: tunnel.get("uptime") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="vpn_download",
+        translation_key="vpn_download",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda tunnel: tunnel.get("downBytes"),
+        available_fn=lambda tunnel: tunnel.get("downBytes") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="vpn_upload",
+        translation_key="vpn_upload",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.BYTES,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda tunnel: tunnel.get("upBytes"),
+        available_fn=lambda tunnel: tunnel.get("upBytes") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="vpn_remote_peer",
+        translation_key="vpn_remote_peer",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda tunnel: tunnel.get("remotePeerIp"),
+        available_fn=lambda tunnel: bool(tunnel.get("remotePeerIp")),
+    ),
+)
+
 # Device daily traffic sensor descriptions
 DEVICE_TRAFFIC_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
@@ -2139,6 +2183,69 @@ class OmadaWanSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         if port_data is None:
             return False
         return self.entity_description.available_fn(port_data)
+
+
+class OmadaVpnSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
+    """Sensor for a VPN tunnel metric on a gateway device."""
+
+    entity_description: OmadaSensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaSensorEntityDescription,
+        gateway_mac: str,
+        vpn_type: str,
+        tunnel_id: str,
+        tunnel_name: str,
+    ) -> None:
+        """Initialize the VPN tunnel sensor.
+
+        Args:
+            coordinator: Site coordinator providing VPN status data
+            description: Sensor entity description
+            gateway_mac: MAC address of the parent gateway
+            vpn_type: VPN type key ("s2s", "server", "client")
+            tunnel_id: Unique tunnel/connection ID from the API
+            tunnel_name: Human-readable tunnel name
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._vpn_type = vpn_type
+        self._tunnel_id = tunnel_id
+        self._attr_unique_id = (
+            f"{gateway_mac}_vpn_{vpn_type}_{tunnel_id}_{description.key}"
+        )
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {"tunnel_name": tunnel_name}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_tunnel_data(self) -> dict[str, Any] | None:
+        """Return the tunnel data dict, or None if unavailable."""
+        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
+        for tunnel in tunnels:
+            if tunnel.get("id") == self._tunnel_id:
+                return tunnel  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the state of the sensor."""
+        tunnel_data = self._get_tunnel_data()
+        if tunnel_data is None:
+            return None
+        return self.entity_description.value_fn(tunnel_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_tunnel_data() is not None
 
 
 class OmadaDeviceTrafficSensor(OmadaEntity[OmadaDeviceStatsCoordinator], SensorEntity):

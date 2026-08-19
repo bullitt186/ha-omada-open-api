@@ -82,6 +82,16 @@ WAN_PORT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
     ),
 )
 
+# VPN tunnel binary sensors (per tunnel, using translation_placeholders)
+VPN_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
+    OmadaBinarySensorEntityDescription(
+        key="vpn_connected",
+        translation_key="vpn_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        value_fn=lambda tunnel: tunnel.get("status") == 1,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -419,3 +429,69 @@ class OmadaWanBinarySensor(
         if not self.coordinator.last_update_success:
             return False
         return self._get_port_data() is not None
+
+
+class OmadaVpnBinarySensor(
+    OmadaEntity[OmadaSiteCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor for a VPN tunnel connection status on a gateway device."""
+
+    entity_description: OmadaBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaBinarySensorEntityDescription,
+        gateway_mac: str,
+        vpn_type: str,
+        tunnel_id: str,
+        tunnel_name: str,
+    ) -> None:
+        """Initialize the VPN tunnel binary sensor.
+
+        Args:
+            coordinator: Site coordinator providing VPN status data
+            description: Binary sensor entity description
+            gateway_mac: MAC address of the parent gateway
+            vpn_type: VPN type key ("s2s", "server", "client")
+            tunnel_id: Unique tunnel/connection ID from the API
+            tunnel_name: Human-readable tunnel name
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._vpn_type = vpn_type
+        self._tunnel_id = tunnel_id
+        self._attr_unique_id = (
+            f"{gateway_mac}_vpn_{vpn_type}_{tunnel_id}_{description.key}"
+        )
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {"tunnel_name": tunnel_name}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_tunnel_data(self) -> dict[str, Any] | None:
+        """Return the tunnel data dict, or None if unavailable."""
+        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
+        for tunnel in tunnels:
+            if tunnel.get("id") == self._tunnel_id:
+                return tunnel  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return the state of the binary sensor."""
+        tunnel_data = self._get_tunnel_data()
+        if tunnel_data is None:
+            return False
+        return self.entity_description.value_fn(tunnel_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_tunnel_data() is not None
