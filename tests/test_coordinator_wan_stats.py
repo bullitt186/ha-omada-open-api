@@ -103,6 +103,25 @@ async def test_site_coordinator_wan_status_failure_graceful(
     assert gw_mac not in wan
 
 
+async def test_site_coordinator_does_not_fetch_gateway_speed_test_results(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Normal site updates do not poll the expensive speed-test endpoint."""
+    mock_api_client.get_gateway_wan_speed_test_result = AsyncMock(
+        return_value={"status": 0, "portSpeedResults": []}
+    )
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+
+    mock_api_client.get_gateway_wan_speed_test_result.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # OmadaDeviceStatsCoordinator
 # ---------------------------------------------------------------------------

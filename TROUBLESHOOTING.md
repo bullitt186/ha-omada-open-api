@@ -27,6 +27,13 @@
 2. Verify applications were selected during setup (or add them via Options → Application selection)
 3. Application data resets daily at midnight
 
+## Missing VPN or WAN Speed-Test Entities
+
+1. In **Settings → Devices & Services → TP-Link Omada Open API → Configure → Gateway Entity Settings**, confirm the relevant feature is enabled.
+2. VPN entities are created only for configured tunnels. The primary tunnel entity is a connectivity binary sensor named after the tunnel; peer/client telemetry is diagnostic and disabled by default.
+3. WAN speed-test entities require a gateway WAN port that exposes the speed-test endpoint. Use the **Run speed test** button and watch the **Speed test running** binary sensor while Omada performs the test.
+4. After adding or removing a VPN tunnel in Omada, wait for the next device polling interval or reload the integration.
+
 ## Entities Showing "Unavailable"
 
 1. Confirm the device is online in the Omada Controller

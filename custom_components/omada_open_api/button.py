@@ -15,7 +15,11 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
 from .const import DOMAIN
-from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .coordinator import (
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+    OmadaWanSpeedTestCoordinator,
+)
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
@@ -42,6 +46,21 @@ async def async_setup_entry(
     static_entities: list[ButtonEntity] = [
         OmadaWlanOptimizationButton(coordinator) for coordinator in site_coordinators
     ]
+    for (_, gateway_mac), speed_coordinator in rd.wan_speed_test_coordinators.items():
+        for index, port in enumerate(speed_coordinator.data.get("ports", []), start=1):
+            port_uuid = port.get("portUuid")
+            if not port_uuid:
+                continue
+            port_id = str(port.get("port") or port.get("portId") or index)
+            static_entities.append(
+                OmadaWanSpeedTestButton(
+                    coordinator=speed_coordinator,
+                    gateway_mac=gateway_mac,
+                    port_id=port_id,
+                    port_uuid=port_uuid,
+                    port_name=port.get("portName") or port.get("name") or port_id,
+                )
+            )
     if static_entities:
         async_add_entities(static_entities)
 
@@ -255,6 +274,44 @@ class OmadaWlanOptimizationButton(
                 f"Failed to start WLAN optimization for site "
                 f"{self.coordinator.site_name}"
             ) from err
+
+
+class OmadaWanSpeedTestButton(
+    OmadaEntity[OmadaWanSpeedTestCoordinator],
+    ButtonEntity,
+):
+    """Button to run a speed test for one gateway WAN port."""
+
+    _attr_icon = "mdi:speedometer"
+
+    def __init__(
+        self,
+        coordinator: OmadaWanSpeedTestCoordinator,
+        gateway_mac: str,
+        port_id: str,
+        port_uuid: str,
+        port_name: str,
+    ) -> None:
+        """Initialize the WAN speed-test button."""
+        super().__init__(coordinator)
+        self._port_id = port_id
+        self._port_uuid = port_uuid
+        self._attr_unique_id = f"{gateway_mac}_{port_id}_wan_speed_test"
+        self._attr_translation_key = "wan_speed_test"
+        self._attr_translation_placeholders = {"port_name": port_name}
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, gateway_mac)})
+
+    async def async_press(self) -> None:
+        """Start the speed test and refresh the latest result."""
+        try:
+            await self.coordinator.api_client.trigger_gateway_wan_speed_test(
+                self.coordinator.site_id,
+                self.coordinator.gateway_mac,
+                [self._port_uuid],
+            )
+        except OmadaApiError as err:
+            raise HomeAssistantError("Failed to start WAN speed test") from err
+        await self.coordinator.async_request_refresh()
 
 
 class OmadaDeviceLocateButton(

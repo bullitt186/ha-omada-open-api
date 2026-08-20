@@ -36,6 +36,8 @@ from .const import (
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
+    CONF_ENABLE_VPN_SENSORS,
+    CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
@@ -60,6 +62,7 @@ from .coordinator import (
     OmadaDeviceStatsCoordinator,
     OmadaSiteCoordinator,
     OmadaThreatHeatmapCoordinator,
+    OmadaWanSpeedTestCoordinator,
 )
 from .devices import normalize_site_id
 from .types import OmadaConfigEntry, OmadaRuntimeData
@@ -250,6 +253,79 @@ def _migrate_merged_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> Non
         _LOGGER.info("Migrated %d merged device(s)", removed_count)
 
 
+def _migrate_wan_speed_test_button_unique_ids(
+    hass: HomeAssistant,
+    coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator],
+) -> None:
+    """Migrate the initial, invalid port-ID-derived speed-test entity IDs."""
+    registry = er.async_get(hass)
+    for (_, gateway_mac), coordinator in coordinators.items():
+        for index, port in enumerate(
+            (coordinator.data or {}).get("ports", []), start=1
+        ):
+            port_id = str(port.get("port") or port.get("portId") or index)
+            for domain, suffix in (
+                ("button", ""),
+                ("sensor", "_download"),
+                ("sensor", "_upload"),
+                ("sensor", "_latency"),
+                ("sensor", "_last_test"),
+            ):
+                legacy_unique_id = (
+                    f"{gateway_mac}_{port_id}_{gateway_mac}_wan_speed_test{suffix}"
+                )
+                corrected_unique_id = f"{gateway_mac}_{port_id}_wan_speed_test{suffix}"
+                legacy_entity_id = registry.async_get_entity_id(
+                    domain, DOMAIN, legacy_unique_id
+                )
+                if legacy_entity_id is None:
+                    continue
+                corrected_entity_id = registry.async_get_entity_id(
+                    domain, DOMAIN, corrected_unique_id
+                )
+                if corrected_entity_id is not None:
+                    registry.async_remove(corrected_entity_id)
+                registry.async_update_entity(
+                    legacy_entity_id, new_unique_id=corrected_unique_id
+                )
+
+
+async def _async_create_wan_speed_test_coordinators(
+    hass: HomeAssistant,
+    api_client: OmadaApiClient,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> dict[tuple[str, str], OmadaWanSpeedTestCoordinator]:
+    """Create independently-polled speed-test coordinators for gateways."""
+    result: dict[tuple[str, str], OmadaWanSpeedTestCoordinator] = {}
+    for site_coordinator in coordinators.values():
+        for gateway_mac, device in site_coordinator.data.get("devices", {}).items():
+            if device.get("type", "").lower() != "gateway":
+                continue
+            coordinator = OmadaWanSpeedTestCoordinator(
+                hass, api_client, site_coordinator.site_id, gateway_mac
+            )
+            await coordinator.async_refresh()
+            result[(site_coordinator.site_id, gateway_mac)] = coordinator
+    return result
+
+
+async def _async_setup_wan_speed_test(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> dict[tuple[str, str], OmadaWanSpeedTestCoordinator]:
+    """Create optional WAN speed-test coordinators and migrate their IDs."""
+    if not entry.options.get(CONF_ENABLE_WAN_SPEED_TEST, True):
+        return {}
+
+    wan_speed_test_coordinators = await _async_create_wan_speed_test_coordinators(
+        hass, api_client, coordinators
+    )
+    _migrate_wan_speed_test_button_unique_ids(hass, wan_speed_test_coordinators)
+    return wan_speed_test_coordinators
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:  # pylint: disable=too-many-statements,too-many-branches
     """Set up Omada Open API from a config entry.
 
@@ -398,6 +474,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             site_id=site_id,
             site_name=site_name,
             scan_interval=device_interval,
+            enable_vpn_status=entry.options.get(CONF_ENABLE_VPN_SENSORS, True),
         )
 
         # Perform initial data fetch
@@ -530,6 +607,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
 
     # Create device stats coordinators for daily traffic statistics
+    wan_speed_test_coordinators = await _async_setup_wan_speed_test(
+        hass, entry, api_client, coordinators
+    )
+
+    # Create device stats coordinators for daily traffic statistics
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = []
     stats_interval = entry.options.get(
         CONF_STATS_SCAN_INTERVAL, DEFAULT_STATS_SCAN_INTERVAL
@@ -635,6 +717,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         prev_data=dict(entry.data),
         prev_options=dict(entry.options),
         threat_heatmap_coordinators=threat_heatmap_coordinators,
+        wan_speed_test_coordinators=wan_speed_test_coordinators,
     )
 
     # Set up platforms

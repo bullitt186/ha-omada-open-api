@@ -2350,6 +2350,216 @@ async def test_get_gateway_wan_status_empty(
 
 
 # ---------------------------------------------------------------------------
+# get_vpn_s2s_stats
+# ---------------------------------------------------------------------------
+
+
+async def test_get_vpn_s2s_stats(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_vpn_s2s_stats returns site-to-site VPN tunnel data."""
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    tunnels = [
+        {
+            "id": "tunnel_1",
+            "name": "Branch Office",
+            "vpnType": 2,
+            "status": 1,
+            "localPeerIp": "10.0.0.1",
+            "remotePeerIp": "10.0.1.1",
+            "uptime": 86400,
+            "downBytes": 1000000,
+            "upBytes": 500000,
+        },
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": tunnels, "totalRows": 1},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_vpn_s2s_stats("site_001")
+
+    assert result == tunnels
+    call_url = mock_get.call_args[0][0]
+    assert "/setting/vpn/stats/s2s" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert "filters.vpnType" not in call_params
+
+
+async def test_get_vpn_s2s_stats_empty(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_vpn_s2s_stats returns empty list when no tunnels."""
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": [], "totalRows": 0},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_vpn_s2s_stats("site_001")
+
+    assert result == []
+
+
+async def test_get_vpn_s2s_stats_api_error(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test get_vpn_s2s_stats raises OmadaApiError on failure."""
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    mock_response = AsyncMock()
+    mock_response.status = 404
+    mock_response.text.return_value = "Not Found"
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+
+    with pytest.raises(OmadaApiError):
+        await api_client.get_vpn_s2s_stats("site_001")
+
+
+# ---------------------------------------------------------------------------
+# get_vpn_server_stats
+# ---------------------------------------------------------------------------
+
+
+async def test_get_vpn_server_stats(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_vpn_server_stats returns VPN server connection data."""
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    servers = [
+        {
+            "id": "srv_1",
+            "name": "WireGuard Server",
+            "vpnType": 4,
+            "status": 1,
+            "connectedNum": 3,
+            "disconnectedNum": 1,
+        },
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": servers, "totalRows": 1},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_vpn_server_stats("site_001")
+
+    assert result == servers
+    call_url = mock_get.call_args[0][0]
+    assert "/setting/vpn/stats/server" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert "filters.vpnType" not in call_params
+
+
+# ---------------------------------------------------------------------------
+# get_vpn_client_stats
+# ---------------------------------------------------------------------------
+
+
+async def test_get_vpn_client_stats(hass: HomeAssistant, mock_config_entry) -> None:
+    """Test get_vpn_client_stats returns VPN client connection data."""
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    clients = [
+        {
+            "id": "cli_1",
+            "name": "Remote Worker",
+            "vpnType": 4,
+            "status": 1,
+            "remotePeerIp": "203.0.113.50",
+            "uptime": 3600,
+        },
+    ]
+    mock_response = AsyncMock()
+    mock_response.status = 200
+    mock_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": clients, "totalRows": 1},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.return_value = mock_response
+    result = await api_client.get_vpn_client_stats("site_001")
+
+    assert result == clients
+    call_url = mock_get.call_args[0][0]
+    assert "/setting/vpn/stats/client" in call_url
+    call_params = mock_get.call_args[1]["params"]
+    assert call_params["page"] == 1
+    assert call_params["pageSize"] == 100
+    assert "filters.vpnType" not in call_params
+
+
+# ---------------------------------------------------------------------------
 # get_device_stats
 # ---------------------------------------------------------------------------
 

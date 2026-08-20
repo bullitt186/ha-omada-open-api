@@ -1457,6 +1457,227 @@ class OmadaApiClient:
         )
         return all_rows
 
+    async def get_gateway_wan_speed_test_result(
+        self, site_id: str, gateway_mac: str
+    ) -> dict[str, Any]:
+        """Get the latest WAN speed-test result for a gateway.
+
+        Args:
+            site_id: The site identifier.
+            gateway_mac: The gateway MAC address.
+
+        Returns:
+            The unwrapped speed-test result payload.
+
+        Raises:
+            OmadaApiError: If the request fails.
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/gateways/{gateway_mac}/speedTestResult"
+        )
+        result = await self._authenticated_request("get", url)
+        speed_test_result: dict[str, Any] = result.get("result", {})
+        return speed_test_result
+
+    async def get_gateway_wan_speed_test_ports(
+        self, site_id: str, gateway_mac: str
+    ) -> list[dict[str, Any]]:
+        """Get Fusion WAN ports, including the UUID used to start a test."""
+        url = (
+            f"{self._api_url}/openapi/v2/{self._omada_id}"
+            f"/sites/{site_id}/dashboard/gateway/isp/load"
+        )
+        result = await self._authenticated_request("get", url)
+        gateways: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        for gateway in gateways:
+            if gateway.get("mac") != gateway_mac:
+                continue
+            ports = gateway.get("ispInfo", {}).get("ispArr", [])
+            if not isinstance(ports, list):
+                return []
+            return [port for port in ports if isinstance(port, dict)]
+        return []
+
+    async def get_gateway_wan_speed_test_history(
+        self, site_id: str, gateway_mac: str, port_uuid: str
+    ) -> dict[str, Any] | None:
+        """Get the most recent completed speed test for one Fusion WAN port."""
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/gateways/{gateway_mac}/speedTestResult/dateList"
+        )
+        result = await self._authenticated_request(
+            "post",
+            url,
+            json_data={
+                "portUuid": port_uuid,
+                "currentPage": 1,
+                "currentPageSize": 1,
+            },
+        )
+        rows: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return rows[0] if rows else None
+
+    async def trigger_gateway_wan_speed_test(
+        self, site_id: str, gateway_mac: str, port_uuids: list[str]
+    ) -> None:
+        """Start a WAN speed test for selected gateway ports.
+
+        Args:
+            site_id: The site identifier.
+            gateway_mac: The gateway MAC address.
+            port_uuids: WAN port UUIDs to include in the test.
+
+        Raises:
+            OmadaApiError: If the request fails.
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/gateways/{gateway_mac}/speedTest"
+        )
+        await self._authenticated_request(
+            "post", url, json_data={"portUuidList": port_uuids}
+        )
+
+    async def _get_paginated_vpn_rows(
+        self,
+        url: str,
+        filters: dict[str, Any] | None = None,
+        fusion_filter_fallback: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Fetch every page from a VPN endpoint."""
+        page = 1
+        all_rows: list[dict[str, Any]] = []
+        while True:
+            params = {"page": page, "pageSize": 100, **(filters or {})}
+            try:
+                result = await self._authenticated_request("get", url, params=params)
+            except OmadaApiError as err:
+                if fusion_filter_fallback and err.error_code == -1001:
+                    _LOGGER.debug(
+                        "VPN endpoint requires Fusion WireGuard filter; retrying"
+                    )
+                    return await self._get_paginated_vpn_rows(
+                        url, {"filters.vpnType": 4}
+                    )
+                raise
+            payload = result.get("result", {})
+            rows: list[dict[str, Any]] = payload.get("data", [])
+            all_rows.extend(rows)
+            total_rows = payload.get("totalRows", 0)
+            if len(all_rows) >= total_rows or len(rows) < 100:
+                return all_rows
+            page += 1
+
+    async def get_vpn_s2s_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get site-to-site VPN tunnel status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of S2S VPN tunnel status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/s2s"
+        )
+        _LOGGER.debug("Fetching S2S VPN stats for site %s", site_id)
+        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+
+    async def get_vpn_server_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get VPN server status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of VPN server status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/server"
+        )
+        _LOGGER.debug("Fetching VPN server stats for site %s", site_id)
+        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+
+    async def get_vpn_client_stats(self, site_id: str) -> list[dict[str, Any]]:
+        """Get VPN client status list.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of VPN client status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/client"
+        )
+        _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
+        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+
+    async def get_vpn_s2s_peers(
+        self, site_id: str, tunnel_id: str
+    ) -> list[dict[str, Any]]:
+        """Get per-peer stats for an S2S VPN tunnel.
+
+        Args:
+            site_id: Site ID to query
+            tunnel_id: Numeric tunnel ID from the S2S stats response
+
+        Returns:
+            List of peer status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/s2s/{tunnel_id}/peer"
+        )
+        _LOGGER.debug("Fetching S2S VPN peers for tunnel %s", tunnel_id)
+        return await self._get_paginated_vpn_rows(url)
+
+    async def get_vpn_server_clients(
+        self, site_id: str, tunnel_id: str
+    ) -> list[dict[str, Any]]:
+        """Get per-client stats for a VPN server tunnel.
+
+        Args:
+            site_id: Site ID to query
+            tunnel_id: Numeric tunnel ID from the VPN server stats response
+
+        Returns:
+            List of client status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/server/{tunnel_id}/client"
+        )
+        _LOGGER.debug("Querying VPN server clients for tunnel %s", tunnel_id)
+        return await self._get_paginated_vpn_rows(url)
+
     @property
     def auth(self) -> OmadaAuthStrategy:
         """Return the auth strategy."""

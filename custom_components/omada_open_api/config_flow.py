@@ -45,6 +45,8 @@ from .const import (
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
+    CONF_ENABLE_VPN_SENSORS,
+    CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
@@ -1548,7 +1550,46 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 "device_entity_settings",
                 "client_entity_settings",
                 "site_entity_settings",
+                "gateway_entity_settings",
             ],
+        )
+
+    async def async_step_gateway_entity_settings(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle gateway VPN and WAN speed-test entity toggles."""
+        opts = self.config_entry.options
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **opts,
+                    CONF_ENABLE_VPN_SENSORS: user_input.get(
+                        CONF_ENABLE_VPN_SENSORS, True
+                    ),
+                    CONF_ENABLE_WAN_SPEED_TEST: user_input.get(
+                        CONF_ENABLE_WAN_SPEED_TEST, True
+                    ),
+                },
+            )
+
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_ENABLE_VPN_SENSORS,
+                    default=opts.get(CONF_ENABLE_VPN_SENSORS, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_WAN_SPEED_TEST,
+                    default=opts.get(CONF_ENABLE_WAN_SPEED_TEST, True),
+                ): bool,
+            }
+        )
+
+        return self.async_show_form(
+            step_id="gateway_entity_settings",
+            data_schema=data_schema,
         )
 
     async def async_step_tracker_settings(

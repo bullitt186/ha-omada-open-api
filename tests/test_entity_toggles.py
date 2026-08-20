@@ -25,6 +25,8 @@ from custom_components.omada_open_api.const import (
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
+    CONF_ENABLE_VPN_SENSORS,
+    CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -63,6 +65,8 @@ def test_toggle_constants_are_strings() -> None:
     assert isinstance(CONF_ENABLE_CLIENT_SIGNAL_SENSORS, str)
     assert isinstance(CONF_ENABLE_CLIENT_BLOCK_SWITCH, str)
     assert isinstance(CONF_ENABLE_CLIENT_RECONNECT_BUTTON, str)
+    assert isinstance(CONF_ENABLE_VPN_SENSORS, str)
+    assert isinstance(CONF_ENABLE_WAN_SPEED_TEST, str)
 
 
 def test_toggle_constants_have_distinct_values() -> None:
@@ -76,6 +80,8 @@ def test_toggle_constants_have_distinct_values() -> None:
         CONF_ENABLE_CLIENT_SIGNAL_SENSORS,
         CONF_ENABLE_CLIENT_BLOCK_SWITCH,
         CONF_ENABLE_CLIENT_RECONNECT_BUTTON,
+        CONF_ENABLE_VPN_SENSORS,
+        CONF_ENABLE_WAN_SPEED_TEST,
     ]
     assert len(set(values)) == len(values)
 
@@ -110,6 +116,15 @@ def test_options_flow_has_site_entity_settings_step() -> None:
     assert hasattr(OmadaOptionsFlowHandler, "async_step_site_entity_settings")
 
 
+def test_options_flow_has_gateway_entity_settings_step() -> None:
+    """Gateway diagnostics and actions are configurable from options."""
+    assert hasattr(OmadaOptionsFlowHandler, "async_step_gateway_entity_settings")
+    source = inspect.getsource(
+        OmadaOptionsFlowHandler.async_step_init  # type: ignore[attr-defined]
+    )
+    assert "gateway_entity_settings" in source
+
+
 # ---------------------------------------------------------------------------
 # Helper: shared mock API builder
 # ---------------------------------------------------------------------------
@@ -134,6 +149,10 @@ def _build_mock_api(devices: list) -> AsyncMock:
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
     mock.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock.get_gateway_wan_speed_test_result = AsyncMock(return_value={})
+    mock.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock.get_vpn_client_stats = AsyncMock(return_value=[])
     mock.get_firmware_info = AsyncMock(return_value={})
     mock.get_switch_port_details = AsyncMock(return_value=[])
     mock.get_ap_radio_config = AsyncMock(return_value={})

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from datetime import timedelta
 import logging
@@ -43,6 +44,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         site_id: str,
         site_name: str,
         scan_interval: int = DEFAULT_DEVICE_SCAN_INTERVAL,
+        enable_vpn_status: bool = True,
     ) -> None:
         """Initialize the coordinator.
 
@@ -52,6 +54,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_id: Site ID to fetch data for
             site_name: Site name for logging
             scan_interval: Update interval in seconds
+            enable_vpn_status: Whether to poll optional VPN status endpoints
 
         """
         super().__init__(
@@ -63,6 +66,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api_client = api_client
         self.site_id = site_id
         self.site_name = site_name
+        self._enable_vpn_status = enable_vpn_status
 
         # Firmware info cache — checked less frequently than device data.
         self._firmware_info: dict[str, dict[str, Any]] = {}
@@ -204,6 +208,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "ssids": ssids,
                 "ap_ssid_overrides": ap_ssid_overrides,
                 "wan_status": await self._fetch_wan_status(devices),
+                "vpn_status": (
+                    await self._fetch_vpn_status() if self._enable_vpn_status else {}
+                ),
                 "all_clients": all_clients,
                 "site_id": self.site_id,
                 "site_name": self.site_name,
@@ -868,6 +875,81 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return wan_status
 
+    async def _fetch_vpn_status(self) -> dict[str, list[dict[str, Any]]]:
+        """Fetch VPN status across all VPN types.
+
+        Returns:
+            Dictionary with keys "s2s", "server", "client", each containing
+            a list of VPN tunnel/connection status dicts.
+
+        """
+        vpn_status: dict[str, list[dict[str, Any]]] = {}
+
+        try:
+            vpn_status["s2s"] = await self.api_client.get_vpn_s2s_stats(self.site_id)
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch S2S VPN stats: %s", err)
+            vpn_status["s2s"] = []
+
+        try:
+            vpn_status["server"] = await self.api_client.get_vpn_server_stats(
+                self.site_id
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch VPN server stats: %s", err)
+            vpn_status["server"] = []
+
+        try:
+            vpn_status["client"] = await self.api_client.get_vpn_client_stats(
+                self.site_id
+            )
+        except OmadaApiError as err:
+            _LOGGER.warning("Failed to fetch VPN client stats: %s", err)
+            vpn_status["client"] = []
+
+        await self._fetch_vpn_peers(vpn_status)
+
+        return vpn_status
+
+    async def _fetch_vpn_peers(
+        self, vpn_status: dict[str, list[dict[str, Any]]]
+    ) -> None:
+        """Fetch per-peer/per-client stats for S2S and server VPN tunnels.
+
+        Each tunnel with connected peers is enriched in place with a
+        ``"peers"`` list. A failure fetching any single tunnel's peers is
+        logged and skipped so the rest of the VPN status is preserved.
+
+        Args:
+            vpn_status: Mutable VPN status dict (mutated in place).
+
+        """
+        for tunnel in vpn_status.get("s2s", []):
+            tunnel_id = str(tunnel.get("id", ""))
+            try:
+                tunnel["peers"] = await self.api_client.get_vpn_s2s_peers(
+                    self.site_id, tunnel_id
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch peers for S2S tunnel %s: %s",
+                    tunnel_id,
+                    err,
+                )
+
+        for server in vpn_status.get("server", []):
+            tunnel_id = str(server.get("id", ""))
+            try:
+                server["peers"] = await self.api_client.get_vpn_server_clients(
+                    self.site_id, tunnel_id
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch clients for VPN server %s: %s",
+                    tunnel_id,
+                    err,
+                )
+
     async def _fetch_ap_radio_config(
         self, devices: dict[str, dict[str, Any]]
     ) -> dict[str, dict[str, Any]]:
@@ -969,6 +1051,58 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "has_wired_ports stamping for switches",
                 self.site_name,
             )
+
+
+class OmadaWanSpeedTestCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Coordinator for the latest WAN speed-test results of one gateway."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_id: str,
+        gateway_mac: str,
+    ) -> None:
+        """Initialize the gateway speed-test coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{site_id}_{gateway_mac}_wan_speed_test",
+            update_interval=timedelta(minutes=5),
+        )
+        self.api_client = api_client
+        self.site_id = site_id
+        self.gateway_mac = gateway_mac
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch the latest persisted speed-test result and actionable ports."""
+        try:
+            ports, active_result = await asyncio.gather(
+                self.api_client.get_gateway_wan_speed_test_ports(
+                    self.site_id, self.gateway_mac
+                ),
+                self.api_client.get_gateway_wan_speed_test_result(
+                    self.site_id, self.gateway_mac
+                ),
+            )
+            results = await asyncio.gather(
+                *(
+                    self.api_client.get_gateway_wan_speed_test_history(
+                        self.site_id, self.gateway_mac, port_uuid
+                    )
+                    for port in ports
+                    if (port_uuid := port.get("portUuid"))
+                )
+            )
+            return {
+                "ports": ports,
+                "portSpeedResults": [result for result in results if result],
+                "activePortResults": active_result.get("portSpeedResults", []),
+            }
+        except OmadaApiError as err:
+            raise UpdateFailed(
+                f"Error fetching WAN speed-test result for gateway {self.gateway_mac}: {err}"
+            ) from err
 
 
 class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
