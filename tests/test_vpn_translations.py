@@ -1,4 +1,7 @@
-"""Tests that VPN entity translations and icons exist."""
+"""Tests that VPN entity translations and icons exist.
+
+Fixtures use real S2S stats payload keys (see PR #27 WP0 schema capture).
+"""
 
 from __future__ import annotations
 
@@ -33,27 +36,27 @@ def icons() -> dict:
 # --- Sensor translations ---
 
 
-def test_vpn_uptime_sensor_translation(strings: dict) -> None:
-    """vpn_uptime sensor has a translation entry."""
-    entry = strings["entity"]["sensor"]["vpn_uptime"]
+def test_vpn_connected_peers_sensor_translation(strings: dict) -> None:
+    """vpn_connected_peers sensor has a translation entry."""
+    entry = strings["entity"]["sensor"]["vpn_connected_peers"]
     assert "name" in entry
 
 
-def test_vpn_download_sensor_translation(strings: dict) -> None:
-    """vpn_download sensor has a translation entry."""
-    entry = strings["entity"]["sensor"]["vpn_download"]
+def test_vpn_disconnected_peers_sensor_translation(strings: dict) -> None:
+    """vpn_disconnected_peers sensor has a translation entry."""
+    entry = strings["entity"]["sensor"]["vpn_disconnected_peers"]
     assert "name" in entry
 
 
-def test_vpn_upload_sensor_translation(strings: dict) -> None:
-    """vpn_upload sensor has a translation entry."""
-    entry = strings["entity"]["sensor"]["vpn_upload"]
+def test_vpn_total_remote_peers_sensor_translation(strings: dict) -> None:
+    """vpn_total_remote_peers sensor has a translation entry."""
+    entry = strings["entity"]["sensor"]["vpn_total_remote_peers"]
     assert "name" in entry
 
 
-def test_vpn_remote_peer_sensor_translation(strings: dict) -> None:
-    """vpn_remote_peer sensor has a translation entry."""
-    entry = strings["entity"]["sensor"]["vpn_remote_peer"]
+def test_vpn_listen_port_sensor_translation(strings: dict) -> None:
+    """vpn_listen_port sensor has a translation entry."""
+    entry = strings["entity"]["sensor"]["vpn_listen_port"]
     assert "name" in entry
 
 
@@ -77,9 +80,9 @@ def test_vpn_connected_binary_sensor_states(strings: dict) -> None:
 # --- Translation placeholders ---
 
 
-def test_vpn_uptime_translation_has_tunnel_placeholder(strings: dict) -> None:
-    """vpn_uptime translation uses {tunnel_name} placeholder."""
-    name = strings["entity"]["sensor"]["vpn_uptime"]["name"]
+def test_vpn_connected_peers_translation_has_tunnel_placeholder(strings: dict) -> None:
+    """vpn_connected_peers translation uses {tunnel_name} placeholder."""
+    name = strings["entity"]["sensor"]["vpn_connected_peers"]["name"]
     assert "{tunnel_name}" in name
 
 
@@ -92,25 +95,35 @@ def test_vpn_connected_translation_has_tunnel_placeholder(strings: dict) -> None
 # --- Icons ---
 
 
-def test_vpn_uptime_icon(icons: dict) -> None:
-    """vpn_uptime has an icon entry."""
-    assert "mdi:clock-outline" in icons["entity"]["sensor"]["vpn_uptime"]["default"]
-
-
-def test_vpn_download_icon(icons: dict) -> None:
-    """vpn_download has an icon entry."""
-    assert "mdi:download" in icons["entity"]["sensor"]["vpn_download"]["default"]
-
-
-def test_vpn_upload_icon(icons: dict) -> None:
-    """vpn_upload has an icon entry."""
-    assert "mdi:upload" in icons["entity"]["sensor"]["vpn_upload"]["default"]
-
-
-def test_vpn_remote_peer_icon(icons: dict) -> None:
-    """vpn_remote_peer has an icon entry."""
+def test_vpn_connected_peers_icon(icons: dict) -> None:
+    """vpn_connected_peers has an icon entry."""
     assert (
-        "mdi:server-network" in icons["entity"]["sensor"]["vpn_remote_peer"]["default"]
+        "mdi:account-multiple-check"
+        in icons["entity"]["sensor"]["vpn_connected_peers"]["default"]
+    )
+
+
+def test_vpn_disconnected_peers_icon(icons: dict) -> None:
+    """vpn_disconnected_peers has an icon entry."""
+    assert (
+        "mdi:account-multiple-remove"
+        in icons["entity"]["sensor"]["vpn_disconnected_peers"]["default"]
+    )
+
+
+def test_vpn_total_remote_peers_icon(icons: dict) -> None:
+    """vpn_total_remote_peers has an icon entry."""
+    assert (
+        "mdi:account-multiple"
+        in icons["entity"]["sensor"]["vpn_total_remote_peers"]["default"]
+    )
+
+
+def test_vpn_listen_port_icon(icons: dict) -> None:
+    """vpn_listen_port has an icon entry."""
+    assert (
+        "mdi:server-network"
+        in icons["entity"]["sensor"]["vpn_listen_port"]["default"]
     )
 
 
@@ -132,10 +145,10 @@ def test_strings_and_translations_in_sync() -> None:
     translations = json.loads((COMP_DIR / "translations" / "en.json").read_text())
 
     vpn_sensor_keys = [
-        "vpn_uptime",
-        "vpn_download",
-        "vpn_upload",
-        "vpn_remote_peer",
+        "vpn_connected_peers",
+        "vpn_disconnected_peers",
+        "vpn_total_remote_peers",
+        "vpn_listen_port",
     ]
     for key in vpn_sensor_keys:
         assert key in strings["entity"]["sensor"], f"Missing {key} in strings.json"

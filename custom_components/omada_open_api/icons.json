@@ -220,16 +220,16 @@
             "daily_upload": {
                 "default": "mdi:arrow-up-bold-circle"
             },
-            "vpn_uptime": {
-                "default": "mdi:clock-outline"
+            "vpn_connected_peers": {
+                "default": "mdi:account-multiple-check"
             },
-            "vpn_download": {
-                "default": "mdi:download"
+            "vpn_disconnected_peers": {
+                "default": "mdi:account-multiple-remove"
             },
-            "vpn_upload": {
-                "default": "mdi:upload"
+            "vpn_total_remote_peers": {
+                "default": "mdi:account-multiple"
             },
-            "vpn_remote_peer": {
+            "vpn_listen_port": {
                 "default": "mdi:server-network"
             }
         },

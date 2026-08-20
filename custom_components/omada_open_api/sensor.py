@@ -925,46 +925,51 @@ WAN_PORT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
 )
 
 # VPN tunnel sensor descriptions (applied per tunnel across all VPN types).
+#
+# Field names are verified against real S2S stats payloads captured from the
+# Fusion gateway API:
+#   GET /openapi/v1/{oid}/sites/{sid}/setting/vpn/stats/s2s?filters.vpnType=4
+#
+# Real fields: id, vpnId, name, port, connectedNum, disconnectedNum,
+# totalRemoteNum (see PR #27 WP0 schema capture).
+#
+# Server/client VPN stats row schemas are unverified (Fusion gateway returns
+# empty data for those endpoints). Sensors use .get() with defaults so they
+# degrade gracefully if fields are missing.
 VPN_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     OmadaSensorEntityDescription(
-        key="vpn_uptime",
-        translation_key="vpn_uptime",
-        device_class=SensorDeviceClass.DURATION,
-        native_unit_of_measurement=UnitOfTime.SECONDS,
+        key="vpn_connected_peers",
+        translation_key="vpn_connected_peers",
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda tunnel: tunnel.get("connectedNum"),
+        available_fn=lambda tunnel: tunnel.get("connectedNum") is not None,
+    ),
+    OmadaSensorEntityDescription(
+        key="vpn_disconnected_peers",
+        translation_key="vpn_disconnected_peers",
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda tunnel: tunnel.get("uptime"),
-        available_fn=lambda tunnel: tunnel.get("uptime") is not None,
+        value_fn=lambda tunnel: tunnel.get("disconnectedNum"),
+        available_fn=lambda tunnel: tunnel.get("disconnectedNum") is not None,
     ),
     OmadaSensorEntityDescription(
-        key="vpn_download",
-        translation_key="vpn_download",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        key="vpn_total_remote_peers",
+        translation_key="vpn_total_remote_peers",
+        state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda tunnel: tunnel.get("downBytes"),
-        available_fn=lambda tunnel: tunnel.get("downBytes") is not None,
+        value_fn=lambda tunnel: tunnel.get("totalRemoteNum"),
+        available_fn=lambda tunnel: tunnel.get("totalRemoteNum") is not None,
     ),
     OmadaSensorEntityDescription(
-        key="vpn_upload",
-        translation_key="vpn_upload",
-        device_class=SensorDeviceClass.DATA_SIZE,
-        native_unit_of_measurement=UnitOfInformation.BYTES,
-        state_class=SensorStateClass.TOTAL_INCREASING,
+        key="vpn_listen_port",
+        translation_key="vpn_listen_port",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda tunnel: tunnel.get("upBytes"),
-        available_fn=lambda tunnel: tunnel.get("upBytes") is not None,
-    ),
-    OmadaSensorEntityDescription(
-        key="vpn_remote_peer",
-        translation_key="vpn_remote_peer",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda tunnel: tunnel.get("remotePeerIp"),
-        available_fn=lambda tunnel: bool(tunnel.get("remotePeerIp")),
+        value_fn=lambda tunnel: tunnel.get("port"),
+        available_fn=lambda tunnel: tunnel.get("port") is not None,
     ),
 )
 
@@ -1054,7 +1059,8 @@ def _build_vpn_sensors(
     for gw_mac in gateway_macs:
         for vpn_type in ("s2s", "server", "client"):
             for tunnel in vpn_status.get(vpn_type, []):
-                tunnel_id = tunnel.get("id", "")
+                # Anchor on vpnId (stable config ID) instead of stats row id
+                tunnel_id = tunnel.get("vpnId", tunnel.get("id", ""))
                 for desc in VPN_SENSORS:
                     ent_key = f"{gw_mac}_{vpn_type}_{tunnel_id}_{desc.key}"
                     if ent_key not in known_vpn_keys:
@@ -2278,7 +2284,8 @@ class OmadaVpnSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         """Return the tunnel data dict, or None if unavailable."""
         tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
         for tunnel in tunnels:
-            if tunnel.get("id") == self._tunnel_id:
+            # Match on vpnId (stable config ID) with fallback to id
+            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
                 return tunnel  # type: ignore[no-any-return]
         return None
 

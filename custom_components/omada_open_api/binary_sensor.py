@@ -88,7 +88,7 @@ VPN_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         key="vpn_connected",
         translation_key="vpn_connected",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda tunnel: tunnel.get("status") == 1,
+        value_fn=lambda tunnel: (tunnel.get("connectedNum") or 0) > 0,
     ),
 )
 
@@ -243,7 +243,8 @@ def _build_vpn_binary_sensors(
     for gw_mac in gateway_macs:
         for vpn_type in ("s2s", "server", "client"):
             for tunnel in vpn_status.get(vpn_type, []):
-                tunnel_id = tunnel.get("id", "")
+                # Anchor on vpnId (stable config ID) instead of stats row id
+                tunnel_id = tunnel.get("vpnId", tunnel.get("id", ""))
                 for desc in VPN_BINARY_SENSORS:
                     ent_key = f"{gw_mac}_{vpn_type}_{tunnel_id}_{desc.key}"
                     if ent_key not in known_vpn_keys:
@@ -530,7 +531,8 @@ class OmadaVpnBinarySensor(
         """Return the tunnel data dict, or None if unavailable."""
         tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
         for tunnel in tunnels:
-            if tunnel.get("id") == self._tunnel_id:
+            # Match on vpnId (stable config ID) with fallback to id
+            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
                 return tunnel  # type: ignore[no-any-return]
         return None
 

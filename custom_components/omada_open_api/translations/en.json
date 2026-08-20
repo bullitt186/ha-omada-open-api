@@ -452,17 +452,17 @@
             "threat_heatmap_monthly": {
                 "name": "Threat heatmap monthly"
             },
-            "vpn_uptime": {
-                "name": "{tunnel_name} uptime"
+            "vpn_connected_peers": {
+                "name": "{tunnel_name} connected peers"
             },
-            "vpn_download": {
-                "name": "{tunnel_name} download"
+            "vpn_disconnected_peers": {
+                "name": "{tunnel_name} disconnected peers"
             },
-            "vpn_upload": {
-                "name": "{tunnel_name} upload"
+            "vpn_total_remote_peers": {
+                "name": "{tunnel_name} total remote peers"
             },
-            "vpn_remote_peer": {
-                "name": "{tunnel_name} remote peer"
+            "vpn_listen_port": {
+                "name": "{tunnel_name} listen port"
             }
         },
         "binary_sensor": {
