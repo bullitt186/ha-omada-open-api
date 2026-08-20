@@ -231,6 +231,21 @@
             },
             "vpn_listen_port": {
                 "default": "mdi:server-network"
+            },
+            "vpn_peer_bytes_received": {
+                "default": "mdi:arrow-down-bold"
+            },
+            "vpn_peer_bytes_sent": {
+                "default": "mdi:arrow-up-bold"
+            },
+            "vpn_peer_packets_received": {
+                "default": "mdi:arrow-down"
+            },
+            "vpn_peer_packets_sent": {
+                "default": "mdi:arrow-up"
+            },
+            "vpn_peer_remote_ip": {
+                "default": "mdi:ip-network"
             }
         },
         "binary_sensor": {
@@ -253,6 +268,12 @@
                 "default": "mdi:vpn",
                 "state": {
                     "off": "mdi:vpn-off"
+                }
+            },
+            "vpn_peer_connected": {
+                "default": "mdi:hub",
+                "state": {
+                    "off": "mdi:hub-outline"
                 }
             }
         },

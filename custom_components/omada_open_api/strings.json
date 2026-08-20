@@ -463,6 +463,21 @@
             },
             "vpn_listen_port": {
                 "name": "{tunnel_name} listen port"
+            },
+            "vpn_peer_bytes_received": {
+                "name": "{peer_name} bytes received"
+            },
+            "vpn_peer_bytes_sent": {
+                "name": "{peer_name} bytes sent"
+            },
+            "vpn_peer_packets_received": {
+                "name": "{peer_name} packets received"
+            },
+            "vpn_peer_packets_sent": {
+                "name": "{peer_name} packets sent"
+            },
+            "vpn_peer_remote_ip": {
+                "name": "{peer_name} remote IP"
             }
         },
         "binary_sensor": {
@@ -487,6 +502,13 @@
             },
             "vpn_connected": {
                 "name": "{tunnel_name} connected",
+                "state": {
+                    "off": "Disconnected",
+                    "on": "Connected"
+                }
+            },
+            "vpn_peer_connected": {
+                "name": "{peer_name} connected",
                 "state": {
                     "off": "Disconnected",
                     "on": "Connected"
