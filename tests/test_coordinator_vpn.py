@@ -124,3 +124,37 @@ async def test_site_coordinator_vpn_status_failure_graceful(
     # Other types should still work.
     assert vpn["server"] == []
     assert vpn["client"] == []
+
+
+async def test_fetch_vpn_status_includes_peers(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test S2S and server tunnels with connected peers get per-peer data."""
+    s2s_tunnel = {**SAMPLE_VPN_S2S_TUNNEL, "connectedNum": 1}
+    mock_api_client.get_vpn_s2s_stats = AsyncMock(return_value=[s2s_tunnel])
+    mock_api_client.get_vpn_server_stats = AsyncMock(return_value=[SAMPLE_VPN_SERVER])
+    mock_api_client.get_vpn_client_stats = AsyncMock(return_value=[])
+    mock_api_client.get_vpn_s2s_peers = AsyncMock(
+        return_value=[{"name": "peer_a", "remoteIp": "192.168.0.2"}]
+    )
+    mock_api_client.get_vpn_server_clients = AsyncMock(
+        return_value=[{"name": "client_a"}]
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+
+    vpn = coordinator.data.get("vpn_status", {})
+    assert vpn["s2s"][0]["peers"] == [{"name": "peer_a", "remoteIp": "192.168.0.2"}]
+    assert vpn["server"][0]["peers"] == [{"name": "client_a"}]
+    mock_api_client.get_vpn_s2s_peers.assert_called_once_with(TEST_SITE_ID, "tunnel_1")
+    mock_api_client.get_vpn_server_clients.assert_called_once_with(
+        TEST_SITE_ID, "srv_1"
+    )

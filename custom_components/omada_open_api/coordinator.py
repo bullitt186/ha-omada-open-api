@@ -901,7 +901,52 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Failed to fetch VPN client stats: %s", err)
             vpn_status["client"] = []
 
+        await self._fetch_vpn_peers(vpn_status)
+
         return vpn_status
+
+    async def _fetch_vpn_peers(
+        self, vpn_status: dict[str, list[dict[str, Any]]]
+    ) -> None:
+        """Fetch per-peer/per-client stats for S2S and server VPN tunnels.
+
+        Each tunnel with connected peers is enriched in place with a
+        ``"peers"`` list. A failure fetching any single tunnel's peers is
+        logged and skipped so the rest of the VPN status is preserved.
+
+        Args:
+            vpn_status: Mutable VPN status dict (mutated in place).
+
+        """
+        for tunnel in vpn_status.get("s2s", []):
+            if tunnel.get("connectedNum", 0) <= 0:
+                continue
+            tunnel_id = str(tunnel.get("id", ""))
+            try:
+                tunnel["peers"] = await self.api_client.get_vpn_s2s_peers(
+                    self.site_id, tunnel_id
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch peers for S2S tunnel %s: %s",
+                    tunnel_id,
+                    err,
+                )
+
+        for server in vpn_status.get("server", []):
+            if server.get("connectedNum", 0) <= 0:
+                continue
+            tunnel_id = str(server.get("id", ""))
+            try:
+                server["peers"] = await self.api_client.get_vpn_server_clients(
+                    self.site_id, tunnel_id
+                )
+            except OmadaApiError as err:
+                _LOGGER.warning(
+                    "Failed to fetch clients for VPN server %s: %s",
+                    tunnel_id,
+                    err,
+                )
 
     async def _fetch_ap_radio_config(
         self, devices: dict[str, dict[str, Any]]

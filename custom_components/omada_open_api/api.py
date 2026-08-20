@@ -1547,6 +1547,60 @@ class OmadaApiClient:
         clients: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         return clients
 
+    async def get_vpn_s2s_peers(
+        self, site_id: str, tunnel_id: str
+    ) -> list[dict[str, Any]]:
+        """Get per-peer stats for an S2S VPN tunnel.
+
+        Args:
+            site_id: Site ID to query
+            tunnel_id: Numeric tunnel ID from the S2S stats response
+
+        Returns:
+            List of peer status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/s2s/{tunnel_id}/peer"
+        )
+        _LOGGER.debug("Fetching S2S VPN peers for tunnel %s", tunnel_id)
+        result = await self._authenticated_request(
+            "get", url, params={"page": 1, "pageSize": 100}
+        )
+        peers: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return peers
+
+    async def get_vpn_server_clients(
+        self, site_id: str, tunnel_id: str
+    ) -> list[dict[str, Any]]:
+        """Get per-client stats for a VPN server tunnel.
+
+        Args:
+            site_id: Site ID to query
+            tunnel_id: Numeric tunnel ID from the VPN server stats response
+
+        Returns:
+            List of client status dictionaries.
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        url = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/setting/vpn/stats/server/{tunnel_id}/client"
+        )
+        _LOGGER.debug("Querying VPN server clients for tunnel %s", tunnel_id)
+        result = await self._authenticated_request(
+            "get", url, params={"page": 1, "pageSize": 100}
+        )
+        clients: list[dict[str, Any]] = result.get("result", {}).get("data", [])
+        return clients
+
     @property
     def auth(self) -> OmadaAuthStrategy:
         """Return the auth strategy."""

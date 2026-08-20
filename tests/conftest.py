@@ -255,6 +255,8 @@ def mock_api_client() -> MagicMock:
     client.get_vpn_s2s_stats = AsyncMock(return_value=[])
     client.get_vpn_server_stats = AsyncMock(return_value=[])
     client.get_vpn_client_stats = AsyncMock(return_value=[])
+    client.get_vpn_s2s_peers = AsyncMock(return_value=[])
+    client.get_vpn_server_clients = AsyncMock(return_value=[])
     client.get_device_stats = AsyncMock(return_value=[])
     client.get_switch_port_details = AsyncMock(return_value=[])
     client.get_ap_radio_config = AsyncMock(return_value={})
