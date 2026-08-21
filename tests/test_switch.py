@@ -779,6 +779,7 @@ async def test_setup_entry_creates_ap_led_switch(hass: HomeAssistant) -> None:
     await async_setup_entry(hass, entry, capture_entities)
 
     assert any(isinstance(e, OmadaApLedSwitch) for e in added_entities)
+    entry.async_on_unload.call_args.args[0]()
 
 
 # ---------------------------------------------------------------------------
@@ -816,3 +817,4 @@ async def test_setup_entry_led_probe_denied_still_creates_poe(
     # LED switch should stay hidden, but PoE controls should remain available.
     assert any(isinstance(e, OmadaPoeSwitch) for e in added_entities)
     assert not any(isinstance(e, OmadaLedSwitch) for e in added_entities)
+    entry.async_on_unload.call_args.args[0]()
