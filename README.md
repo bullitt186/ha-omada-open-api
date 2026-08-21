@@ -56,6 +56,8 @@ Not every feature works on every setup — some need specific hardware:
 | Wired client count, uplink device/port, link speed | Sensor | Device with confirmed wired ports (gateways always qualify) |
 | Wireless client count, per-band stats, radio utilization, SSID & radio-band switches | Sensor, Switch | Access Point (per-band sensors disabled by default; switches need write access) |
 | Temperature, public IP, WAN rate/total/latency/loss, WAN status | Sensor, Binary Sensor | Gateway |
+| VPN tunnel and peer/client connection status | Binary Sensor, Sensor | Gateway with site-to-site, VPN server, or VPN client tunnels; can be disabled in Options |
+| WAN speed test | Button, Binary Sensor, Sensor | Fusion gateway with a WAN port; can be disabled in Options |
 | Application (DPI) traffic | Sensor | Gateway with DPI enabled, plus clients/apps selected in Options |
 | PoE budget/used/remaining, per-port power & switch | Sensor, Switch | PoE-capable switch (switch needs write access) |
 | Site-wide LED toggle, WLAN optimization | Switch, Button, Binary Sensor | Any site (needs write access) |
@@ -331,6 +333,15 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | Parameter | Default | Description |
 |---|---|---|
 | **Threat heatmap sensors** | Enabled | Enables/disables the four threat heatmap sensors (hourly/daily/weekly/monthly) per site. Disable if your controller doesn't support the Omada Threat Management endpoint. |
+
+### Gateway Entity Settings
+
+| Parameter | Default | Description |
+|---|---|---|
+| **VPN monitoring sensors** | Enabled | Creates one primary connection binary sensor for every site-to-site, VPN server, and VPN client tunnel. Tunnel peer/client telemetry is available as diagnostic entities. A VPN client exposes its own traffic, remote IP, and connection-time diagnostics rather than misleading peer counts. |
+| **WAN speed test** | Enabled | Creates a **Run speed test** button, a **Speed test running** binary sensor, and diagnostic download, upload, latency, and last-test-result sensors for each WAN port supported by the gateway. Run the button from the device page or dashboard; the running entity is on while Omada reports the test in progress. |
+
+Changing either setting reloads the integration. Disabled features neither create entities nor poll their optional API endpoints.
 
 ---
 

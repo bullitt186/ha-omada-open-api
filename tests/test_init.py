@@ -20,6 +20,7 @@ from custom_components.omada_open_api import (
     _cleanup_entities,
     _migrate_data_to_options,
     _migrate_merged_devices,
+    _migrate_wan_speed_test_button_unique_ids,
     _prune_stale_infra_devices,
     async_remove_config_entry_device,
 )
@@ -31,6 +32,8 @@ from custom_components.omada_open_api.const import (
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_ENABLE_VPN_SENSORS,
+    CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
@@ -71,7 +74,11 @@ _CLIENTS_RESPONSE = {
 }
 
 
-def _build_entry(hass: HomeAssistant, data_overrides: dict | None = None):
+def _build_entry(
+    hass: HomeAssistant,
+    data_overrides: dict | None = None,
+    options: dict | None = None,
+):
     """Create and add a MockConfigEntry."""
     data = {
         CONF_API_URL: TEST_API_URL,
@@ -88,7 +95,12 @@ def _build_entry(hass: HomeAssistant, data_overrides: dict | None = None):
     if data_overrides:
         data.update(data_overrides)
 
-    entry = MockConfigEntry(domain=DOMAIN, data=data, entry_id="test_entry_id")
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data=data,
+        options=options or {},
+        entry_id="test_entry_id",
+    )
     entry.add_to_hass(hass)
     return entry
 
@@ -113,6 +125,12 @@ def _patch_api_client(**overrides):
     mock_instance.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_instance.update_ap_ssid_override = AsyncMock()
     mock_instance.get_gateway_wan_status = AsyncMock(return_value=[])
+    mock_instance.get_gateway_wan_speed_test_result = AsyncMock(return_value={})
+    mock_instance.get_gateway_wan_speed_test_ports = AsyncMock(return_value=[])
+    mock_instance.get_gateway_wan_speed_test_history = AsyncMock(return_value=None)
+    mock_instance.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    mock_instance.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_instance.get_vpn_client_stats = AsyncMock(return_value=[])
     mock_instance.get_device_stats = AsyncMock(return_value=[])
     mock_instance.get_firmware_info = AsyncMock(return_value={})
     mock_instance.start_online_upgrade = AsyncMock(return_value={})
@@ -153,7 +171,96 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     runtime = entry.runtime_data
     assert runtime.api_client is not None
     assert TEST_SITE_ID in runtime.coordinators
+    assert (TEST_SITE_ID, "AA-BB-CC-DD-EE-03") in runtime.wan_speed_test_coordinators
     assert runtime.has_write_access is True
+
+
+async def test_setup_skips_disabled_vpn_and_wan_speed_test(
+    hass: HomeAssistant,
+) -> None:
+    """Disabled gateway features create no coordinator or API traffic."""
+    entry = _build_entry(
+        hass,
+        options={
+            CONF_ENABLE_VPN_SENSORS: False,
+            CONF_ENABLE_WAN_SPEED_TEST: False,
+        },
+    )
+    patcher, mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.runtime_data.wan_speed_test_coordinators == {}
+    mock_client.get_vpn_s2s_stats.assert_not_awaited()
+    mock_client.get_vpn_server_stats.assert_not_awaited()
+    mock_client.get_vpn_client_stats.assert_not_awaited()
+    mock_client.get_gateway_wan_speed_test_ports.assert_not_awaited()
+
+
+def test_migrate_wan_speed_test_button_unique_id(hass: HomeAssistant) -> None:
+    """The corrected speed-test action keeps the old entity ID."""
+    gateway_mac = "AA-BB-CC-DD-EE-03"
+    legacy_unique_id = f"{gateway_mac}_1_{gateway_mac}_wan_speed_test"
+    corrected_unique_id = f"{gateway_mac}_1_wan_speed_test"
+    registry = er.async_get(hass)
+    registry.async_get_or_create(
+        "button",
+        DOMAIN,
+        legacy_unique_id,
+        suggested_object_id="wan1_run_speed_test",
+    )
+    legacy_sensor_unique_id = f"{gateway_mac}_1_{gateway_mac}_wan_speed_test_download"
+    corrected_sensor_unique_id = f"{gateway_mac}_1_wan_speed_test_download"
+    registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        legacy_sensor_unique_id,
+        suggested_object_id="wan1_speed_test_download",
+    )
+    coordinator = MagicMock()
+    coordinator.data = {
+        "ports": [{"port": 1, "portUuid": "1_opaque-port-id", "name": "WAN1"}]
+    }
+
+    _migrate_wan_speed_test_button_unique_ids(
+        hass, {("site-id", gateway_mac): coordinator}
+    )
+
+    assert registry.async_get_entity_id("button", DOMAIN, legacy_unique_id) is None
+    assert registry.async_get_entity_id("button", DOMAIN, corrected_unique_id) == (
+        "button.wan1_run_speed_test"
+    )
+    assert (
+        registry.async_get_entity_id("sensor", DOMAIN, corrected_sensor_unique_id)
+        == "sensor.wan1_speed_test_download"
+    )
+
+
+def test_migrate_wan_speed_test_button_removes_duplicate(hass: HomeAssistant) -> None:
+    """A prior corrected duplicate yields its entity ID to the legacy entry."""
+    gateway_mac = "AA-BB-CC-DD-EE-03"
+    legacy_unique_id = f"{gateway_mac}_1_{gateway_mac}_wan_speed_test"
+    corrected_unique_id = f"{gateway_mac}_1_wan_speed_test"
+    registry = er.async_get(hass)
+    legacy = registry.async_get_or_create(
+        "button", DOMAIN, legacy_unique_id, suggested_object_id="wan1_run_speed_test"
+    )
+    duplicate = registry.async_get_or_create(
+        "button", DOMAIN, corrected_unique_id, suggested_object_id="wan1_run_speed_test"
+    )
+    coordinator = MagicMock()
+    coordinator.data = {"ports": [{"port": 1, "portUuid": "1_opaque-port-id"}]}
+
+    _migrate_wan_speed_test_button_unique_ids(
+        hass, {("site-id", gateway_mac): coordinator}
+    )
+
+    assert registry.async_get(duplicate.entity_id) is None
+    assert registry.async_get_entity_id("button", DOMAIN, corrected_unique_id) == (
+        legacy.entity_id
+    )
 
 
 async def test_setup_entry_creates_wan_and_traffic_sensors(
@@ -177,7 +284,32 @@ async def test_setup_entry_creates_wan_and_traffic_sensors(
     }
     patcher, _mock_client = _patch_api_client(
         get_gateway_wan_status=AsyncMock(return_value=[wan_port]),
+        get_gateway_wan_speed_test_result=AsyncMock(
+            return_value={
+                "portSpeedResults": [
+                    {
+                        "portId": "1_AA-BB-CC-DD-EE-03",
+                        "portName": "WAN1",
+                        "down": 987_000_000,
+                        "up": 123_000_000,
+                        "latency": 7,
+                    }
+                ]
+            }
+        ),
+        get_gateway_wan_speed_test_ports=AsyncMock(
+            return_value=[
+                {
+                    "port": 1,
+                    "portUuid": "1_opaque-port-id",
+                    "name": "WAN1",
+                }
+            ]
+        ),
     )
+    _mock_client.get_vpn_s2s_stats = AsyncMock(return_value=[])
+    _mock_client.get_vpn_server_stats = AsyncMock(return_value=[])
+    _mock_client.get_vpn_client_stats = AsyncMock(return_value=[])
 
     with patcher:
         await hass.config_entries.async_setup(entry.entry_id)
@@ -192,6 +324,11 @@ async def test_setup_entry_creates_wan_and_traffic_sensors(
         if e.platform == DOMAIN and "wan" in e.unique_id
     ]
     assert len(wan_entities) > 0
+    assert any("wan_speed_test_download" in entity.unique_id for entity in wan_entities)
+    assert any(
+        entity.domain == "button" and "wan_speed_test" in entity.unique_id
+        for entity in entity_reg.entities.values()
+    )
 
     # Verify device stats coordinators were created.
     assert len(entry.runtime_data.device_stats_coordinators) > 0

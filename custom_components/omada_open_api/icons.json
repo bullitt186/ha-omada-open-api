@@ -219,6 +219,54 @@
             },
             "daily_upload": {
                 "default": "mdi:arrow-up-bold-circle"
+            },
+            "vpn_connected_peers": {
+                "default": "mdi:account-multiple-check"
+            },
+            "vpn_disconnected_peers": {
+                "default": "mdi:account-multiple-remove"
+            },
+            "vpn_total_remote_peers": {
+                "default": "mdi:account-multiple"
+            },
+            "vpn_listen_port": {
+                "default": "mdi:server-network"
+            },
+            "vpn_peer_bytes_received": {
+                "default": "mdi:arrow-down-bold"
+            },
+            "vpn_peer_bytes_sent": {
+                "default": "mdi:arrow-up-bold"
+            },
+            "vpn_peer_packets_received": {
+                "default": "mdi:arrow-down"
+            },
+            "vpn_peer_packets_sent": {
+                "default": "mdi:arrow-up"
+            },
+            "vpn_peer_remote_ip": {
+                "default": "mdi:ip-network"
+            },
+            "vpn_peer_connected_since": {
+                "default": "mdi:clock-start"
+            },
+            "vpn_client_bytes_received": {
+                "default": "mdi:arrow-down-bold"
+            },
+            "vpn_client_bytes_sent": {
+                "default": "mdi:arrow-up-bold"
+            },
+            "vpn_client_packets_received": {
+                "default": "mdi:arrow-down"
+            },
+            "vpn_client_packets_sent": {
+                "default": "mdi:arrow-up"
+            },
+            "vpn_client_remote_ip": {
+                "default": "mdi:ip-network"
+            },
+            "vpn_client_connected_since": {
+                "default": "mdi:clock-start"
             }
         },
         "binary_sensor": {
@@ -236,6 +284,18 @@
             },
             "wlan_optimization_running": {
                 "default": "mdi:wifi-cog"
+            },
+            "vpn_connected": {
+                "default": "mdi:vpn",
+                "state": {
+                    "off": "mdi:vpn-off"
+                }
+            },
+            "vpn_peer_connected": {
+                "default": "mdi:hub",
+                "state": {
+                    "off": "mdi:hub-outline"
+                }
             }
         },
         "switch": {

@@ -159,7 +159,8 @@
                     "tracker_settings": "Device Tracker Settings",
                     "device_entity_settings": "Device Entity Settings",
                     "client_entity_settings": "Client Entity Settings",
-                    "site_entity_settings": "Site Entity Settings"
+                    "site_entity_settings": "Site Entity Settings",
+                    "gateway_entity_settings": "Gateway Entity Settings"
                 }
             },
             "client_selection": {
@@ -224,6 +225,14 @@
                 "description": "Enable or disable site-level entity categories.\n\nThreat heatmap sensors require the Omada threat-management API and may be unavailable on some controllers/firmware.\n\nAll settings default to enabled.",
                 "data": {
                     "enable_threat_heatmap_sensors": "Threat heatmap sensors (daily/weekly/monthly)"
+                }
+            },
+            "gateway_entity_settings": {
+                "title": "Gateway Entity Settings",
+                "description": "Enable or disable optional VPN monitoring and WAN speed-test entities. Disabled features do not create entities or poll their API endpoints.\n\nAll settings default to enabled.",
+                "data": {
+                    "enable_vpn_sensors": "VPN monitoring sensors (tunnels and peers)",
+                    "enable_wan_speed_test": "WAN speed test (trigger button, results, and running status)"
                 }
             }
         }
@@ -451,6 +460,66 @@
             },
             "threat_heatmap_monthly": {
                 "name": "Threat heatmap monthly"
+            },
+            "vpn_connected_peers": {
+                "name": "{tunnel_name} connected peers"
+            },
+            "vpn_disconnected_peers": {
+                "name": "{tunnel_name} disconnected peers"
+            },
+            "vpn_total_remote_peers": {
+                "name": "{tunnel_name} total remote peers"
+            },
+            "vpn_listen_port": {
+                "name": "{tunnel_name} listen port"
+            },
+            "vpn_peer_bytes_received": {
+                "name": "{peer_name} bytes received"
+            },
+            "vpn_peer_bytes_sent": {
+                "name": "{peer_name} bytes sent"
+            },
+            "vpn_peer_packets_received": {
+                "name": "{peer_name} packets received"
+            },
+            "vpn_peer_packets_sent": {
+                "name": "{peer_name} packets sent"
+            },
+            "vpn_peer_remote_ip": {
+                "name": "{peer_name} remote IP"
+            },
+            "vpn_peer_connected_since": {
+                "name": "{peer_name} connected since"
+            },
+            "vpn_client_bytes_received": {
+                "name": "{tunnel_name} bytes received"
+            },
+            "vpn_client_bytes_sent": {
+                "name": "{tunnel_name} bytes sent"
+            },
+            "vpn_client_packets_received": {
+                "name": "{tunnel_name} packets received"
+            },
+            "vpn_client_packets_sent": {
+                "name": "{tunnel_name} packets sent"
+            },
+            "vpn_client_remote_ip": {
+                "name": "{tunnel_name} remote IP"
+            },
+            "vpn_client_connected_since": {
+                "name": "{tunnel_name} connected since"
+            },
+            "wan_speed_test_download": {
+                "name": "{port_name} speed-test download"
+            },
+            "wan_speed_test_upload": {
+                "name": "{port_name} speed-test upload"
+            },
+            "wan_speed_test_latency": {
+                "name": "{port_name} speed-test latency"
+            },
+            "wan_speed_test_last_test": {
+                "name": "{port_name} speed test last test"
             }
         },
         "binary_sensor": {
@@ -466,11 +535,32 @@
             "wan_internet": {
                 "name": "{port_name} internet"
             },
+            "wan_speed_test_running": {
+                "name": "{port_name} speed test running",
+                "state": {
+                    "off": "Idle",
+                    "on": "Running"
+                }
+            },
             "wlan_optimization_running": {
                 "name": "WLAN optimization running",
                 "state": {
                     "off": "Idle",
                     "on": "Running"
+                }
+            },
+            "vpn_connected": {
+                "name": "{tunnel_name}",
+                "state": {
+                    "off": "Disconnected",
+                    "on": "Connected"
+                }
+            },
+            "vpn_peer_connected": {
+                "name": "{peer_name}",
+                "state": {
+                    "off": "Disconnected",
+                    "on": "Connected"
                 }
             }
         },
@@ -521,6 +611,9 @@
             },
             "locate": {
                 "name": "Locate"
+            },
+            "wan_speed_test": {
+                "name": "{port_name} run speed test"
             }
         },
         "update": {

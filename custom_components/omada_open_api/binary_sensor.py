@@ -16,8 +16,12 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
     EntityCategory,
 )
 
-from .const import DOMAIN, ICON_POWER_SAVE, ICON_STATUS
-from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN, ICON_POWER_SAVE, ICON_STATUS
+from .coordinator import (
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+    OmadaWanSpeedTestCoordinator,
+)
 from .devices import build_infra_device_info, get_device_sort_key
 from .entity import OmadaEntity
 
@@ -82,6 +86,28 @@ WAN_PORT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
     ),
 )
 
+# VPN tunnel binary sensors (per tunnel, using translation_placeholders)
+VPN_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
+    OmadaBinarySensorEntityDescription(
+        key="vpn_connected",
+        translation_key="vpn_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        value_fn=lambda tunnel: (tunnel.get("connectedNum") or 0) > 0,
+    ),
+)
+
+# VPN per-peer binary sensors (per peer inside each tunnel).
+# Peer "status" field: 0=disconnected, 1=connected.
+VPN_PEER_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
+    OmadaBinarySensorEntityDescription(
+        key="vpn_peer_connected",
+        translation_key="vpn_peer_connected",
+        device_class=BinarySensorDeviceClass.CONNECTIVITY,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda peer: peer.get("status") == 1,
+    ),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -90,12 +116,15 @@ async def async_setup_entry(
 ) -> None:
     """Set up Omada binary sensors from a config entry."""
     rd = entry.runtime_data
+    enable_vpn_sensors = entry.options.get(CONF_ENABLE_VPN_SENSORS, True)
     coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
     # --- Dynamic infrastructure device binary sensors ---
     known_device_macs: set[str] = set()
     known_wan_port_keys: set[str] = set()
+    known_vpn_binary_keys: set[str] = set()
+    known_vpn_peer_binary_keys: set[str] = set()
 
     for coordinator in coordinators.values():
 
@@ -106,30 +135,27 @@ async def async_setup_entry(
             """Add binary sensors for newly discovered devices."""
             devices = coord.data.get("devices", {}) if coord.data else {}
             new_macs = set(devices.keys()) - known_device_macs
-            if not new_macs:
-                return
+            new_entities: list[BinarySensorEntity] = []
+            if new_macs:
+                known_device_macs.update(new_macs)
 
-            known_device_macs.update(new_macs)
-
-            # Sort new devices by dependency order.
-            new_device_list = [(coord, mac) for mac in new_macs]
-            new_device_list.sort(
-                key=lambda x: get_device_sort_key(
-                    x[0].data.get("devices", {}).get(x[1], {}), x[1]
+                # Sort new devices by dependency order.
+                new_device_list = [(coord, mac) for mac in new_macs]
+                new_device_list.sort(
+                    key=lambda x: get_device_sort_key(
+                        x[0].data.get("devices", {}).get(x[1], {}), x[1]
+                    )
                 )
-            )
 
-            new_entities: list[BinarySensorEntity] = [
-                OmadaDeviceBinarySensor(
-                    coordinator=c,
-                    description=description,
-                    device_mac=mac,
+                new_entities.extend(
+                    OmadaDeviceBinarySensor(
+                        coordinator=c,
+                        description=description,
+                        device_mac=mac,
+                    )
+                    for c, mac in new_device_list
+                    for description in DEVICE_BINARY_SENSORS
                 )
-                for c, mac in new_device_list
-                for description in DEVICE_BINARY_SENSORS
-            ]
-            if new_entities:
-                async_add_entities(new_entities)
 
             # WAN port binary sensors for gateway devices.
             wan_status = coord.data.get("wan_status", {})
@@ -151,7 +177,27 @@ async def async_setup_entry(
                             for desc in WAN_PORT_BINARY_SENSORS
                         )
             if wan_entities:
-                async_add_entities(wan_entities)
+                new_entities.extend(wan_entities)
+
+            # VPN tunnel binary sensors for gateway devices.
+            vpn_status = coord.data.get("vpn_status", {})
+            if enable_vpn_sensors and vpn_status:
+                vpn_entities = _build_vpn_binary_sensors(
+                    coord, devices, vpn_status, known_vpn_binary_keys
+                )
+                if vpn_entities:
+                    new_entities.extend(vpn_entities)
+
+            # VPN per-peer binary sensors for gateway devices.
+            if enable_vpn_sensors:
+                vpn_peer_entities = _build_vpn_peer_binary_sensors(
+                    coord, devices, vpn_status, known_vpn_peer_binary_keys
+                )
+                if vpn_peer_entities:
+                    new_entities.extend(vpn_peer_entities)
+
+            if new_entities:
+                async_add_entities(new_entities)
 
         # Populate with currently known devices, then listen for updates.
         _async_check_new_devices()
@@ -165,6 +211,10 @@ async def async_setup_entry(
                 )
             ]
         )
+
+    _setup_wan_speed_test_running_sensors(
+        rd.wan_speed_test_coordinators, async_add_entities
+    )
 
     # --- Dynamic client binary sensors ---
     known_client_macs: set[str] = set()
@@ -196,6 +246,145 @@ async def async_setup_entry(
 
         _async_check_new_clients()
         entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
+
+
+def _setup_wan_speed_test_running_sensors(
+    coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up one running-status binary sensor per WAN speed-test port."""
+    entities: list[BinarySensorEntity] = []
+    for (_, gateway_mac), coordinator in coordinators.items():
+        for index, port in enumerate(
+            (coordinator.data or {}).get("ports", []), start=1
+        ):
+            port_id = str(port.get("port") or port.get("portId") or index)
+            entities.append(
+                OmadaWanSpeedTestRunningBinarySensor(
+                    coordinator,
+                    gateway_mac,
+                    port_id,
+                    port.get("portName") or port.get("name") or port_id,
+                )
+            )
+    if entities:
+        async_add_entities(entities)
+
+
+def _build_vpn_binary_sensors(
+    coordinator: OmadaSiteCoordinator,
+    devices: dict[str, Any],
+    vpn_status: dict[str, list[dict[str, Any]]],
+    known_vpn_keys: set[str],
+) -> list[BinarySensorEntity]:
+    """Create VPN tunnel binary sensor entities for all new tunnels.
+
+    Args:
+        coordinator: Site coordinator providing VPN data
+        devices: Devices dict from coordinator data
+        vpn_status: VPN status dict with "s2s", "server", "client" keys
+        known_vpn_keys: Set of already-known VPN entity keys (mutated)
+
+    Returns:
+        List of new VPN binary sensor entities
+
+    """
+    entities: list[BinarySensorEntity] = []
+    gateway_macs = [
+        mac for mac, dev in devices.items() if dev.get("type", "").lower() == "gateway"
+    ]
+    for gw_mac in gateway_macs:
+        for vpn_type in ("s2s", "server", "client"):
+            for tunnel in vpn_status.get(vpn_type, []):
+                # Anchor on vpnId (stable config ID) instead of stats row id
+                tunnel_id = tunnel.get("vpnId", tunnel.get("id", ""))
+                for desc in VPN_BINARY_SENSORS:
+                    ent_key = f"{gw_mac}_{vpn_type}_{tunnel_id}_{desc.key}"
+                    if ent_key not in known_vpn_keys:
+                        known_vpn_keys.add(ent_key)
+                        entities.append(
+                            OmadaVpnBinarySensor(
+                                coordinator=coordinator,
+                                description=desc,
+                                gateway_mac=gw_mac,
+                                vpn_type=vpn_type,
+                                tunnel_id=tunnel_id,
+                                tunnel_name=tunnel.get("name", ""),
+                            )
+                        )
+    return entities
+
+
+def _build_vpn_peer_binary_sensors(
+    coordinator: OmadaSiteCoordinator,
+    devices: dict[str, Any],
+    vpn_status: dict[str, list[dict[str, Any]]],
+    known_vpn_peer_keys: set[str],
+) -> list[BinarySensorEntity]:
+    """Create VPN per-peer binary sensor entities for all new tunnels/peers.
+
+    Args:
+        coordinator: Site coordinator providing VPN data
+        devices: Devices dict from coordinator data
+        vpn_status: VPN status dict with "s2s", "server", "client" keys
+        known_vpn_peer_keys: Set of already-known VPN peer entity keys (mutated)
+
+    Returns:
+        List of new VPN peer binary sensor entities
+
+    """
+    entities: list[BinarySensorEntity] = []
+    gateway_macs = [
+        mac for mac, dev in devices.items() if dev.get("type", "").lower() == "gateway"
+    ]
+    for gw_mac in gateway_macs:
+        for vpn_type in ("s2s", "server", "client"):
+            for tunnel in vpn_status.get(vpn_type, []):
+                tunnel_id = tunnel.get("vpnId", tunnel.get("id", ""))
+                entities.extend(
+                    _build_peer_binary_entities(
+                        coordinator,
+                        gw_mac,
+                        vpn_type,
+                        tunnel_id,
+                        tunnel,
+                        known_vpn_peer_keys,
+                    )
+                )
+    return entities
+
+
+def _build_peer_binary_entities(
+    coordinator: OmadaSiteCoordinator,
+    gw_mac: str,
+    vpn_type: str,
+    tunnel_id: str,
+    tunnel: dict[str, Any],
+    known_keys: set[str],
+) -> list[BinarySensorEntity]:
+    """Create per-peer binary sensor entities for a single tunnel."""
+    entities: list[BinarySensorEntity] = []
+    for peer in tunnel.get("peers", []):
+        peer_id = str(peer.get("id", ""))
+        peer_name = peer.get("name", "")
+        for desc in VPN_PEER_BINARY_SENSORS:
+            ent_key = f"{gw_mac}_vpn_peer_{vpn_type}_{tunnel_id}_{peer_id}_{desc.key}"
+            if ent_key in known_keys:
+                continue
+            known_keys.add(ent_key)
+            entities.append(
+                OmadaVpnPeerBinarySensor(
+                    coordinator=coordinator,
+                    description=desc,
+                    gateway_mac=gw_mac,
+                    vpn_type=vpn_type,
+                    tunnel_id=tunnel_id,
+                    tunnel_name=tunnel.get("name", ""),
+                    peer_id=peer_id,
+                    peer_name=peer_name,
+                )
+            )
+    return entities
 
 
 class OmadaDeviceBinarySensor(
@@ -419,3 +608,186 @@ class OmadaWanBinarySensor(
         if not self.coordinator.last_update_success:
             return False
         return self._get_port_data() is not None
+
+
+class OmadaWanSpeedTestRunningBinarySensor(
+    OmadaEntity[OmadaWanSpeedTestCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor reporting whether a WAN speed test is in progress."""
+
+    _attr_device_class = BinarySensorDeviceClass.RUNNING
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: OmadaWanSpeedTestCoordinator,
+        gateway_mac: str,
+        port_id: str,
+        port_name: str,
+    ) -> None:
+        """Initialize the speed-test progress sensor for one WAN port."""
+        super().__init__(coordinator)
+        self._port_id = port_id
+        self._attr_unique_id = f"{gateway_mac}_{port_id}_wan_speed_test_running"
+        self._attr_translation_key = "wan_speed_test_running"
+        self._attr_translation_placeholders = {"port_name": port_name}
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, gateway_mac)})
+
+    @property
+    def is_on(self) -> bool:
+        """Return True while Fusion reports this port's test as running."""
+        for result in (self.coordinator.data or {}).get("activePortResults", []):
+            if str(result.get("portId")) == self._port_id:
+                return bool(result.get("status") == 2)
+        return False
+
+    @property
+    def available(self) -> bool:
+        """Return whether the speed-test coordinator has fetched data."""
+        return self.coordinator.last_update_success
+
+
+class OmadaVpnBinarySensor(
+    OmadaEntity[OmadaSiteCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor for a VPN tunnel connection status on a gateway device."""
+
+    entity_description: OmadaBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaBinarySensorEntityDescription,
+        gateway_mac: str,
+        vpn_type: str,
+        tunnel_id: str,
+        tunnel_name: str,
+    ) -> None:
+        """Initialize the VPN tunnel binary sensor.
+
+        Args:
+            coordinator: Site coordinator providing VPN status data
+            description: Binary sensor entity description
+            gateway_mac: MAC address of the parent gateway
+            vpn_type: VPN type key ("s2s", "server", "client")
+            tunnel_id: Unique tunnel/connection ID from the API
+            tunnel_name: Human-readable tunnel name
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._vpn_type = vpn_type
+        self._tunnel_id = tunnel_id
+        self._attr_unique_id = (
+            f"{gateway_mac}_vpn_{vpn_type}_{tunnel_id}_{description.key}"
+        )
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {"tunnel_name": tunnel_name}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_tunnel_data(self) -> dict[str, Any] | None:
+        """Return the tunnel data dict, or None if unavailable."""
+        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
+        for tunnel in tunnels:
+            # Match on vpnId (stable config ID) with fallback to id
+            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
+                return tunnel  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return the state of the binary sensor."""
+        tunnel_data = self._get_tunnel_data()
+        if tunnel_data is None:
+            return False
+        if self._vpn_type == "client":
+            return tunnel_data.get("status") == 1
+        return self.entity_description.value_fn(tunnel_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_tunnel_data() is not None
+
+
+class OmadaVpnPeerBinarySensor(
+    OmadaEntity[OmadaSiteCoordinator],
+    BinarySensorEntity,
+):
+    """Binary sensor for a per-peer VPN connection status on a gateway device."""
+
+    entity_description: OmadaBinarySensorEntityDescription
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: OmadaBinarySensorEntityDescription,
+        gateway_mac: str,
+        vpn_type: str,
+        tunnel_id: str,
+        tunnel_name: str,
+        peer_id: str,
+        peer_name: str,
+    ) -> None:
+        """Initialize the VPN peer binary sensor.
+
+        Args:
+            coordinator: Site coordinator providing VPN status data
+            description: Binary sensor entity description
+            gateway_mac: MAC address of the parent gateway
+            vpn_type: VPN type key ("s2s", "server", "client")
+            tunnel_id: Unique tunnel/connection ID from the API
+            tunnel_name: Human-readable tunnel name
+            peer_id: Unique peer ID within the tunnel
+            peer_name: Human-readable peer name
+
+        """
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._gateway_mac = gateway_mac
+        self._vpn_type = vpn_type
+        self._tunnel_id = tunnel_id
+        self._peer_id = peer_id
+        self._attr_unique_id = (
+            f"{gateway_mac}_vpn_peer_{vpn_type}_{tunnel_id}_{peer_id}_{description.key}"
+        )
+        self._attr_translation_key = description.key
+        self._attr_translation_placeholders = {
+            "peer_name": peer_name,
+            "tunnel_name": tunnel_name,
+        }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, gateway_mac)},
+        )
+
+    def _get_peer_data(self) -> dict[str, Any] | None:
+        """Return the peer data dict, or None if unavailable."""
+        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
+        for tunnel in tunnels:
+            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
+                for peer in tunnel.get("peers", []):
+                    if str(peer.get("id")) == self._peer_id:
+                        return peer  # type: ignore[no-any-return]
+        return None
+
+    @property
+    def is_on(self) -> bool:
+        """Return the state of the binary sensor."""
+        peer_data = self._get_peer_data()
+        if peer_data is None:
+            return False
+        return self.entity_description.value_fn(peer_data)
+
+    @property
+    def available(self) -> bool:
+        """Return if entity is available."""
+        if not self.coordinator.last_update_success:
+            return False
+        return self._get_peer_data() is not None

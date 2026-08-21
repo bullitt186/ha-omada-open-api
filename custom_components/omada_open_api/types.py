@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         OmadaDeviceStatsCoordinator,
         OmadaSiteCoordinator,
         OmadaThreatHeatmapCoordinator,
+        OmadaWanSpeedTestCoordinator,
     )
 
 
@@ -35,6 +36,9 @@ class OmadaRuntimeData:
     prev_options: dict[str, Any] = field(default_factory=dict)
     threat_heatmap_coordinators: list[OmadaThreatHeatmapCoordinator] = field(
         default_factory=list
+    )
+    wan_speed_test_coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator] = (
+        field(default_factory=dict)
     )
 
 
