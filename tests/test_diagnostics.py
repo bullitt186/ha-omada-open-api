@@ -13,11 +13,13 @@ from custom_components.omada_open_api.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_OMADA_ID,
+    CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_USERNAME,
     DOMAIN,
 )
 from custom_components.omada_open_api.diagnostics import (
@@ -166,6 +168,23 @@ async def test_diagnostics_redacts_sensitive_data(hass: HomeAssistant) -> None:
     # Non-sensitive data should NOT be redacted
     assert entry_data[CONF_API_URL] == TEST_API_URL
     assert entry_data[CONF_OMADA_ID] == TEST_OMADA_ID
+
+
+async def test_diagnostics_redacts_fusion_credentials(hass: HomeAssistant) -> None:
+    """Test that Fusion credentials are redacted in diagnostics output."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_USERNAME: "fusion-user",
+            CONF_PASSWORD: "fusion-password",
+        },
+    )
+    entry.add_to_hass(hass)
+
+    result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["entry_data"][CONF_USERNAME] == "**REDACTED**"
+    assert result["entry_data"][CONF_PASSWORD] == "**REDACTED**"
 
 
 async def test_diagnostics_coordinator_summary(hass: HomeAssistant) -> None:

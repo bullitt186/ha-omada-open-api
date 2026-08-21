@@ -1,6 +1,7 @@
 """Tests for Omada Open API config flow."""
 
 import datetime as dt
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -998,7 +999,9 @@ async def test_local_invalid_url(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_reauth_flow_success(hass: HomeAssistant) -> None:
+async def test_reauth_flow_success(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
     """Test successful reauthentication flow."""
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1015,6 +1018,9 @@ async def test_reauth_flow_success(hass: HomeAssistant) -> None:
         unique_id="reauth_omada",
     )
     entry.add_to_hass(hass)
+    caplog.set_level(
+        logging.DEBUG, logger="custom_components.omada_open_api.config_flow"
+    )
 
     with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
         await hass.config_entries.async_setup(entry.entry_id)
@@ -1043,6 +1049,13 @@ async def test_reauth_flow_success(hass: HomeAssistant) -> None:
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_CLIENT_ID] == "new_cid"
     assert entry.data[CONF_ACCESS_TOKEN] == "test_access_token"
+    for secret in (
+        "old_csecret",
+        "expired_token",
+        "expired_rtoken",
+        "new_csecret",
+    ):
+        assert secret not in caplog.text
 
 
 async def test_reauth_flow_invalid_auth(hass: HomeAssistant) -> None:

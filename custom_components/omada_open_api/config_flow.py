@@ -1328,7 +1328,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to show reauth confirmation
 
         """
-        _LOGGER.debug("Reauth flow started with entry_data: %s", entry_data)
+        _LOGGER.debug("Reauth flow started")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -1343,7 +1343,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to update entry or show form again
 
         """
-        _LOGGER.debug("Reauth confirm step called with user_input: %s", user_input)
+        _LOGGER.debug("Reauth confirmation submitted: %s", user_input is not None)
         errors: dict[str, str] = {}
         reauth_entry = self._get_reauth_entry()
         _LOGGER.debug("Reauth entry retrieved: %s", reauth_entry.title)
