@@ -84,6 +84,40 @@ integration into `/config`, and restarts Home Assistant. A config-entry reload
 does not re-import Python modules; use a full Home Assistant restart after code
 changes.
 
+## CodeGraph
+
+This repository is indexed with CodeGraph. Before using `rg`, `find`, or
+opening multiple files to understand cross-file behavior, use the
+`codegraph_explore` MCP tool when it is available. It returns relevant symbols,
+their current source, and call paths.
+
+The CLI fallback is:
+
+```bash
+codegraph explore "<question or symbol names>" --path .
+```
+
+Use `codegraph node <symbol> --path .` for one symbol and its callers/callees.
+After changing code, run `codegraph sync .` before relying on graph
+relationships in a later investigation. CodeGraph complements rather than
+replaces direct source reads, tests, or static analysis.
+
+## Browser verification
+
+When a change affects the Home Assistant UI, config flow, entity registration,
+or another browser-visible runtime behavior, verify it in the local Home
+Assistant instance with `playwright-cli` when a runtime check is applicable.
+Start with `playwright-cli open http://localhost:8123`, use `snapshot` and its
+element references for interactions, and close the Playwright-managed browser
+when finished. This browser is separate from the user's live browser; do not
+attach to or alter the user's session unless they explicitly ask.
+
+Treat browser verification as a separate layer from unit tests and `make
+check`. Do not put credentials, tokens, cookies, CSRF values, or screenshots
+containing them in source, logs, or commits. Follow the Fusion session and
+post-login runtime-check constraints above when browser testing a Fusion
+gateway.
+
 ## Coding and Home Assistant rules
 
 - Target Python 3.14. Keep code fully typed and compatible with strict mypy.
@@ -160,6 +194,13 @@ one unit at a time:
 Do not commit during RED and do not bypass failing pre-commit hooks. Mock
 external APIs through the Home Assistant-facing interfaces; cover successful,
 error, and availability behavior relevant to the change.
+
+When an implementation step is complete, commit its scoped changes before
+moving to the next implementation step. Run the repository's pre-commit hook
+as part of that commit. Treat every hook finding as required work: inspect it,
+make the necessary correction, and rerun the hook until it passes. Never use
+`--no-verify`, skip hooks, or commit known failing checks. Use a concise commit
+message that ends with `(TDD)` when the commit completes a test-driven change.
 
 Use the narrowest relevant check while iterating:
 
