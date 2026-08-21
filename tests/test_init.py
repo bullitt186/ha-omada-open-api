@@ -162,11 +162,19 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     """Test successful integration setup with one site."""
     entry = _build_entry(hass)
     patcher, _mock_client = _patch_api_client()
+    shared_session = MagicMock()
 
-    with patcher:
+    with (
+        patcher,
+        patch(
+            "custom_components.omada_open_api.async_get_clientsession",
+            return_value=shared_session,
+        ) as mock_get_clientsession,
+    ):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
+    mock_get_clientsession.assert_called_once_with(hass)
     assert entry.state is ConfigEntryState.LOADED
     runtime = entry.runtime_data
     assert runtime.api_client is not None

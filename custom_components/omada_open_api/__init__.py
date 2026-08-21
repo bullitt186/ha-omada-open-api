@@ -390,7 +390,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             )
         else:
             # Traditional OpenAPI: client_credentials authentication
-            session = async_get_clientsession(hass, verify_ssl=False)
+            session = async_get_clientsession(hass)
             token_expires_at = dt.datetime.fromisoformat(
                 entry.data[CONF_TOKEN_EXPIRES_AT]
             )
