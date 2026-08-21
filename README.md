@@ -42,7 +42,9 @@
 
 Connects to your **TP-Link Omada SDN** controller (cloud or local) through the **Omada Open API** and exposes your infrastructure, clients, and security data as Home Assistant entities — monitoring, control, and automation triggers included. See [Features](#features) for the full breakdown.
 
-Authentication uses **OAuth 2.0 Client Credentials** with fully automatic token refresh — set it up once and forget it.
+Cloud and traditional local controllers use **OAuth 2.0 Client Credentials**
+with automatic token refresh. Fusion gateways use their local web-interface
+username and password instead.
 
 ---
 
@@ -52,15 +54,16 @@ Not every feature works on every setup — some need specific hardware:
 
 | Feature | Platform(s) | Requires |
 |---|---|---|
-| Device status, CPU/memory, uptime, IP, firmware update/install | Sensor, Binary Sensor, Device Tracker, Button, Update | Any AP, switch, or gateway (install needs write access) |
+| Device status, CPU/memory, uptime, IP, daily traffic, firmware update/install | Sensor, Binary Sensor, Device Tracker, Button, Update | Any AP, switch, or gateway (install needs write access) |
 | Wired client count, uplink device/port, link speed | Sensor | Device with confirmed wired ports (gateways always qualify) |
-| Wireless client count, per-band stats, radio utilization, SSID & radio-band switches | Sensor, Switch | Access Point (per-band sensors disabled by default; switches need write access) |
+| Wireless client count, per-band stats, radio utilization, AP LED, SSID and radio-band controls | Sensor, Switch | Access Point (per-band sensors disabled by default; controls need write access) |
 | Temperature, public IP, WAN rate/total/latency/loss, WAN status | Sensor, Binary Sensor | Gateway |
 | VPN tunnel and peer/client connection status | Binary Sensor, Sensor | Gateway with site-to-site, VPN server, or VPN client tunnels; can be disabled in Options |
 | WAN speed test | Button, Binary Sensor, Sensor | Fusion gateway with a WAN port; can be disabled in Options |
 | Application (DPI) traffic | Sensor | Gateway with DPI enabled, plus clients/apps selected in Options |
 | PoE budget/used/remaining, per-port power & switch | Sensor, Switch | PoE-capable switch (switch needs write access) |
-| Site-wide LED toggle, WLAN optimization | Switch, Button, Binary Sensor | Any site (needs write access) |
+| Site totals (clients, guest clients, PoE consumption) | Sensor | Any selected site |
+| Site-wide SSID/LED controls and WLAN optimization | Switch, Button, Binary Sensor | Any site (controls need write access) |
 | Threat heatmap (rolling hourly/daily/weekly/monthly) | Sensor | Controller with the Omada Threat Management API — not on the free cloud tier (see below); can be disabled in Options |
 | Client sensors, presence, block/unblock, reconnect | Sensor, Binary Sensor, Device Tracker, Switch, Button | Selected client (RSSI/SNR/power-save are wireless-only; block/unblock and reconnect need write access) |
 
@@ -70,7 +73,11 @@ Not every feature works on every setup — some need specific hardware:
 
 > **OC200 Open API support depends on firmware.** Open API is confirmed to work on firmware 6.2.10.18, but earlier versions may not expose it. Update the controller and check **Settings > Platform Integration > Open API**. If that option is unavailable, use another supported controller such as the OC300 or the free Software Controller.
 
-> **Permissions:** Control entities (PoE/LED/SSID/radio-band switches, firmware install) need write-access credentials. Viewer-only credentials still get all monitoring entities; controls are detected and skipped automatically.
+> **Permissions:** Control entities (PoE, LED, SSID and radio-band switches,
+> device actions, client actions, and firmware install) need the corresponding
+> Open API write permissions. The site-wide LED switch is omitted when its
+> permission probe is denied; other controls may still be created because Omada
+> permissions can differ by endpoint. Viewer-only credentials retain monitoring.
 
 ---
 
@@ -117,7 +124,7 @@ The integration guides you through a multi-step configuration:
 2. **Region** (cloud) or **API URL** (local, e.g. `https://192.168.1.100:8043`)
 3. **Credentials** — Omada ID, Client ID, Client Secret
 4. **Sites** — Select one or more sites to monitor
-5. **Clients** *(optional)* — Select clients for presence detection
+5. **Clients** *(optional)* — Optionally filter by SSID, then select clients for presence detection
 6. **Applications** *(optional)* — Select DPI-tracked applications for traffic sensors
 
 **Fusion Gateways:**
@@ -125,7 +132,7 @@ The integration guides you through a multi-step configuration:
 1. **Controller type** — Select `Fusion Gateway`
 2. **Gateway URL + Credentials** — Enter the gateway URL (e.g. `https://192.168.1.1`), username, and password
 3. **Sites** — Auto-selected (Fusion gateways have a single site)
-4. **Clients** *(optional)* — Select clients for presence detection
+4. **Clients** *(optional)* — Optionally filter by SSID, then select clients for presence detection
 5. **Applications** *(optional)* — Select DPI-tracked applications for traffic sensors
 
 ### Installation Parameters
@@ -143,7 +150,7 @@ The following parameters are required during the initial setup flow:
 | **Client ID** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client ID from your Open API application. Generated when creating a new application in the controller. |
 | **Client Secret** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client Secret from your Open API application. Shown once when the application is created — copy and store it securely. |
 | **Sites** | 4 – Site selection | Yes | One or more Omada sites to monitor. Fusion gateways with a single site are auto-selected. All devices and clients under the selected sites become available as Home Assistant entities. |
-| **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. Can be modified later via Options. Limited to the first 200 clients in the UI. |
+| **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. The optional SSID filter narrows the wireless-client list while always retaining wired clients. Can be modified later via Options. Limited to the first 200 clients in the UI. |
 | **Applications** | 6 – Application selection | No | DPI-tracked applications for per-client traffic monitoring (upload/download sensors). Requires DPI enabled on the gateway. Can be modified later via Options. |
 
 **Network requirements:**
@@ -157,33 +164,70 @@ The following parameters are required during the initial setup flow:
 
 ### Per Device (AP, Switch, Gateway)
 
-| Entity | Example | Description |
+Entity IDs depend on the names assigned by Home Assistant. The examples below
+show the entity families rather than an exhaustive list for every hardware
+combination.
+
+| Platform | Examples | Description |
 |---|---|---|
-| Sensor | `sensor.office_ap_connected_clients` | Connected client count |
-| Sensor | `sensor.office_ap_uptime` | Uptime as a timestamp |
-| Sensor | `sensor.office_ap_cpu_utilization` | CPU usage (%) |
-| Sensor | `sensor.office_ap_memory_utilization` | Memory usage (%) |
-| Sensor | `sensor.office_ap_clients_2_4_ghz` | 2.4 GHz clients (APs only) |
-| Sensor | `sensor.office_ap_clients_5_ghz` | 5 GHz clients (APs only) |
-| Sensor | `sensor.main_switch_poe_power_used` | PoE power draw (W) |
-| Sensor | `sensor.main_switch_poe_power_budget` | PoE power budget (W) |
-| Sensor | `sensor.main_switch_poe_power_remaining` | PoE remaining (%) |
-| Sensor | `sensor.main_switch_port_3_poe_power` | Per-port PoE power (W) |
-| Binary Sensor | `binary_sensor.office_ap_status` | Online / offline |
-| Binary Sensor | `binary_sensor.office_ap_firmware_update_available` | Firmware update needed |
-| Device Tracker | `device_tracker.office_ap` | Device presence (home/away) |
-| Switch | `switch.main_switch_port_3_poe` | PoE on/off per port |
-| Switch | `switch.home_led` | Site-wide LED on/off |
-| Button | `button.office_ap_reboot` | Reboot device |
-| Button | `button.office_ap_locate` | Flash LEDs / beep to locate |
-| Button | `button.home_wlan_optimization` | Start WLAN optimization |
-| Update | `update.office_ap_firmware` | Firmware with install action |
+| Sensor | `sensor.office_ap_connected_clients`, `sensor.office_ap_guest_clients` | Total, wired, wireless, and guest client counts where the device reports them |
+| Sensor | `sensor.office_ap_uptime`, `sensor.office_ap_cpu_utilization`, `sensor.office_ap_memory_utilization` | Device diagnostics, including type, tag, detail status, IP/IPv6, uplink, link speed, and temperature when available |
+| Sensor | `sensor.office_ap_daily_download`, `sensor.office_ap_daily_upload` | Daily device traffic totals; APs also expose live RX/TX activity |
+| Sensor | `sensor.office_ap_clients_2_4_ghz`, `sensor.office_ap_tx_utilization_2_4_ghz` | Per-band client counts and TX/RX/interference/busy utilization for supported 2.4, 5, 5-2, and 6 GHz radios; utilization entities are disabled by default |
+| Sensor | `sensor.main_switch_poe_power_used`, `sensor.main_switch_port_3_poe_power` | PoE budget, used, remaining, and per-port power |
+| Binary Sensor | `binary_sensor.office_ap_status` | Online/offline connectivity |
+| Device Tracker | `device_tracker.office_ap` | Infrastructure-device presence |
+| Switch | `switch.main_switch_port_3_poe` | Per-port PoE control |
+| Switch | `switch.office_ap_led`, `switch.office_ap_5_ghz_radio` | Per-AP LED and radio-band controls |
+| Switch | `switch.guest_wifi_broadcast`, `switch.office_ap_guest_wifi` | Site-wide SSID broadcast and per-AP SSID override controls |
+| Button | `button.office_ap_reboot`, `button.office_ap_locate` | Reboot and locate actions |
+| Update | `update.office_ap_firmware` | Installed/latest firmware, release notes, progress, and install action |
+
+### Per Site
+
+| Platform | Example | Description |
+|---|---|---|
+| Sensor | `sensor.home_total_clients` | Total, wired, wireless, and guest clients across the site |
+| Sensor | `sensor.home_poe_consumption` | Aggregate PoE consumption |
+| Switch | `switch.home_led` | Site-wide device LED control |
+| Button | `button.home_wlan_optimization` | Start WLAN/RF optimization |
+| Binary Sensor | `binary_sensor.home_wlan_optimization_running` | WLAN optimization running state |
+
+### Per Gateway WAN Port
+
+| Platform | Example | Description |
+|---|---|---|
+| Sensor | `sensor.gateway_wan_1_download_rate` | Download/upload rate and total traffic per WAN port |
+| Sensor | `sensor.gateway_wan_1_latency` | Latency, packet loss, IP address, link speed, and optional IPv6 address |
+| Binary Sensor | `binary_sensor.gateway_wan_1_connected` | Physical WAN connection and internet reachability |
+| Button | `button.gateway_wan_1_run_speed_test` | Start a Fusion WAN speed test |
+| Binary Sensor | `binary_sensor.gateway_wan_1_speed_test_running` | Speed-test running state |
+| Sensor | `sensor.gateway_wan_1_speed_test_download` | Last speed-test download, upload, latency, and completion time; diagnostic and disabled by default |
+
+WAN speed-test entities are available only where Fusion exposes a supported
+WAN port and can be disabled under **Options → Gateway Entity Settings**.
+
+### Per VPN Tunnel and Peer
+
+| Platform | Example | Description |
+|---|---|---|
+| Binary Sensor | `binary_sensor.gateway_work_vpn` | Connection state for each site-to-site, VPN server, or VPN client tunnel |
+| Sensor | `sensor.gateway_work_vpn_connected_peers` | Connected peer count; additional disconnected/total peer and listen-port diagnostics are disabled by default |
+| Binary Sensor | `binary_sensor.gateway_work_vpn_phone` | Per-peer connection state for server and site-to-site tunnels |
+| Sensor | `sensor.gateway_work_vpn_phone_bytes_received` | Per-peer bytes, packets, remote IP, and connected-since diagnostics; disabled by default |
+| Sensor | `sensor.gateway_outbound_vpn_bytes_received` | VPN-client bytes, packets, remote IP, and connected-since diagnostics; disabled by default |
+
+VPN monitoring can be disabled under **Options → Gateway Entity Settings**.
+Unsupported fields remain unavailable instead of being guessed from another VPN
+type's schema.
 
 ### Per Client
 
 | Entity | Example | Description |
 |---|---|---|
 | Sensor | `sensor.johns_iphone_ip_address` | Current IP |
+| Sensor | `sensor.johns_iphone_connection_status` | Controller-reported connection status |
+| Sensor | `sensor.johns_iphone_signal_strength` | Signal quality (%) |
 | Sensor | `sensor.johns_iphone_rssi` | Signal strength (dBm) |
 | Sensor | `sensor.johns_iphone_snr` | Signal-to-noise ratio (dB) |
 | Sensor | `sensor.johns_iphone_ssid` | Connected network |
@@ -205,7 +249,8 @@ The following parameters are required during the initial setup flow:
 | Sensor | `sensor.johns_iphone_youtube_download` | App download traffic (auto-scaled) |
 | Sensor | `sensor.johns_iphone_youtube_upload` | App upload traffic (auto-scaled) |
 
-Application traffic sensors auto-scale their unit (B, KB, MB, GB, TB) and reset daily at midnight.
+Application traffic sensors auto-scale their unit (B, KB, MB, GB, TB) and
+reset daily at midnight.
 
 ### Per Site — Threat Heatmap
 
@@ -304,11 +349,13 @@ After initial setup, go to **Settings → Devices & Services → TP-Link Omada O
 
 ### Client Selection
 
-Add or remove tracked network clients. Select clients that should have device tracker entities and per-client sensors (IP, RSSI, SNR, traffic, etc.) created in Home Assistant.
+Add or remove tracked network clients. Selected clients receive device trackers
+and per-client monitoring entities.
 
 | Parameter | Type | Description |
 |---|---|---|
-| **Clients to Track** | Multi-select | List of network clients discovered on your Omada network. Select one or more to create entities. Deselecting a client removes its entities and device. Limited to 200 clients in the UI. |
+| **Filter by SSID** | Multi-select | Restricts the displayed wireless clients to selected SSIDs; wired clients always remain visible and clients hidden by the filter keep their existing selection. |
+| **Clients to Track** | Multi-select | Select clients to create entities for. The UI shows at most 200 clients. |
 
 ### Application Selection
 
@@ -328,6 +375,36 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | **Client polling interval** | 30 s | 30 – 3600 s | How often client data is refreshed. Affects device trackers, RSSI, SNR, traffic, and activity rate sensors. |
 | **Application traffic polling interval** | 300 s | 30 – 3600 s | How often per-client application traffic data is refreshed. Higher values recommended since DPI data updates less frequently on the controller. |
 
+### Device Tracker Settings
+
+| Parameter | Default | Range | Description |
+|---|---|---|---|
+| **Client disconnect timeout** | 0 min | 0 – 60 min | Keeps a tracked client `home` for a grace period after it disappears, avoiding false away events during brief Wi-Fi disconnects. Zero marks it away immediately. |
+
+### Device Entity Settings
+
+All categories default to enabled. Disabling a category prevents its entities
+from being created.
+
+| Parameter | Description |
+|---|---|
+| **Daily bandwidth sensors** | Device download/upload totals |
+| **Client count sensors** | Per-device total, wired, wireless, guest, and per-band counts where supported |
+| **Diagnostic sensors** | CPU, memory, uptime, IP, firmware, topology, temperature, and similar diagnostics |
+| **Radio utilization sensors** | AP TX, RX, interference, and channel-busy sensors per supported band |
+
+### Client Entity Settings
+
+All categories default to enabled. Disabling a category prevents its entities
+from being created.
+
+| Parameter | Description |
+|---|---|
+| **Bandwidth sensors** | Downloaded/uploaded totals and RX/TX activity rates |
+| **Signal sensors** | Signal strength, RSSI, and SNR |
+| **Network access switch** | Client block/unblock control |
+| **Reconnect button** | Wireless-client reconnect action |
+
 ### Site Entity Settings
 
 | Parameter | Default | Description |
@@ -341,7 +418,8 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | **VPN monitoring sensors** | Enabled | Creates one primary connection binary sensor for every site-to-site, VPN server, and VPN client tunnel. Tunnel peer/client telemetry is available as diagnostic entities. A VPN client exposes its own traffic, remote IP, and connection-time diagnostics rather than misleading peer counts. |
 | **WAN speed test** | Enabled | Creates a **Run speed test** button, a **Speed test running** binary sensor, and diagnostic download, upload, latency, and last-test-result sensors for each WAN port supported by the gateway. Run the button from the device page or dashboard; the running entity is on while Omada reports the test in progress. |
 
-Changing either setting reloads the integration. Disabled features neither create entities nor poll their optional API endpoints.
+Saving an option reloads the integration. Disabled VPN and WAN speed-test
+features neither create entities nor poll their optional API endpoints.
 
 ---
 
@@ -369,7 +447,7 @@ Device availability depends on your controller's firmware version and API access
 - **Local controller**: Requires Open API enabled (not available on all firmware versions)
 - **Fusion Gateway**: Single-site only; no Open API app creation UI (uses web-session auth instead)
 - **API rate limits**: Respected automatically; rarely an issue with default polling intervals
-- **Viewer-only credentials**: PoE and LED switches are not created; all monitoring entities still work
+- **Viewer-only credentials**: Monitoring remains available, but controls require the matching endpoint permissions; only the site-wide LED switch has a setup-time permission probe
 
 ---
 
