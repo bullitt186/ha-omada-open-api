@@ -1,8 +1,9 @@
 """Tests for Omada Open API config flow."""
 
 import datetime as dt
+import logging
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import aiohttp
 from homeassistant import config_entries
@@ -73,6 +74,57 @@ MOCK_TOKEN_DATA = {
 }
 
 MOCK_SITES = [{"siteId": "site123", "name": "Test Site"}]
+
+
+async def test_openapi_flows_use_verified_shared_session(
+    hass: HomeAssistant,
+) -> None:
+    """OpenAPI config and options requests use HA's verified shared session."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow._controller_type = CONTROLLER_TYPE_CLOUD
+    flow._api_url = "https://test.example.com"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    token_response = MagicMock()
+    token_response.status = 200
+    token_response.json = AsyncMock(
+        return_value={"errorCode": 0, "result": MOCK_TOKEN_DATA}
+    )
+    sites_response = MagicMock()
+    sites_response.status = 200
+    sites_response.json = AsyncMock(
+        return_value={"errorCode": 0, "result": {"data": MOCK_SITES}}
+    )
+    shared_session = MagicMock()
+    shared_session.post.return_value.__aenter__ = AsyncMock(return_value=token_response)
+    shared_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+    shared_session.get.return_value.__aenter__ = AsyncMock(return_value=sites_response)
+    shared_session.get.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    options_flow = OmadaOptionsFlowHandler(entry)
+    options_flow.hass = hass
+    options_flow._access_token = "token"
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=shared_session,
+    ) as mock_get_clientsession:
+        assert (
+            await flow._get_access_token(
+                "https://test.example.com", "cid123", "client-id", "client-secret"
+            )
+            == MOCK_TOKEN_DATA
+        )
+        assert await flow._get_sites() == MOCK_SITES
+        assert flow._get_http_session() is shared_session
+        assert options_flow._get_http_session() is shared_session
+
+    assert mock_get_clientsession.call_args_list == [call(hass)] * 4
+
 
 MOCK_CLIENTS = [
     {
@@ -998,7 +1050,9 @@ async def test_local_invalid_url(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_reauth_flow_success(hass: HomeAssistant) -> None:
+async def test_reauth_flow_success(
+    hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+) -> None:
     """Test successful reauthentication flow."""
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -1015,6 +1069,9 @@ async def test_reauth_flow_success(hass: HomeAssistant) -> None:
         unique_id="reauth_omada",
     )
     entry.add_to_hass(hass)
+    caplog.set_level(
+        logging.DEBUG, logger="custom_components.omada_open_api.config_flow"
+    )
 
     with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
         await hass.config_entries.async_setup(entry.entry_id)
@@ -1043,6 +1100,13 @@ async def test_reauth_flow_success(hass: HomeAssistant) -> None:
     assert result["reason"] == "reauth_successful"
     assert entry.data[CONF_CLIENT_ID] == "new_cid"
     assert entry.data[CONF_ACCESS_TOKEN] == "test_access_token"
+    for secret in (
+        "old_csecret",
+        "expired_token",
+        "expired_rtoken",
+        "new_csecret",
+    ):
+        assert secret not in caplog.text
 
 
 async def test_reauth_flow_invalid_auth(hass: HomeAssistant) -> None:

@@ -785,7 +785,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         """
         _LOGGER.debug("Getting access token from %s", api_url)
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = async_get_clientsession(self.hass)
 
         # Use client credentials grant type as specified in Omada API docs
         url = f"{api_url}/openapi/authorize/token"
@@ -837,7 +837,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass, verify_ssl=False)
+        session = async_get_clientsession(self.hass)
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites"
         headers = {"Authorization": f"AccessToken={self._access_token}"}
         # Add pagination parameters as shown in the Omada API documentation
@@ -874,7 +874,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         if self._controller_type == CONTROLLER_TYPE_FUSION:
             return self._get_fusion_session()
-        return async_get_clientsession(self.hass, verify_ssl=False)
+        return async_get_clientsession(self.hass)
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
@@ -1328,7 +1328,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to show reauth confirmation
 
         """
-        _LOGGER.debug("Reauth flow started with entry_data: %s", entry_data)
+        _LOGGER.debug("Reauth flow started")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -1343,7 +1343,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             ConfigFlowResult to update entry or show form again
 
         """
-        _LOGGER.debug("Reauth confirm step called with user_input: %s", user_input)
+        _LOGGER.debug("Reauth confirmation submitted: %s", user_input is not None)
         errors: dict[str, str] = {}
         reauth_entry = self._get_reauth_entry()
         _LOGGER.debug("Reauth entry retrieved: %s", reauth_entry.title)
@@ -1518,7 +1518,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             return self._live_session
         if self._fusion_csrf_token:
             return self._get_fusion_session()
-        return async_get_clientsession(self.hass, verify_ssl=False)
+        return async_get_clientsession(self.hass)
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""

@@ -85,7 +85,7 @@ DEFAULT_FIRMWARE_CHECK_INTERVAL = 1800  # 30 minutes
 DEFAULT_RADIO_UTIL_INTERVAL = 300  # 5 minutes
 UPGRADE_POLL_INTERVAL = 10  # Fast polling during firmware upgrades
 UPGRADE_COOLDOWN_POLLS = 3  # Extra fast-poll cycles after upgrade finishes
-MIN_SCAN_INTERVAL = 10
+MIN_SCAN_INTERVAL = 30
 MAX_SCAN_INTERVAL = 3600
 
 # Device types

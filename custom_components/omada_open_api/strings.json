@@ -183,7 +183,7 @@
             },
             "update_intervals": {
                 "title": "Update Intervals",
-                "description": "Configure how frequently each data type is polled from the Omada controller (in seconds). Lower values provide more responsive updates but increase API load.\n\nValid range: 10–3600 seconds.",
+                "description": "Configure how frequently each data type is polled from the Omada controller (in seconds). Lower values provide more responsive updates but increase API load.\n\nValid range: 30–3600 seconds.",
                 "data": {
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",

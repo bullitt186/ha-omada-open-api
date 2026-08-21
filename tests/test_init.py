@@ -162,11 +162,19 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     """Test successful integration setup with one site."""
     entry = _build_entry(hass)
     patcher, _mock_client = _patch_api_client()
+    shared_session = MagicMock()
 
-    with patcher:
+    with (
+        patcher,
+        patch(
+            "custom_components.omada_open_api.async_get_clientsession",
+            return_value=shared_session,
+        ) as mock_get_clientsession,
+    ):
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
+    mock_get_clientsession.assert_called_once_with(hass)
     assert entry.state is ConfigEntryState.LOADED
     runtime = entry.runtime_data
     assert runtime.api_client is not None
@@ -848,6 +856,24 @@ async def test_migrate_data_to_options_noop(hass: HomeAssistant) -> None:
 
     # Data should not have changed
     assert dict(entry.data) == original_data
+
+
+async def test_migrate_data_to_options_clamps_legacy_scan_intervals(
+    hass: HomeAssistant,
+) -> None:
+    """Test that saved scan intervals below 30 seconds are raised safely."""
+    entry = _build_entry(
+        hass,
+        options={
+            CONF_DEVICE_SCAN_INTERVAL: 10,
+            CONF_CLIENT_SCAN_INTERVAL: 20,
+        },
+    )
+
+    _migrate_data_to_options(hass, entry)
+
+    assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 30
+    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 30
 
 
 # ---------------------------------------------------------------------------
