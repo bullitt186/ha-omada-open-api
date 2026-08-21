@@ -50,7 +50,7 @@ check: lint typecheck test-all
 install:
 	python3 -m venv .venv
 	.venv/bin/pip install -r requirements_dev.txt
-	pre-commit install
+	.venv/bin/pre-commit install
 
 # Start the full dev environment (HA + devcontainer) from the terminal.
 # Docker must be running. HA will be available at http://localhost:8123.
