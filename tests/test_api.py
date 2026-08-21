@@ -87,14 +87,14 @@ async def test_token_refresh_before_expiry(
     mock_post.assert_called_once()
     call_args = mock_post.call_args
     assert "/openapi/authorize/token" in call_args[0][0]
-    assert call_args[1]["params"]["grant_type"] == "refresh_token"
-
-    # Verify refresh_token grant puts ALL params in query string (no body)
+    # Verify the query contains no credentials or tokens.
     refresh_params = call_args[1]["params"]
-    assert refresh_params["client_id"] == "test_client_id"
-    assert refresh_params["client_secret"] == "test_client_secret"
-    assert refresh_params["refresh_token"] == "old_refresh_token"
-    assert "json" not in call_args[1]  # No body for refresh_token grant
+    assert refresh_params == {"grant_type": "refresh_token"}
+    assert call_args[1]["json"] == {
+        "client_id": "test_client_id",
+        "client_secret": "test_client_secret",
+        "refresh_token": "old_refresh_token",
+    }
 
     # Verify config entry was updated
     mock_callback.assert_called_once()
