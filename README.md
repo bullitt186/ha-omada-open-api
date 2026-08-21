@@ -68,7 +68,7 @@ Not every feature works on every setup — some need specific hardware:
 
 > **Free cloud accounts won't work.** Omada Cloud/Central **Essentials** has no Open API support — confirmed by TP-Link support. Cloud mode needs the paid **Standard** tier or higher; otherwise use **Local** with a self-hosted controller. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#authentication-errors) for the resulting error.
 
-> **OC200 controllers don't support Open API**, regardless of licensing — a hardware limitation. Use a different hardware controller (e.g. OC300) or the free Software Controller instead.
+> **OC200 Open API support depends on firmware.** Open API is confirmed to work on firmware 6.2.10.18, but earlier versions may not expose it. Update the controller and check **Settings > Platform Integration > Open API**. If that option is unavailable, use another supported controller such as the OC300 or the free Software Controller.
 
 > **Permissions:** Control entities (PoE/LED/SSID/radio-band switches, firmware install) need write-access credentials. Viewer-only credentials still get all monitoring entities; controls are detected and skipped automatically.
 
@@ -349,7 +349,7 @@ Changing either setting reloads the integration. Disabled features neither creat
 
 All TP-Link Omada SDN devices accessible via the Open API are supported:
 
-- **Controllers**: OC300, software controllers, cloud-managed controllers (OC200 is **not** supported — no Open API)
+- **Controllers**: OC300, software controllers, cloud-managed controllers, and OC200 controllers running firmware that exposes Open API (confirmed on 6.2.10.18)
 - **Fusion Gateways**: TP-Link Omada Fusion series (built-in controller, no separate hardware controller required)
 - **Access Points**: EAP series (WiFi 5/6/6E/7, indoor & outdoor)
 - **Switches**: JetStream and Smart Managed switches (PoE and non-PoE)
