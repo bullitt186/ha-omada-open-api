@@ -104,6 +104,40 @@ class TestClientCredentialsAuth:
         assert auth._refresh_token == "new_refresh"
 
     @pytest.mark.asyncio
+    async def test_refresh_sends_credentials_in_request_body(self) -> None:
+        """Refresh credentials are excluded from the request URL."""
+        auth = self._make_auth(
+            token_expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+        )
+
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.json = AsyncMock(
+            return_value={
+                "errorCode": 0,
+                "result": {
+                    "accessToken": "new_access",
+                    "refreshToken": "new_refresh",
+                    "expiresIn": 7200,
+                },
+            }
+        )
+        mock_ctx = AsyncMock()
+        mock_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_ctx.__aexit__ = AsyncMock(return_value=False)
+        auth._session.post.return_value = mock_ctx
+
+        await auth.ensure_valid_session()
+
+        request_kwargs = auth._session.post.call_args.kwargs
+        assert request_kwargs["params"] == {"grant_type": "refresh_token"}
+        assert request_kwargs["json"] == {
+            "client_id": TEST_CLIENT_ID,
+            "client_secret": TEST_CLIENT_SECRET,
+            "refresh_token": "test_refresh",
+        }
+
+    @pytest.mark.asyncio
     async def test_handle_auth_failure_refreshes_token(self) -> None:
         """handle_auth_failure triggers a token refresh."""
         auth = self._make_auth()

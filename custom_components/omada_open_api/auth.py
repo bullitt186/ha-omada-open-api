@@ -108,8 +108,8 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
         from .api import OmadaApiAuthError, OmadaApiError
 
         url = f"{self._api_url}/openapi/authorize/token"
-        params = {
-            "grant_type": "refresh_token",
+        params = {"grant_type": "refresh_token"}
+        data = {
             "client_id": self._client_id,
             "client_secret": self._client_secret,
             "refresh_token": self._refresh_token,
@@ -119,6 +119,7 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
             async with self._session.post(
                 url,
                 params=params,
+                json=data,
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
                 if response.status == 401:
