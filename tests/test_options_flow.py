@@ -6,7 +6,8 @@ import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
+import pytest
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -129,7 +130,7 @@ async def test_update_intervals_saves_values(hass: HomeAssistant) -> None:
             result["flow_id"],
             {
                 CONF_DEVICE_SCAN_INTERVAL: 120,
-                CONF_CLIENT_SCAN_INTERVAL: 15,
+                CONF_CLIENT_SCAN_INTERVAL: 30,
                 CONF_APP_SCAN_INTERVAL: 600,
             },
         )
@@ -138,8 +139,31 @@ async def test_update_intervals_saves_values(hass: HomeAssistant) -> None:
 
     # Verify saved values are in entry.options (not entry.data)
     assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 120
-    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 15
+    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 30
     assert entry.options[CONF_APP_SCAN_INTERVAL] == 600
+
+
+async def test_update_intervals_rejects_too_frequent_polling(
+    hass: HomeAssistant,
+) -> None:
+    """Test that cloud polling intervals below 30 seconds are rejected."""
+    entry = _create_config_entry(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "update_intervals"}
+        )
+        with pytest.raises(InvalidData, match=CONF_DEVICE_SCAN_INTERVAL):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"],
+                {
+                    CONF_DEVICE_SCAN_INTERVAL: 29,
+                    CONF_CLIENT_SCAN_INTERVAL: 30,
+                    CONF_APP_SCAN_INTERVAL: 300,
+                },
+            )
 
 
 # ---------------------------------------------------------------------------

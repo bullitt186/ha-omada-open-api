@@ -858,6 +858,24 @@ async def test_migrate_data_to_options_noop(hass: HomeAssistant) -> None:
     assert dict(entry.data) == original_data
 
 
+async def test_migrate_data_to_options_clamps_legacy_scan_intervals(
+    hass: HomeAssistant,
+) -> None:
+    """Test that saved scan intervals below 30 seconds are raised safely."""
+    entry = _build_entry(
+        hass,
+        options={
+            CONF_DEVICE_SCAN_INTERVAL: 10,
+            CONF_CLIENT_SCAN_INTERVAL: 20,
+        },
+    )
+
+    _migrate_data_to_options(hass, entry)
+
+    assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 30
+    assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 30
+
+
 # ---------------------------------------------------------------------------
 # Setup error tests
 # ---------------------------------------------------------------------------

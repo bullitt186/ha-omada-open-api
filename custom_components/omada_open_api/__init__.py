@@ -54,6 +54,7 @@ from .const import (
     DEFAULT_DISCONNECT_TIMEOUT,
     DEFAULT_STATS_SCAN_INTERVAL,
     DOMAIN,
+    MIN_SCAN_INTERVAL,
     THREAT_HEATMAP_INTERVALS,
 )
 from .coordinator import (
@@ -173,13 +174,19 @@ _OPTIONS_KEYS = {
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_APP_SCAN_INTERVAL,
 }
+_SCAN_INTERVAL_KEYS = {
+    CONF_DEVICE_SCAN_INTERVAL,
+    CONF_CLIENT_SCAN_INTERVAL,
+    CONF_APP_SCAN_INTERVAL,
+}
 
 
 def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Move user-preference keys from entry.data to entry.options.
+    """Move preferences to options and enforce the safe polling floor.
 
     Older versions stored scan intervals and selections in entry.data.
-    This one-time migration moves them to entry.options where they belong.
+    This migration moves them to entry.options and raises previously saved
+    polling intervals that are no longer permitted.
 
     Args:
         hass: Home Assistant instance
@@ -191,16 +198,28 @@ def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> No
         if key in entry.data:
             migrated[key] = entry.data[key]
 
-    if not migrated:
+    new_data = {k: v for k, v in entry.data.items() if k not in _OPTIONS_KEYS}
+    new_options = {**migrated, **dict(entry.options)}
+    clamped_intervals = 0
+    for key in _SCAN_INTERVAL_KEYS:
+        value = new_options.get(key)
+        if isinstance(value, int) and value < MIN_SCAN_INTERVAL:
+            new_options[key] = MIN_SCAN_INTERVAL
+            clamped_intervals += 1
+
+    if not migrated and not clamped_intervals:
         return
 
-    _LOGGER.info("Migrating %d key(s) from entry.data to entry.options", len(migrated))
-
-    # Remove migrated keys from data
-    new_data = {k: v for k, v in entry.data.items() if k not in _OPTIONS_KEYS}
-
-    # Merge into existing options (existing options take precedence)
-    new_options = {**migrated, **dict(entry.options)}
+    if migrated:
+        _LOGGER.info(
+            "Migrating %d key(s) from entry.data to entry.options", len(migrated)
+        )
+    if clamped_intervals:
+        _LOGGER.info(
+            "Raised %d saved scan interval(s) to the %d-second minimum",
+            clamped_intervals,
+            MIN_SCAN_INTERVAL,
+        )
 
     hass.config_entries.async_update_entry(
         entry,
