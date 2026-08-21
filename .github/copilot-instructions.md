@@ -99,6 +99,9 @@ The integration supports two authentication modes via the `OmadaAuthStrategy` pa
 - **CID Auto-Detection**: `GET {url}/api/info` returns `result.omadacId`
 - **Single Site**: Fusion gateways typically expose one site with an auto-generated name; use single-site fallback if the stored site_id no longer matches
 - **Session Invalidation**: Each web login invalidates prior sessions — never log in twice with the same session; reuse the CSRF token from a single login
+- **Live-Test Sequencing**: Browser/API testing against Fusion invalidates the local HA session. Finish all direct Fusion work, then restart local HA before asserting entity state. Do not log into Fusion again during that final HA verification.
+- **Response Schemas**: Treat the live Fusion payload as authoritative when it differs from OpenAPI documentation. In particular, VPN client connection state and traffic fields are not interchangeable with S2S/server peer statistics; test each VPN type separately.
+- **Credential Hygiene**: Never include passwords, cookies, CSRF tokens, or access tokens in browser-automation output, shell output, logs, fixtures, commits, or PR text — including development-only credentials.
 - **Entry Data**: Stores `auth_mode: "web_session"`, `username`, `password` (no client_id/secret/tokens)
 - **v2 Clients Fallback**: Some Fusion firmware returns error `-1600` on the v2 clients POST endpoint; the client falls back to v1 GET permanently when this occurs
 
@@ -387,6 +390,9 @@ async def test_sensor(hass: HomeAssistant) -> None:
 - **Entity Naming**: Follow naming conventions (device name + entity type)
 - **Availability**: Set entity availability based on device connection status
 - **State Updates**: Update states via coordinator, not individual polling
+- **Dynamic Resources**: Create entities only for resources currently reported by the controller. If a user removes a tunnel or peer, its existing registry entity should become `unavailable`; do not invent a replacement state or delete user-customized registry entries.
+- **Optional Features**: A config-option toggle must prevent both entity creation and polling of that feature's optional endpoint/coordinator. Hiding entities while still polling is not sufficient.
+- **VPN UX**: Expose a tunnel's primary connection state as a clearly named connectivity binary sensor. Put peer/client traffic and connection metadata in diagnostic entities, and do not apply peer-count concepts to VPN clients when the controller provides client-level telemetry instead.
 
 ### 7. Quality Scale Requirements (Minimum Bronze Tier)
 - **Integration Quality Scale**: New integrations must meet at least Bronze tier requirements
@@ -444,7 +450,8 @@ the code:
   `/workspaces/ha-omada-open-api` vs `/home/<user>/.../ha-omada-open-api`), git
   commands run inside the container against that worktree fail with "not a git
   repository" until you add a symlink inside the container mapping the host path
-  to the container path.
+  to the container path. Also add the container worktree to Git's `safe.directory`
+  list when Git reports an ownership warning.
 
 ### Deploying and Verifying (devcontainer only)
 
@@ -458,6 +465,10 @@ already-imported Python module in `sys.modules` — it does not re-read the `.py
 from disk. Copying new files and only reloading the config entry will silently keep
 running the old code with no error. Only a full HA restart re-imports the module, which
 is why `make deploy` restarts rather than reloads.
+
+**Verification must cover all three layers:** focused/unit tests establish behavior,
+local HA runtime verification confirms entities and states are actually registered, and
+the hosted CI run is the release gate. Do not treat one layer as evidence for another.
 
 After implementing and merging a fix:
 
