@@ -25,10 +25,12 @@
                 "title": "Local Controller URL",
                 "description": "Enter the URL of your self-hosted Omada controller (e.g., {example_url}).",
                 "data": {
-                    "api_url": "Controller URL"
+                    "api_url": "Controller URL",
+                    "verify_ssl": "Verify SSL certificate"
                 },
                 "data_description": {
-                    "api_url": "Full URL including protocol and port"
+                    "api_url": "Full URL including protocol and port",
+                    "verify_ssl": "Leave off if your controller uses the self-signed certificate most local Omada controllers ship with. Enable only if you have installed a certificate from a trusted CA."
                 }
             },
             "fusion": {
@@ -110,6 +112,7 @@
                     "controller_type": "Controller Type",
                     "region": "Region",
                     "api_url": "Controller URL",
+                    "verify_ssl": "Verify SSL certificate",
                     "omada_id": "Omada ID",
                     "client_id": "Client ID",
                     "client_secret": "Client Secret"
@@ -118,6 +121,7 @@
                     "controller_type": "Cloud-hosted uses TP-Link cloud; local connects directly to your controller",
                     "region": "Cloud region (only for cloud controllers)",
                     "api_url": "Full URL including protocol (only for local controllers)",
+                    "verify_ssl": "Local controllers only. Leave off for a self-signed certificate; enable only if you have installed a certificate from a trusted CA.",
                     "omada_id": "MSP ID or Customer ID from your Open API application",
                     "client_id": "OAuth2 Client ID from your Open API application",
                     "client_secret": "OAuth2 Client Secret from your Open API application"

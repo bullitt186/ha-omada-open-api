@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .api import OmadaApiAuthError, OmadaApiClient
 from .auth import WebSessionAuth
 from .clients import normalize_client_mac
+from .config_flow import resolve_verify_ssl
 from .const import (
     AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
@@ -33,6 +34,7 @@ from .const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
+    CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
@@ -48,6 +50,9 @@ from .const import (
     CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
+    CONF_VERIFY_SSL,
+    CONTROLLER_TYPE_CLOUD,
+    CONTROLLER_TYPE_FUSION,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
@@ -338,6 +343,14 @@ async def _async_setup_wan_speed_test(
     if not entry.options.get(CONF_ENABLE_WAN_SPEED_TEST, True):
         return {}
 
+    # The speed-test endpoints only exist on a Fusion Gateway's built-in
+    # controller. A traditional Local/Cloud controller has no such API
+    # path at all, so every poll would fail with "-1600: Unsupported
+    # request path" — expected, but pure noise for every non-Fusion user
+    # with a gateway device. Skip creating the coordinators entirely.
+    if entry.data.get(CONF_CONTROLLER_TYPE) != CONTROLLER_TYPE_FUSION:
+        return {}
+
     wan_speed_test_coordinators = await _async_create_wan_speed_test_coordinators(
         hass, api_client, coordinators
     )
@@ -408,8 +421,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 auth=auth,
             )
         else:
-            # Traditional OpenAPI: client_credentials authentication
-            session = async_get_clientsession(hass)
+            # Traditional OpenAPI: client_credentials authentication.
+            # Cloud always enforces certificate verification; Local defaults
+            # to unverified (self-signed certificates are the norm on local
+            # controllers) unless the user has explicitly opted in via the
+            # config/reconfigure/options flow's "Verify SSL certificate" field.
+            verify_ssl = resolve_verify_ssl(
+                entry.data.get(CONF_CONTROLLER_TYPE, CONTROLLER_TYPE_CLOUD),
+                entry.data.get(CONF_VERIFY_SSL),
+            )
+            session = async_get_clientsession(hass, verify_ssl=verify_ssl)
             token_expires_at = dt.datetime.fromisoformat(
                 entry.data[CONF_TOKEN_EXPIRES_AT]
             )
