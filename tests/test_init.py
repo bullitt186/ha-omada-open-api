@@ -42,6 +42,7 @@ from custom_components.omada_open_api.const import (
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     CONF_VERIFY_SSL,
+    CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
 )
@@ -182,7 +183,11 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     runtime = entry.runtime_data
     assert runtime.api_client is not None
     assert TEST_SITE_ID in runtime.coordinators
-    assert (TEST_SITE_ID, "AA-BB-CC-DD-EE-03") in runtime.wan_speed_test_coordinators
+    # Default (Cloud) controller type: no WAN speed-test coordinators — that
+    # endpoint only exists on a Fusion Gateway. See
+    # test_setup_skips_wan_speed_test_for_non_fusion_controller and
+    # test_setup_entry_creates_wan_and_traffic_sensors.
+    assert runtime.wan_speed_test_coordinators == {}
     assert runtime.has_write_access is True
 
 
@@ -250,6 +255,7 @@ async def test_setup_skips_disabled_vpn_and_wan_speed_test(
     """Disabled gateway features create no coordinator or API traffic."""
     entry = _build_entry(
         hass,
+        data_overrides={CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_FUSION},
         options={
             CONF_ENABLE_VPN_SENSORS: False,
             CONF_ENABLE_WAN_SPEED_TEST: False,
@@ -266,6 +272,34 @@ async def test_setup_skips_disabled_vpn_and_wan_speed_test(
     mock_client.get_vpn_server_stats.assert_not_awaited()
     mock_client.get_vpn_client_stats.assert_not_awaited()
     mock_client.get_gateway_wan_speed_test_ports.assert_not_awaited()
+
+
+async def test_setup_skips_wan_speed_test_for_non_fusion_controller(
+    hass: HomeAssistant,
+) -> None:
+    """A Local/Cloud controller never gets WAN speed-test coordinators.
+
+    The speed-test endpoints only exist on a Fusion Gateway's built-in
+    controller — calling them on a traditional Local/Cloud controller
+    returns "-1600: Unsupported request path" on every single poll. Skip
+    creating the coordinators entirely for non-Fusion entries so that
+    every non-Fusion user with a gateway device isn't left with a
+    permanent, harmless-but-noisy error logged on each refresh.
+    """
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL},
+        options={CONF_ENABLE_WAN_SPEED_TEST: True},
+    )
+    patcher, mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.runtime_data.wan_speed_test_coordinators == {}
+    mock_client.get_gateway_wan_speed_test_ports.assert_not_awaited()
+    mock_client.get_gateway_wan_speed_test_result.assert_not_awaited()
 
 
 def test_migrate_wan_speed_test_button_unique_id(hass: HomeAssistant) -> None:
@@ -336,7 +370,9 @@ async def test_setup_entry_creates_wan_and_traffic_sensors(
     hass: HomeAssistant,
 ) -> None:
     """Test setup creates WAN sensors and device traffic sensors."""
-    entry = _build_entry(hass)
+    entry = _build_entry(
+        hass, data_overrides={CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_FUSION}
+    )
     wan_port = {
         "portName": "WAN1",
         "mode": 0,

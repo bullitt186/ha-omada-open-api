@@ -52,6 +52,7 @@ from .const import (
     CONF_USERNAME,
     CONF_VERIFY_SSL,
     CONTROLLER_TYPE_CLOUD,
+    CONTROLLER_TYPE_FUSION,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
@@ -340,6 +341,14 @@ async def _async_setup_wan_speed_test(
 ) -> dict[tuple[str, str], OmadaWanSpeedTestCoordinator]:
     """Create optional WAN speed-test coordinators and migrate their IDs."""
     if not entry.options.get(CONF_ENABLE_WAN_SPEED_TEST, True):
+        return {}
+
+    # The speed-test endpoints only exist on a Fusion Gateway's built-in
+    # controller. A traditional Local/Cloud controller has no such API
+    # path at all, so every poll would fail with "-1600: Unsupported
+    # request path" — expected, but pure noise for every non-Fusion user
+    # with a gateway device. Skip creating the coordinators entirely.
+    if entry.data.get(CONF_CONTROLLER_TYPE) != CONTROLLER_TYPE_FUSION:
         return {}
 
     wan_speed_test_coordinators = await _async_create_wan_speed_test_coordinators(
