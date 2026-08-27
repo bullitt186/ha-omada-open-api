@@ -57,6 +57,7 @@ from .const import (
     CONF_SSID_FILTER,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
+    CONF_VERIFY_SSL,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
@@ -123,6 +124,22 @@ def _invalid_auth_error_key(err: InvalidAuthError) -> str:
     return "invalid_auth"
 
 
+def resolve_verify_ssl(controller_type: str | None, stored_value: bool | None) -> bool:
+    """Resolve whether TLS certificate verification should be enforced.
+
+    Cloud controllers are always reached over TP-Link's publicly trusted
+    certificates, so verification is always enforced there regardless of any
+    stored value. Local (self-hosted) controllers commonly present a
+    self-signed certificate on their management port, so verification
+    defaults to *off* there unless a user has explicitly opted in — this
+    preserves the working behavior of installs configured before this option
+    existed, instead of breaking on upgrade with an SSL verification error.
+    """
+    if controller_type == CONTROLLER_TYPE_CLOUD:
+        return True
+    return bool(stored_value) if stored_value is not None else False
+
+
 def extract_ssids_from_clients(clients: list[dict[str, Any]]) -> list[str]:
     """Extract unique, sorted SSIDs from a list of client dicts.
 
@@ -175,6 +192,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._controller_type: str | None = None
         self._region: str | None = None
+        self._verify_ssl: bool = True
         self._api_url: str | None = None
         self._omada_id: str | None = None
         self._client_id: str | None = None
@@ -239,6 +257,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             self._region = user_input[CONF_REGION]
             self._api_url = REGIONS[self._region]["api_url"]
+            # Cloud connections always use TP-Link's publicly trusted
+            # certificates, so verification is never optional here.
+            self._verify_ssl = True
             return await self.async_step_credentials()
 
         # Create schema for region selection
@@ -264,6 +285,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             self._api_url = user_input[CONF_API_URL].rstrip("/")
+            self._verify_ssl = user_input.get(CONF_VERIFY_SSL, False)
             # Validate URL format
             if not self._api_url.startswith(("http://", "https://")):
                 errors[CONF_API_URL] = "invalid_url"
@@ -277,6 +299,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_API_URL,
                     description={"suggested_value": "https://"},
                 ): cv.string,
+                vol.Optional(CONF_VERIFY_SSL, default=False): cv.boolean,
             }
         )
 
@@ -610,6 +633,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             if self._token_expires_at
             else "",
             CONF_SELECTED_SITES: self._selected_site_ids,
+            CONF_VERIFY_SSL: self._verify_ssl,
         }
 
     def _generate_entry_title(self) -> str:
@@ -785,7 +809,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         """
         _LOGGER.debug("Getting access token from %s", api_url)
-        session = async_get_clientsession(self.hass)
+        session = async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
 
         # Use client credentials grant type as specified in Omada API docs
         url = f"{api_url}/openapi/authorize/token"
@@ -837,7 +861,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             aiohttp.ClientError: If connection fails
 
         """
-        session = async_get_clientsession(self.hass)
+        session = async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
         url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites"
         headers = {"Authorization": f"AccessToken={self._access_token}"}
         # Add pagination parameters as shown in the Omada API documentation
@@ -874,7 +898,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         """
         if self._controller_type == CONTROLLER_TYPE_FUSION:
             return self._get_fusion_session()
-        return async_get_clientsession(self.hass)
+        return async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
@@ -1138,6 +1162,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
                 self._region = region
                 self._api_url = REGIONS[region]["api_url"]
+                # Cloud connections always use TP-Link's publicly trusted
+                # certificates, so verification is never optional here.
+                self._verify_ssl = True
             else:
                 api_url = user_input.get(
                     CONF_API_URL,
@@ -1147,6 +1174,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     errors["base"] = "invalid_url"
                     return self._show_reconfigure_form(reconfigure_entry, errors)
                 self._api_url = api_url.rstrip("/")
+                self._verify_ssl = user_input.get(
+                    CONF_VERIFY_SSL,
+                    reconfigure_entry.data.get(CONF_VERIFY_SSL, False),
+                )
 
             omada_id = user_input.get(
                 CONF_OMADA_ID,
@@ -1231,6 +1262,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_API_URL,
                     default=entry.data.get(CONF_API_URL, "") if not is_cloud else "",
                 ): cv.string,
+                vol.Optional(
+                    CONF_VERIFY_SSL,
+                    default=entry.data.get(CONF_VERIFY_SSL, False),
+                ): cv.boolean,
                 vol.Required(
                     CONF_OMADA_ID,
                     default=entry.data.get(CONF_OMADA_ID, ""),
@@ -1278,6 +1313,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                             else ""
                         ),
                         CONF_SELECTED_SITES: selected,
+                        CONF_VERIFY_SSL: self._verify_ssl,
                     },
                 )
 
@@ -1354,6 +1390,10 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             omada_id = user_input.get(CONF_OMADA_ID, reauth_entry.data[CONF_OMADA_ID])
             client_id = user_input[CONF_CLIENT_ID]
             client_secret = user_input[CONF_CLIENT_SECRET]
+            self._verify_ssl = resolve_verify_ssl(
+                reauth_entry.data.get(CONF_CONTROLLER_TYPE, CONTROLLER_TYPE_CLOUD),
+                reauth_entry.data.get(CONF_VERIFY_SSL),
+            )
 
             try:
                 # Get new tokens
@@ -1423,6 +1463,13 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         self._api_url: str | None = None
         self._omada_id: str | None = None
         self._access_token: str | None = None
+        # Captured from the config entry at construction time (rather than
+        # via the `config_entry` property) since that property is only
+        # available once the flow has been initialised by the flow manager.
+        self._verify_ssl: bool = resolve_verify_ssl(
+            config_entry.data.get(CONF_CONTROLLER_TYPE, CONTROLLER_TYPE_CLOUD),
+            config_entry.data.get(CONF_VERIFY_SSL),
+        )
         self._selected_site_ids: list[str] = []
         self._available_clients: list[dict[str, Any]] = []
         self._available_applications: list[dict[str, Any]] = []
@@ -1518,7 +1565,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
             return self._live_session
         if self._fusion_csrf_token:
             return self._get_fusion_session()
-        return async_get_clientsession(self.hass)
+        return async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
 
     def _build_api_headers(self) -> dict[str, str]:
         """Build API headers based on current auth mode."""
