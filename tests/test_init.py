@@ -31,6 +31,7 @@ from custom_components.omada_open_api.const import (
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
+    CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -40,6 +41,8 @@ from custom_components.omada_open_api.const import (
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_VERIFY_SSL,
+    CONTROLLER_TYPE_LOCAL,
     DOMAIN,
 )
 
@@ -174,13 +177,71 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
         await hass.config_entries.async_setup(entry.entry_id)
         await hass.async_block_till_done()
 
-    mock_get_clientsession.assert_called_once_with(hass)
+    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=True)
     assert entry.state is ConfigEntryState.LOADED
     runtime = entry.runtime_data
     assert runtime.api_client is not None
     assert TEST_SITE_ID in runtime.coordinators
     assert (TEST_SITE_ID, "AA-BB-CC-DD-EE-03") in runtime.wan_speed_test_coordinators
     assert runtime.has_write_access is True
+
+
+async def test_setup_entry_local_defaults_to_unverified_ssl(
+    hass: HomeAssistant,
+) -> None:
+    """A Local entry with no stored verify_ssl key sets up with verification off.
+
+    Regression test for GH #54 / the v1.10 TLS-verification regression:
+    Local controllers commonly present a self-signed certificate, and pre-fix
+    entries (created before this option existed) must keep working exactly
+    as they did before the v1.10 "restore verification" change broke them.
+    """
+    entry = _build_entry(
+        hass, data_overrides={CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL}
+    )
+    patcher, _mock_client = _patch_api_client()
+    shared_session = MagicMock()
+
+    with (
+        patcher,
+        patch(
+            "custom_components.omada_open_api.async_get_clientsession",
+            return_value=shared_session,
+        ) as mock_get_clientsession,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=False)
+    assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_setup_entry_local_respects_explicit_verify_ssl(
+    hass: HomeAssistant,
+) -> None:
+    """A Local entry that explicitly opted into verify_ssl=True keeps it enforced."""
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+            CONF_VERIFY_SSL: True,
+        },
+    )
+    patcher, _mock_client = _patch_api_client()
+    shared_session = MagicMock()
+
+    with (
+        patcher,
+        patch(
+            "custom_components.omada_open_api.async_get_clientsession",
+            return_value=shared_session,
+        ) as mock_get_clientsession,
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=True)
+    assert entry.state is ConfigEntryState.LOADED
 
 
 async def test_setup_skips_disabled_vpn_and_wan_speed_test(

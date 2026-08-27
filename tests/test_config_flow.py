@@ -16,6 +16,7 @@ from custom_components.omada_open_api.config_flow import (
     InvalidAuthError,
     OmadaConfigFlow,
     OmadaOptionsFlowHandler,
+    resolve_verify_ssl,
 )
 from custom_components.omada_open_api.const import (
     AUTH_MODE_WEB_SESSION,
@@ -45,6 +46,7 @@ from custom_components.omada_open_api.const import (
     CONF_SSID_FILTER,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
+    CONF_VERIFY_SSL,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
@@ -123,7 +125,166 @@ async def test_openapi_flows_use_verified_shared_session(
         assert flow._get_http_session() is shared_session
         assert options_flow._get_http_session() is shared_session
 
-    assert mock_get_clientsession.call_args_list == [call(hass)] * 4
+    assert mock_get_clientsession.call_args_list == [call(hass, verify_ssl=True)] * 4
+
+
+@pytest.mark.parametrize(
+    ("controller_type", "stored_value", "expected"),
+    [
+        # Cloud always verifies, regardless of any stored value.
+        (CONTROLLER_TYPE_CLOUD, None, True),
+        (CONTROLLER_TYPE_CLOUD, False, True),
+        (CONTROLLER_TYPE_CLOUD, True, True),
+        # Local defaults to unverified (self-signed certs are the norm),
+        # preserving pre-existing entries configured before this option
+        # existed, but honors an explicit opt-in/out.
+        (CONTROLLER_TYPE_LOCAL, None, False),
+        (CONTROLLER_TYPE_LOCAL, False, False),
+        (CONTROLLER_TYPE_LOCAL, True, True),
+        # Unknown/missing controller type is treated like Local (not Cloud).
+        (None, None, False),
+        (None, True, True),
+    ],
+)
+def test_resolve_verify_ssl(
+    controller_type: str | None, stored_value: bool | None, expected: bool
+) -> None:
+    """resolve_verify_ssl enforces Cloud verification and Local's opt-in default."""
+    assert resolve_verify_ssl(controller_type, stored_value) is expected
+
+
+async def test_local_flow_defaults_to_unverified_ssl(hass: HomeAssistant) -> None:
+    """A fresh Local setup with the SSL checkbox left unchecked stores verify_ssl=False.
+
+    This is the regression from GH #54: v1.10 enforced certificate
+    verification for Local controllers with no way to opt out, breaking
+    setups that use the self-signed certificate most local Omada
+    controllers ship with.
+    """
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value=MOCK_TOKEN_DATA,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=MOCK_SITES,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL}
+        )
+        # Submit the local URL without touching the (optional) SSL checkbox.
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_API_URL: "https://192.168.1.100:8043"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site123"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_VERIFY_SSL] is False
+
+
+async def test_local_flow_can_opt_into_verify_ssl(hass: HomeAssistant) -> None:
+    """A Local setup can explicitly enable certificate verification."""
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value=MOCK_TOKEN_DATA,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=MOCK_SITES,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {CONF_API_URL: "https://omada.example.com:8043", CONF_VERIFY_SSL: True},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site123"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_VERIFY_SSL] is True
+
+
+async def test_cloud_flow_always_verifies_ssl(hass: HomeAssistant) -> None:
+    """Cloud setups always store verify_ssl=True; there is no toggle for it."""
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value=MOCK_TOKEN_DATA,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=MOCK_SITES,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_clients",
+            return_value=[],
+        ),
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": "user"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_CLOUD}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_REGION: "us"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "test_omada_id",
+                CONF_CLIENT_ID: "test_client_id",
+                CONF_CLIENT_SECRET: "test_client_secret",
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_SELECTED_SITES: ["site123"]}
+        )
+
+        assert result["type"] == FlowResultType.CREATE_ENTRY
+        assert result["data"][CONF_VERIFY_SSL] is True
 
 
 MOCK_CLIENTS = [
@@ -2888,6 +3049,192 @@ async def test_reconfigure_full_flow_cloud(
         assert entry.data[CONF_OMADA_ID] == "new_omada_id"
         assert entry.data[CONF_CLIENT_ID] == "new_client_id"
         assert entry.data[CONF_SELECTED_SITES] == ["site123"]
+        assert entry.data[CONF_VERIFY_SSL] is True
+
+
+async def test_reconfigure_local_preserves_unverified_ssl_by_default(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Reconfiguring a pre-existing Local entry (no verify_ssl key yet) keeps it unverified.
+
+    Entries configured before this option existed have no verify_ssl key at
+    all. Reconfiguring one without touching the new checkbox must not
+    silently start enforcing certificate verification on a self-signed
+    controller.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://192.168.1.50:8043",
+            CONF_OMADA_ID: "old_omada_id",
+            CONF_CLIENT_ID: "old_client_id",
+            CONF_CLIENT_SECRET: "old_secret",
+            CONF_ACCESS_TOKEN: "old_token",
+            CONF_REFRESH_TOKEN: "old_refresh",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+            # No CONF_VERIFY_SSL key — mirrors an entry created pre-fix.
+        },
+        entry_id="test_reconfig_local",
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value=MOCK_TOKEN_DATA,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=MOCK_SITES,
+        ),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+        assert result["step_id"] == "reconfigure"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+                CONF_API_URL: "https://192.168.1.50:8043",
+                CONF_OMADA_ID: "old_omada_id",
+                CONF_CLIENT_ID: "old_client_id",
+                CONF_CLIENT_SECRET: "unchanged_secret",
+            },
+        )
+
+        assert result["step_id"] == "reconfigure_sites"
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_SELECTED_SITES: ["site123"]},
+        )
+
+        assert result["type"] == FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data[CONF_VERIFY_SSL] is False
+
+
+async def test_reconfigure_local_can_enable_verify_ssl(
+    hass: HomeAssistant, mock_setup_entry: AsyncMock
+) -> None:
+    """Reconfiguring a Local entry can explicitly turn certificate verification on."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://192.168.1.50:8043",
+            CONF_OMADA_ID: "old_omada_id",
+            CONF_CLIENT_ID: "old_client_id",
+            CONF_CLIENT_SECRET: "old_secret",
+            CONF_ACCESS_TOKEN: "old_token",
+            CONF_REFRESH_TOKEN: "old_refresh",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+            CONF_VERIFY_SSL: False,
+        },
+        entry_id="test_reconfig_local_verify",
+    )
+    entry.add_to_hass(hass)
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
+            return_value=MOCK_TOKEN_DATA,
+        ),
+        patch(
+            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
+            return_value=MOCK_SITES,
+        ),
+    ):
+        result = await entry.start_reconfigure_flow(hass)
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+                CONF_API_URL: "https://192.168.1.50:8043",
+                CONF_VERIFY_SSL: True,
+                CONF_OMADA_ID: "old_omada_id",
+                CONF_CLIENT_ID: "old_client_id",
+                CONF_CLIENT_SECRET: "unchanged_secret",
+            },
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={CONF_SELECTED_SITES: ["site123"]},
+        )
+
+        assert result["type"] == FlowResultType.ABORT
+        assert entry.data[CONF_VERIFY_SSL] is True
+
+
+async def test_reauth_uses_stored_verify_ssl_for_local_entry(
+    hass: HomeAssistant,
+) -> None:
+    """Reauth for a Local entry reuses its stored (unverified) SSL setting.
+
+    Regression coverage: reauth previously never set self._verify_ssl at
+    all, so it always fell back to the class default (verified) regardless
+    of the entry's actual controller type or stored preference.
+    """
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://192.168.1.50:8043",
+            CONF_OMADA_ID: "omada_id",
+            CONF_CLIENT_ID: "old_client_id",
+            CONF_CLIENT_SECRET: "old_secret",
+            CONF_ACCESS_TOKEN: "old_token",
+            CONF_REFRESH_TOKEN: "old_refresh",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+            CONF_VERIFY_SSL: False,
+        },
+        unique_id="omada_id",
+    )
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await entry.start_reauth_flow(hass)
+    assert result["step_id"] == "reauth_confirm"
+
+    with (
+        patch(
+            "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        ) as mock_get_clientsession,
+        patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
+    ):
+        token_response = MagicMock()
+        token_response.status = 200
+        token_response.json = AsyncMock(
+            return_value={"errorCode": 0, "result": MOCK_TOKEN_DATA}
+        )
+        mock_get_clientsession.return_value.post.return_value.__aenter__ = AsyncMock(
+            return_value=token_response
+        )
+        mock_get_clientsession.return_value.post.return_value.__aexit__ = AsyncMock(
+            return_value=False
+        )
+
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_OMADA_ID: "omada_id",
+                CONF_CLIENT_ID: "new_client_id",
+                CONF_CLIENT_SECRET: "new_secret",
+            },
+        )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=False)
 
 
 async def test_reconfigure_invalid_auth(

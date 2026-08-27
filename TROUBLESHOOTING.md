@@ -15,6 +15,8 @@
 
 > **"Controller ID not exist" (error -7131)?** Re-copying the Omada ID won't help — the free Omada Cloud/Central Essentials tier has no Open API at all (see [README → Features](README.md#features)). Upgrade to Standard, or switch to **Local** with a self-hosted controller.
 
+> **`SSLCertVerificationError` / "cannot connect" on a Local controller?** Most self-hosted Omada controllers use a self-signed certificate on their management port, which fails certificate verification by default. During setup (or under **Configure → Reconfigure**), leave **Verify SSL certificate** unchecked. Only enable it if you have installed a certificate from a trusted CA on your controller.
+
 ## No Entities Created
 
 1. Verify you selected at least one site during setup
