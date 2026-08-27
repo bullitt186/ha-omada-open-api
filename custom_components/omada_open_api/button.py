@@ -47,7 +47,8 @@ async def async_setup_entry(
         OmadaWlanOptimizationButton(coordinator) for coordinator in site_coordinators
     ]
     for (_, gateway_mac), speed_coordinator in rd.wan_speed_test_coordinators.items():
-        for index, port in enumerate(speed_coordinator.data.get("ports", []), start=1):
+        port_definitions = (speed_coordinator.data or {}).get("ports", [])
+        for index, port in enumerate(port_definitions, start=1):
             port_uuid = port.get("portUuid")
             if not port_uuid:
                 continue
