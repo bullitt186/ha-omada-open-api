@@ -142,7 +142,10 @@ class OmadaApiClient:
                             _LOGGER.error(
                                 "HTTP error %s: %s", response.status, response_text
                             )
-                        raise OmadaApiError(f"HTTP {response.status}: {response_text}")
+                        raise OmadaApiError(
+                            f"HTTP {response.status}: {response_text}",
+                            http_status=response.status,
+                        )
 
                     result = await response.json(content_type=None)
                     error_code = result.get("errorCode")
@@ -1489,7 +1492,17 @@ class OmadaApiClient:
             f"{self._api_url}/openapi/v2/{self._omada_id}"
             f"/sites/{site_id}/dashboard/gateway/isp/load"
         )
-        result = await self._authenticated_request("get", url)
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError as err:
+            # A standard (non-Fusion) controller doesn't expose this ISP
+            # dashboard endpoint at all. Degrade to "no Fusion ports" so
+            # the speed-test coordinator can still return the working v1
+            # speedTestResult data instead of failing every cycle. See
+            # GH #68.
+            if err.http_status == 404:
+                return []
+            raise
         gateways: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         for gateway in gateways:
             if gateway.get("mac") != gateway_mac:
@@ -1692,10 +1705,16 @@ class OmadaApiClient:
 class OmadaApiError(Exception):
     """General API exception."""
 
-    def __init__(self, message: str, error_code: int | None = None) -> None:
-        """Initialize with optional error code."""
+    def __init__(
+        self,
+        message: str,
+        error_code: int | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        """Initialize with optional error code and HTTP status."""
         super().__init__(message)
         self.error_code = error_code
+        self.http_status = http_status
 
 
 class OmadaApiAuthError(OmadaApiError):
