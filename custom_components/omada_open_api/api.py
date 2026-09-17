@@ -142,7 +142,10 @@ class OmadaApiClient:
                             _LOGGER.error(
                                 "HTTP error %s: %s", response.status, response_text
                             )
-                        raise OmadaApiError(f"HTTP {response.status}: {response_text}")
+                        raise OmadaApiError(
+                            f"HTTP {response.status}: {response_text}",
+                            http_status=response.status,
+                        )
 
                     result = await response.json(content_type=None)
                     error_code = result.get("errorCode")
@@ -1556,7 +1559,13 @@ class OmadaApiClient:
             try:
                 result = await self._authenticated_request("get", url, params=params)
             except OmadaApiError as err:
-                if fusion_filter_fallback and err.error_code == -1001:
+                # Some controllers reject the unfiltered call with an Omada
+                # errorCode -1001; others (e.g. 6.3.0.45) reject it with a
+                # bare Tomcat HTTP 400 that never reaches Omada's own error
+                # handling, so both must trigger the fallback. See GH #67.
+                if fusion_filter_fallback and (
+                    err.error_code == -1001 or err.http_status == 400
+                ):
                     _LOGGER.debug(
                         "VPN endpoint requires Fusion WireGuard filter; retrying"
                     )
@@ -1692,10 +1701,16 @@ class OmadaApiClient:
 class OmadaApiError(Exception):
     """General API exception."""
 
-    def __init__(self, message: str, error_code: int | None = None) -> None:
-        """Initialize with optional error code."""
+    def __init__(
+        self,
+        message: str,
+        error_code: int | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        """Initialize with optional error code and HTTP status."""
         super().__init__(message)
         self.error_code = error_code
+        self.http_status = http_status
 
 
 class OmadaApiAuthError(OmadaApiError):
