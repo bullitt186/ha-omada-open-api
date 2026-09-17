@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from custom_components.omada_open_api.api import OmadaApiClient
+from custom_components.omada_open_api.api import OmadaApiClient, OmadaApiError
 
 
 @pytest.mark.asyncio
@@ -89,6 +89,41 @@ async def test_get_gateway_wan_speed_test_ports_returns_fusion_port_uuids() -> N
         "https://controller.local/openapi/v2/controller-id/sites/site-id/"
         "dashboard/gateway/isp/load",
     )
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_wan_speed_test_ports_returns_empty_on_404() -> None:
+    """A non-Fusion controller lacks the ISP dashboard endpoint (HTTP 404).
+
+    Standard (non-Fusion) Omada Software Controllers don't expose
+    `dashboard/gateway/isp/load`. The lookup should degrade to "no Fusion
+    ports" instead of propagating, so the WAN speed-test coordinator can
+    still return the working v1 `speedTestResult` data. See GH #68.
+    """
+    client = OmadaApiClient.__new__(OmadaApiClient)
+    client._api_url = "https://controller.local"
+    client._omada_id = "controller-id"
+    client._authenticated_request = AsyncMock(
+        side_effect=OmadaApiError("HTTP 404: Not Found", http_status=404)
+    )
+
+    ports = await client.get_gateway_wan_speed_test_ports("site-id", "gateway-mac")
+
+    assert ports == []
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_wan_speed_test_ports_reraises_other_errors() -> None:
+    """A non-404 failure on the ISP dashboard endpoint still propagates."""
+    client = OmadaApiClient.__new__(OmadaApiClient)
+    client._api_url = "https://controller.local"
+    client._omada_id = "controller-id"
+    client._authenticated_request = AsyncMock(
+        side_effect=OmadaApiError("HTTP 500: Internal Server Error", http_status=500)
+    )
+
+    with pytest.raises(OmadaApiError):
+        await client.get_gateway_wan_speed_test_ports("site-id", "gateway-mac")
 
 
 @pytest.mark.asyncio
