@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
 from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 def normalize_site_id(site_id: str) -> str:
@@ -17,6 +21,19 @@ def normalize_site_id(site_id: str) -> str:
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def resolve_via_device_id(hass: HomeAssistant, mac: str) -> str | None:
+    """Look up the device-registry id of an already-registered peer device.
+
+    Returns None when the peer device (e.g. an uplink switch/gateway, or a
+    client's parent AP) hasn't been registered yet, so the caller can omit
+    the via-device link instead of passing an unresolved identifier to the
+    deprecated via_device field, or an invalid id to via_device_id (which
+    raises). See GH #69.
+    """
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, mac)})
+    return device.id if device else None
 
 
 def parse_uptime(uptime_str: str | int | None) -> int | None:
@@ -168,11 +185,11 @@ def build_client_device_info(
     client_mac: str,
     client_data: dict[str, Any],
     api_url: str,
-    via_device: tuple[str, str],
+    via_device_id: str | None,
 ) -> DeviceInfo:
     """Build DeviceInfo for a network client device (MAC-only connections)."""
     client_name = client_data.get("name") or client_data.get("host_name") or client_mac
-    return DeviceInfo(
+    device_info = DeviceInfo(
         identifiers={(DOMAIN, client_mac)},
         connections={("mac", client_mac)},
         name=client_name,
@@ -180,8 +197,10 @@ def build_client_device_info(
         model=client_data.get("device_type") or client_data.get("model"),
         sw_version=client_data.get("os_name"),
         configuration_url=api_url,
-        via_device=via_device,
     )
+    if via_device_id is not None:
+        device_info["via_device_id"] = via_device_id
+    return device_info
 
 
 def process_device(device: dict[str, Any]) -> dict[str, Any]:

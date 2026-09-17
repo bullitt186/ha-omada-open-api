@@ -1117,6 +1117,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         selected_client_macs: list[str],
         scan_interval: int = SCAN_INTERVAL,
         disconnect_timeout: int = 0,
+        site_device_id: str | None = None,
     ) -> None:
         """Initialize the client coordinator.
 
@@ -1129,6 +1130,9 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             scan_interval: Update interval in seconds
             disconnect_timeout: Grace period in minutes before marking client
                 as disconnected after it disappears from the API (0 = immediate)
+            site_device_id: Device-registry id of this site's own device,
+                used as the via_device_id fallback for a client whose
+                parent AP/switch/gateway isn't identified.
 
         """
         super().__init__(
@@ -1142,6 +1146,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.site_name = site_name
         self.selected_client_macs = set(selected_client_macs)
         self.disconnect_timeout = disconnect_timeout  # minutes
+        self.site_device_id = site_device_id
 
         # Last-seen timestamps for each tracked client (used for grace period).
         # Public so device_tracker.py can read without pylint protected-access.
