@@ -22,7 +22,7 @@ from .coordinator import (
     OmadaSiteCoordinator,
     OmadaWanSpeedTestCoordinator,
 )
-from .devices import build_infra_device_info, get_device_sort_key
+from .devices import build_infra_device_info, get_device_sort_key, resolve_via_device_id
 from .entity import OmadaEntity
 
 PARALLEL_UPDATES = 0
@@ -419,11 +419,14 @@ class OmadaDeviceBinarySensor(
             device_mac, device_data, coordinator.api_client.api_url
         )
 
-        # Only set via_device for non-gateway devices
+        # Only set via_device_id for non-gateway devices
         if "gateway" not in device_type and "router" not in device_type:
             # For switches and other devices, use uplink device if available
+            # and already registered.
             if uplink_mac:
-                di["via_device"] = (DOMAIN, uplink_mac)
+                via_device_id = resolve_via_device_id(coordinator.hass, uplink_mac)
+                if via_device_id is not None:
+                    di["via_device_id"] = via_device_id
             # No fallback - if no uplink, device is standalone
 
         self._attr_device_info = di

@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -61,6 +64,55 @@ def _create_device_binary_sensor(
         description=description,
         device_mac=device_mac,
     )
+
+
+# ---------------------------------------------------------------------------
+# via_device_id linking (GH #69)
+# ---------------------------------------------------------------------------
+
+
+async def test_device_binary_sensor_device_info_uplink_registered(
+    hass: HomeAssistant,
+) -> None:
+    """Links via_device_id to an already-registered uplink switch.
+
+    via_device_id (a real device-registry id) replaces the deprecated
+    via_device identifier tuple. See GH #69.
+    """
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    switch_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, SWITCH_MAC)},
+        name="Core Switch",
+    )
+
+    ap_raw = {**SAMPLE_DEVICE_AP, "uplinkDeviceMac": SWITCH_MAC}
+    data = process_device(ap_raw)
+    description_key = DEVICE_BINARY_SENSORS[0].key
+    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, description_key)
+
+    device_info = sensor._attr_device_info
+    assert device_info["via_device_id"] == switch_device.id
+    assert "via_device" not in device_info
+
+
+async def test_device_binary_sensor_device_info_uplink_not_yet_registered(
+    hass: HomeAssistant,
+) -> None:
+    """Omits the via-device link when the uplink device isn't registered yet.
+
+    Mirrors the previous via_device behavior of silently dropping an
+    unresolved link instead of raising. See GH #69.
+    """
+    ap_raw = {**SAMPLE_DEVICE_AP, "uplinkDeviceMac": SWITCH_MAC}
+    data = process_device(ap_raw)
+    description_key = DEVICE_BINARY_SENSORS[0].key
+    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, description_key)
+
+    device_info = sensor._attr_device_info
+    assert "via_device_id" not in device_info
+    assert "via_device" not in device_info
 
 
 # ---------------------------------------------------------------------------
