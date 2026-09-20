@@ -208,6 +208,56 @@ class TestClientCredentialsAuth:
         assert auth._access_token == "fresh_access"
 
     @pytest.mark.asyncio
+    async def test_refresh_falls_back_to_fresh_tokens_on_invalid_parameters(
+        self,
+    ) -> None:
+        """When refresh returns -1001, fall back to client_credentials."""
+        auth = self._make_auth(
+            token_expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+        )
+
+        # First call: refresh_token grant returns -1001.
+        refresh_response = AsyncMock()
+        refresh_response.status = 200
+        refresh_response.json = AsyncMock(
+            return_value={
+                "errorCode": -1001,
+                "msg": "Invalid request parameters.",
+            }
+        )
+
+        # Second call: client_credentials grant succeeds.
+        fresh_response = AsyncMock()
+        fresh_response.status = 200
+        fresh_response.json = AsyncMock(
+            return_value={
+                "errorCode": 0,
+                "result": {
+                    "accessToken": "fresh_access",
+                    "refreshToken": "fresh_refresh",
+                    "expiresIn": 7200,
+                },
+            }
+        )
+
+        mock_ctx_1 = AsyncMock()
+        mock_ctx_1.__aenter__ = AsyncMock(return_value=refresh_response)
+        mock_ctx_1.__aexit__ = AsyncMock(return_value=False)
+
+        mock_ctx_2 = AsyncMock()
+        mock_ctx_2.__aenter__ = AsyncMock(return_value=fresh_response)
+        mock_ctx_2.__aexit__ = AsyncMock(return_value=False)
+
+        auth._session.post.side_effect = [mock_ctx_1, mock_ctx_2]
+
+        await auth.ensure_valid_session()
+
+        assert auth._session.post.call_count == 2
+        assert auth._access_token == "fresh_access"
+        assert auth._refresh_token == "fresh_refresh"
+        auth._token_update_callback.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_token_update_callback_called_after_refresh(self) -> None:
         """Token update callback is invoked after successful refresh."""
         auth = self._make_auth(
