@@ -152,7 +152,18 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
                 error_code = result.get("errorCode")
 
                 if error_code != 0:
-                    if error_code in (-44114, -44111, -44106):
+                    # -1001 ("Invalid request parameters") is the code a
+                    # live controller returns when the refresh_token
+                    # grant's request body isn't in the format it expects
+                    # -- confirmed on both a local and a cloud-hosted
+                    # controller as the exact failure mode this whole fix
+                    # addresses. Included here as defense-in-depth: if the
+                    # request format is ever wrong again for any reason
+                    # (a controller/firmware update, an edge case we
+                    # haven't hit), this makes the entry self-heal via a
+                    # fresh client_credentials login instead of hard
+                    # failing and requiring manual reauthentication.
+                    if error_code in (-44114, -44111, -44106, -1001):
                         _LOGGER.info(
                             "Token refresh failed (error %s: %s), falling back "
                             "to client_credentials grant",
