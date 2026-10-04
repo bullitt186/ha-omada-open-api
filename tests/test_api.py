@@ -90,7 +90,9 @@ async def test_token_refresh_before_expiry(
     # Verify the query contains no credentials or tokens.
     refresh_params = call_args[1]["params"]
     assert refresh_params == {"grant_type": "refresh_token"}
-    assert call_args[1]["json"] == {
+    # Credentials are form-encoded, not JSON: real controllers reject a
+    # JSON refresh_token body with errorCode -1001. See GH #63.
+    assert call_args[1]["data"] == {
         "client_id": "test_client_id",
         "client_secret": "test_client_secret",
         "refresh_token": "old_refresh_token",
