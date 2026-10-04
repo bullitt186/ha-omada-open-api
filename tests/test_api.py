@@ -2461,6 +2461,56 @@ async def test_get_vpn_s2s_stats_api_error(
         await api_client.get_vpn_s2s_stats("site_001")
 
 
+async def test_get_vpn_s2s_stats_falls_back_on_http_400(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """A bare Tomcat HTTP 400 also triggers the Fusion vpnType fallback.
+
+    On controller 6.3.0.45 the unfiltered call is rejected with a plain
+    HTTP 400 (Tomcat HTML), not an Omada errorCode -1001, so the fallback
+    must also trigger on the HTTP status. See GH #67.
+    """
+    mock_session = MagicMock()
+    api_client = OmadaApiClient(
+        session=mock_session,
+        token_update_callback=AsyncMock(),
+        api_url=mock_config_entry.data[CONF_API_URL],
+        omada_id=mock_config_entry.data[CONF_OMADA_ID],
+        client_id=mock_config_entry.data[CONF_CLIENT_ID],
+        client_secret=mock_config_entry.data[CONF_CLIENT_SECRET],
+        access_token=mock_config_entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=mock_config_entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=dt.datetime.now(dt.UTC) + dt.timedelta(hours=1),
+    )
+
+    tunnels = [{"id": "tunnel_1", "name": "Branch Office"}]
+
+    bad_request_response = AsyncMock()
+    bad_request_response.status = 400
+    bad_request_response.text.return_value = (
+        "<!doctype html><html><head><title>HTTP Status 400</title>"
+    )
+
+    fallback_response = AsyncMock()
+    fallback_response.status = 200
+    fallback_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": tunnels, "totalRows": 1},
+    }
+
+    mock_get = mock_session.get
+    mock_get.return_value.__aenter__.side_effect = [
+        bad_request_response,
+        fallback_response,
+    ]
+
+    result = await api_client.get_vpn_s2s_stats("site_001")
+
+    assert result == tunnels
+    retry_params = mock_get.call_args[1]["params"]
+    assert retry_params["filters.vpnType"] == 4
+
+
 # ---------------------------------------------------------------------------
 # get_vpn_server_stats
 # ---------------------------------------------------------------------------
