@@ -1492,7 +1492,17 @@ class OmadaApiClient:
             f"{self._api_url}/openapi/v2/{self._omada_id}"
             f"/sites/{site_id}/dashboard/gateway/isp/load"
         )
-        result = await self._authenticated_request("get", url)
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError as err:
+            # A standard (non-Fusion) controller doesn't expose this ISP
+            # dashboard endpoint at all. Degrade to "no Fusion ports" so
+            # the speed-test coordinator can still return the working v1
+            # speedTestResult data instead of failing every cycle. See
+            # GH #68.
+            if err.http_status == 404:
+                return []
+            raise
         gateways: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         for gateway in gateways:
             if gateway.get("mac") != gateway_mac:
