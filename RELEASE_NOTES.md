@@ -1,4 +1,9 @@
-## What's Changed in v1.11.0
+## What's Changed in v1.11.0b1
+
+> **Beta release.** This is a pre-release for testing before v1.11.0. HACS
+> offers it only if you enabled beta versions for this integration (see
+> "Beta Versions" in the README). Please report results and problems in a
+> GitHub issue and mention the beta version.
 
 This release fixes the token-refresh regression from v1.10.1 that forced a
 manual reauthentication roughly every two hours. It also fixes several

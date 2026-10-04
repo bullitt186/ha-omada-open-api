@@ -92,6 +92,23 @@ Not every feature works on every setup — some need specific hardware:
 
 [![My Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=omada_open_api)
 
+### Beta Versions
+
+Beta versions (for example `1.11.0b1`) are published as GitHub pre-releases so
+you can test upcoming fixes before the stable release. HACS offers them only if
+you opt in:
+
+1. Go to **Settings → Devices & Services → HACS**, open the device
+   **TP-Link Omada Open API**, and enable and turn on its **Pre-release**
+   switch entity
+2. The integration's update entity now also offers beta versions; install it
+   and restart Home Assistant
+
+Alternatively, install a specific beta via **HACS → TP-Link Omada Open API → ⋮
+→ Redownload**. To return to the stable channel, turn the switch off and use
+**Redownload** to select the latest stable version. Please report beta problems
+in the GitHub issue linked in the release notes.
+
 ### Manual
 
 1. Download the [latest release](https://github.com/bullitt186/ha-omada-open-api/releases) and copy the `omada_open_api` folder into your `custom_components/` directory

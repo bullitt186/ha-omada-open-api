@@ -72,8 +72,12 @@ jobs:
   version-check:
     name: Version Consistency
     runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.channel.outputs.prerelease }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # Needed to check whether the tag is on main
 
       - name: Verify tag matches manifest.json version
         run: |
@@ -87,6 +91,35 @@ jobs:
             exit 1
           fi
           echo "✅ Versions match"
+
+      # PEP 440 pre-release suffixes (1.11.0a1, 1.11.0b1, 1.11.0rc1) publish a
+      # GitHub pre-release, which HACS only offers to users who opted in to
+      # beta versions. Everything else is a stable release.
+      - name: Detect release channel
+        id: channel
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(a|b|rc)[0-9]+$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "🧪 Beta channel: publishing a GitHub pre-release"
+          elif [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            echo "📦 Stable channel: publishing the latest release"
+          else
+            echo "❌ Unsupported version $VERSION."
+            echo "   Use X.Y.Z for stable or X.Y.Z(a|b|rc)N for a pre-release (e.g. 1.2.0b1)."
+            exit 1
+          fi
+
+      - name: Verify stable releases are tagged on main
+        if: steps.channel.outputs.prerelease == 'false'
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "❌ Stable tag $GITHUB_REF_NAME is not on main."
+            echo "   Merge the work into main first, or use a pre-release version (e.g. 1.2.0b1)."
+            exit 1
+          fi
+          echo "✅ Tag is on main"
 
   release:
     name: Create GitHub Release
@@ -136,6 +169,8 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: omada_open_api.zip
+          prerelease: ${{ needs.version-check.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.version-check.outputs.prerelease == 'true' && 'false' || 'true' }}
           body: |
             ${{ steps.release_notes.outputs.body }}
 
