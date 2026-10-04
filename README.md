@@ -92,6 +92,23 @@ Not every feature works on every setup — some need specific hardware:
 
 [![My Home Assistant](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=omada_open_api)
 
+### Beta Versions
+
+Beta versions (for example `1.11.0b1`) are published as GitHub pre-releases so
+you can test upcoming fixes before the stable release. HACS offers them only if
+you opt in:
+
+1. Go to **Settings → Devices & Services → HACS**, open the device
+   **TP-Link Omada Open API**, and enable and turn on its **Pre-release**
+   switch entity
+2. The integration's update entity now also offers beta versions; install it
+   and restart Home Assistant
+
+Alternatively, install a specific beta via **HACS → TP-Link Omada Open API → ⋮
+→ Redownload**. To return to the stable channel, turn the switch off and use
+**Redownload** to select the latest stable version. Please report beta problems
+in the GitHub issue linked in the release notes.
+
 ### Manual
 
 1. Download the [latest release](https://github.com/bullitt186/ha-omada-open-api/releases) and copy the `omada_open_api` folder into your `custom_components/` directory
@@ -190,7 +207,7 @@ combination.
 |---|---|---|
 | Sensor | `sensor.office_ap_connected_clients`, `sensor.office_ap_guest_clients` | Total, wired, wireless, and guest client counts where the device reports them |
 | Sensor | `sensor.office_ap_uptime`, `sensor.office_ap_cpu_utilization`, `sensor.office_ap_memory_utilization` | Device diagnostics, including type, tag, detail status, IP/IPv6, uplink, link speed, and temperature when available |
-| Sensor | `sensor.office_ap_daily_download`, `sensor.office_ap_daily_upload` | Daily device traffic totals; APs also expose live RX/TX activity |
+| Sensor | `sensor.office_ap_daily_download`, `sensor.office_ap_daily_upload` | Daily device traffic totals; APs also expose live RX/TX activity (when the controller refreshes its counters less often than the integration polls, the last rate is held for three polls, and at least 5 minutes, instead of dropping to 0) |
 | Sensor | `sensor.office_ap_clients_2_4_ghz`, `sensor.office_ap_tx_utilization_2_4_ghz` | Per-band client counts and TX/RX/interference/busy utilization for supported 2.4, 5, 5-2, and 6 GHz radios; utilization entities are disabled by default |
 | Sensor | `sensor.main_switch_poe_power_used`, `sensor.main_switch_port_3_poe_power` | PoE budget, used, remaining, and per-port power |
 | Binary Sensor | `binary_sensor.office_ap_status` | Online/offline connectivity |
@@ -256,7 +273,7 @@ type's schema.
 | Sensor | `sensor.johns_iphone_tx_activity` | TX rate (MB/s) |
 | Sensor | `sensor.johns_iphone_uptime` | Client uptime |
 | Binary Sensor | `binary_sensor.johns_iphone_power_save` | Power-save mode (wireless) |
-| Device Tracker | `device_tracker.johns_iphone` | Presence detection |
+| Device Tracker | `device_tracker.johns_iphone` | Presence detection; attributes `ssid`, `connected_ap`, `connected_switch`, `connection_type`, and for wireless clients `band` (2.4 GHz / 5 GHz / 6 GHz) and `channel` |
 | Switch | `switch.johns_iphone_network_access` | Block / unblock client |
 | Button | `button.johns_iphone_reconnect` | Reconnect wireless client |
 
@@ -381,7 +398,7 @@ and per-client monitoring entities.
 
 ### Application Selection
 
-Add or remove tracked DPI applications for per-client traffic monitoring. Each selected application creates upload and download sensors for every tracked client.
+Add or remove tracked DPI applications for per-client traffic monitoring. Each selected application creates upload and download sensors for every tracked client. While at least one application is selected, every application traffic polling cycle makes one API request per tracked client; with many tracked clients, keep the application list short or raise the application traffic polling interval. Clearing the selection stops application traffic polling.
 
 | Parameter | Type | Description |
 |---|---|---|

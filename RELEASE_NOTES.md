@@ -1,43 +1,74 @@
-## What's Changed in v1.10.1
+## What's Changed in v1.11.0b1
 
-This is a bug-fix release for two regressions introduced in v1.10.0, plus a
-security hardening fix.
+> **Beta release.** This is a pre-release for testing before v1.11.0. HACS
+> offers it only if you enabled beta versions for this integration (see
+> "Beta Versions" in the README). Please report results and problems in a
+> GitHub issue and mention the beta version.
+
+This release fixes the token-refresh regression from v1.10.1 that forced a
+manual reauthentication roughly every two hours. It also fixes several
+controller-compatibility issues and adds the radio band to client trackers.
 
 ### Fixed
 
-- **Local controllers with self-signed certificates can connect again** (#52,
-  #53, #54). v1.10.0 enforced TLS certificate verification on the OpenAPI
-  session with no way to opt out, so self-hosted controllers and OC200/OC300
-  gateways using the factory self-signed certificate failed to set up. OpenAPI
-  sessions now honor a per-entry "Verify TLS certificate" setting:
-  - Existing local entries created before this option default to unverified, so
-    they reconnect after upgrading without any user action.
-  - New local setups default to verification ON. If your controller uses the
-    factory self-signed certificate, clear "Verify TLS certificate" during
-    setup, or use Reconfigure to turn it off afterwards. See
-    TROUBLESHOOTING.md.
-  - Cloud controllers always verify TLS, regardless of the stored value, and
-    the toggle is hidden for cloud reconfiguration.
-  - Certificate failures now surface an actionable setup error instead of a
-    generic connection error.
-- **Button platform no longer fails at startup** (#58). When a gateway's WAN
-  speed-test coordinator had no data yet at Home Assistant startup, setting up
-  the button platform raised `AttributeError: 'NoneType' object has no attribute
-  'get'` and no buttons were created. Setup now tolerates missing data and
-  registers the port buttons automatically once the data becomes available.
+- **Token refresh works again; no more reauthentication loop** (#63, #66,
+  #65, PR #70). v1.10.1 sent the `refresh_token` grant as a JSON body, which
+  Omada controllers reject with `-1001 Invalid request parameters`. The
+  request now uses a form-encoded body, so credentials still stay out of the
+  URL. If a controller ever rejects a refresh with `-1001` again, the
+  integration falls back to a fresh client-credentials login instead of
+  requiring a manual reauthentication.
+- **VPN status sensors on controller 6.3** (#67, PR #71). A bare HTTP 400 from
+  the VPN stats endpoints now triggers the same `vpnType` filter fallback as
+  the `-1001` error code.
+- **WAN speed test on non-Fusion controllers** (#68, PR #72). The Fusion-only
+  ISP dashboard endpoint no longer fails the whole speed-test update when the
+  controller answers with HTTP 404 or `-1600 Unsupported request path`. The
+  regular speed-test results stay available.
+- **Device hierarchy ready for Home Assistant 2027.8** (#69, PR #73). Devices
+  now link to their parent by device registry ID (`via_device_id`) instead of
+  the deprecated `via_device` identifier. This also fixes a link to an
+  identifier that was never registered.
+- **"Client bandwidth sensors" option is honored** (#65, PR #74). Turning it
+  off now prevents the client downloaded/uploaded and RX/TX activity sensors
+  from being created.
+- **AP RX/TX activity no longer alternates with 0** (#85). Some controllers,
+  such as the OC200, refresh AP traffic counters only about every 150 seconds.
+  When a poll sees unchanged counters, the last rate is now kept instead of
+  publishing 0.0 and then twice the real rate on the next poll. An AP reports
+  0 only after its counters have been flat for three polls, and for at least
+  5 minutes.
+- **Client and application selections can be cleared** (#65). Removing every
+  tracked client or application in the options dialog previously restored the
+  old selection on save.
 
-### Security
+### Added
 
-- Refresh-token requests no longer place credentials in the URL query string.
+- **Radio band and channel on client trackers** (#78). Wireless client
+  `device_tracker` entities now expose `band` (`2.4 GHz`, `5 GHz` or `6 GHz`)
+  and `channel` attributes.
+
+### Documentation
+
+- Explains which settings reduce API load with many tracked clients:
+  application traffic makes one request per tracked client per cycle.
+
+### Maintenance
+
+- Development tooling updated: ruff 0.16.3, pylint 4.0.7, pytest-cov,
+  pytest-timeout. Also updated: the GitHub Actions for CodeQL, hassfest and
+  release.
 
 ### Thanks
 
-- @oralallen82 for the detailed report and the overlapping fix that prompted
-  the TLS verification option (PR #55).
+- @oralallen82 (PR #64) and @matanmesika (PR #77) for the token-refresh
+  fixes and live-controller verification.
+- @sebmuc99 for the precise root-cause reports #67, #68 and #69.
+- @vishlamba for #65, #66 and #78, @simonbosschieter for #85, and everyone
+  who confirmed and tested #63.
 
 ---
 
-**Upgrade note:** after updating, existing local controller entries reconnect
-automatically. If a local setup still reports a certificate error, open the
-integration's configure/reconfigure dialog and clear **Verify TLS certificate**,
-or re-add the controller with the checkbox cleared.
+**Upgrade note:** if your entry is currently waiting for reauthentication
+because of the v1.10.1 token issue, reauthenticate once after updating. Token
+refresh then continues automatically.

@@ -14,6 +14,8 @@ from homeassistant.util import dt as dt_util
 from .api import OmadaApiClient, OmadaApiError
 from .clients import process_client
 from .const import (
+    AP_ACTIVITY_HOLD_MIN_SECONDS,
+    AP_ACTIVITY_HOLD_POLLS,
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
     DEFAULT_RADIO_UTIL_INTERVAL,
@@ -76,8 +78,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_radio_util_check: dt.datetime | None = None
         self._radio_util_cache: dict[str, dict[str, Any]] = {}
 
-        # Traffic byte counters from previous poll — used to compute rate deltas.
-        # Keyed by device MAC, value is {"rx": int, "tx": int, "ts": datetime}
+        # Traffic byte counters from the last counter change — used to compute
+        # rate deltas. Keyed by device MAC, value is
+        # {"rx": int, "tx": int, "ts": datetime, "rx_rate": float, "tx_rate": float}
         self._prev_traffic: dict[str, dict[str, Any]] = {}
 
         # Upgrade polling: store normal interval so we can restore it.
@@ -648,6 +651,11 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         On first call (no prior data) rates are not set.
         On counter rollback (device reboot) rates are reset to 0.
 
+        Some controllers advance the AP counters less often than the coordinator
+        polls. Unchanged counters therefore keep the last published rate and the
+        baseline, so the next change is divided by the time since the previous
+        change. Counters unchanged for longer than the hold window report 0.
+
         Args:
             devices: Processed devices dict (mutated in-place).
             mac: Device MAC address.
@@ -657,24 +665,41 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         """
         prev = self._prev_traffic.get(mac)
+        rx_rate: float | None = None
+        tx_rate: float | None = None
         if prev is not None:
             elapsed = (now - prev["ts"]).total_seconds()
-            if elapsed > 0:
-                delta_rx = total_rx - prev["rx"]
-                delta_tx = total_tx - prev["tx"]
-                if delta_rx < 0 or delta_tx < 0:
-                    # Counter rollback — device rebooted.
-                    devices[mac]["rx_rate_mbps"] = 0.0
-                    devices[mac]["tx_rate_mbps"] = 0.0
-                else:
-                    devices[mac]["rx_rate_mbps"] = round(
-                        delta_rx / elapsed / 1_000_000, 4
-                    )
-                    devices[mac]["tx_rate_mbps"] = round(
-                        delta_tx / elapsed / 1_000_000, 4
-                    )
-        # Store current counters for next poll.
-        self._prev_traffic[mac] = {"rx": total_rx, "tx": total_tx, "ts": now}
+            if elapsed <= 0:
+                return
+            delta_rx = total_rx - prev["rx"]
+            delta_tx = total_tx - prev["tx"]
+            if delta_rx < 0 or delta_tx < 0:
+                # Counter rollback — device rebooted.
+                rx_rate = tx_rate = 0.0
+            elif delta_rx == 0 and delta_tx == 0:
+                hold_window = max(
+                    self._normal_interval.total_seconds() * AP_ACTIVITY_HOLD_POLLS,
+                    AP_ACTIVITY_HOLD_MIN_SECONDS,
+                )
+                if elapsed < hold_window:
+                    # Counters not refreshed yet — keep last rate and baseline.
+                    devices[mac]["rx_rate_mbps"] = prev["rx_rate"]
+                    devices[mac]["tx_rate_mbps"] = prev["tx_rate"]
+                    return
+                rx_rate = tx_rate = 0.0
+            else:
+                rx_rate = round(delta_rx / elapsed / 1_000_000, 4)
+                tx_rate = round(delta_tx / elapsed / 1_000_000, 4)
+            devices[mac]["rx_rate_mbps"] = rx_rate
+            devices[mac]["tx_rate_mbps"] = tx_rate
+        # Store current counters as the new baseline.
+        self._prev_traffic[mac] = {
+            "rx": total_rx,
+            "tx": total_tx,
+            "ts": now,
+            "rx_rate": rx_rate or 0.0,
+            "tx_rate": tx_rate or 0.0,
+        }
 
     async def _merge_gateway_temperature(
         self,
@@ -1117,6 +1142,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         selected_client_macs: list[str],
         scan_interval: int = SCAN_INTERVAL,
         disconnect_timeout: int = 0,
+        site_device_id: str | None = None,
     ) -> None:
         """Initialize the client coordinator.
 
@@ -1129,6 +1155,9 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             scan_interval: Update interval in seconds
             disconnect_timeout: Grace period in minutes before marking client
                 as disconnected after it disappears from the API (0 = immediate)
+            site_device_id: Device-registry id of this site's own device,
+                used as the via_device_id fallback for a client whose
+                parent AP/switch/gateway isn't identified.
 
         """
         super().__init__(
@@ -1142,6 +1171,7 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.site_name = site_name
         self.selected_client_macs = set(selected_client_macs)
         self.disconnect_timeout = disconnect_timeout  # minutes
+        self.site_device_id = site_device_id
 
         # Last-seen timestamps for each tracked client (used for grace period).
         # Public so device_tracker.py can read without pylint protected-access.

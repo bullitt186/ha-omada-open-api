@@ -222,6 +222,33 @@ async def test_extra_attrs_wired(hass: HomeAssistant) -> None:
     assert "connected_ap" not in attrs
 
 
+async def test_extra_attrs_wireless_band_and_channel(hass: HomeAssistant) -> None:
+    """Wireless clients expose their radio band and channel (GH #78)."""
+    data = process_client({**SAMPLE_CLIENT_WIRELESS, "radioId": 1})
+    tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    attrs = tracker.extra_state_attributes
+    assert attrs["band"] == "5 GHz"
+    assert attrs["channel"] == 36
+
+
+async def test_extra_attrs_band_for_each_radio(hass: HomeAssistant) -> None:
+    """Every Omada radio ID maps to its band; unknown IDs are omitted."""
+    expected = {0: "2.4 GHz", 1: "5 GHz", 2: "5 GHz", 3: "6 GHz", 9: None}
+    for radio_id, band in expected.items():
+        data = process_client({**SAMPLE_CLIENT_WIRELESS, "radioId": radio_id})
+        tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+        assert tracker.extra_state_attributes.get("band") == band
+
+
+async def test_extra_attrs_wired_has_no_band(hass: HomeAssistant) -> None:
+    """Wired clients never expose a radio band or channel."""
+    data = process_client({**SAMPLE_CLIENT_WIRED, "radioId": 0, "channel": 1})
+    tracker = _create_tracker(hass, WIRED_MAC, {WIRED_MAC: data})
+    attrs = tracker.extra_state_attributes
+    assert "band" not in attrs
+    assert "channel" not in attrs
+
+
 async def test_extra_attrs_missing_client(hass: HomeAssistant) -> None:
     """Test extra attributes returns empty dict for missing client."""
     tracker = _create_tracker(hass, WIRELESS_MAC, {})
