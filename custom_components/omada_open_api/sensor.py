@@ -30,6 +30,7 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
     CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
@@ -90,6 +91,16 @@ _DEVICE_DIAGNOSTIC_SENSOR_KEYS: frozenset[str] = frozenset(
         "uplink_port",
         "link_speed",
         "device_type",
+    }
+)
+
+# Client sensor keys that belong to the "bandwidth" toggle category.
+_CLIENT_BANDWIDTH_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        "downloaded",
+        "uploaded",
+        "rx_activity",
+        "tx_activity",
     }
 )
 
@@ -1637,6 +1648,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     opts = entry.options
     _enable_device_bandwidth = opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True)
     _enable_device_diagnostic = opts.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True)
+    _enable_client_bandwidth = opts.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True)
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
         rd.device_stats_coordinators
     )
@@ -1778,6 +1790,10 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                 _make_client_sensor(coord, desc, mac)
                 for mac in new_macs
                 for desc in CLIENT_SENSORS
+                if (
+                    _enable_client_bandwidth
+                    or desc.key not in _CLIENT_BANDWIDTH_SENSOR_KEYS
+                )
             ]
             if new_entities:
                 async_add_entities(new_entities)
