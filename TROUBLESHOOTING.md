@@ -69,12 +69,15 @@ LAN, so prefer one of these free alternatives when possible:
 1. Confirm the device is online in the Omada Controller
 2. Check logs for API errors
 3. Try increasing the polling interval via Options if you hit rate limits
+4. With many tracked clients, the largest API load is per-client application traffic: every polling cycle makes one request **per tracked client** while at least one application is selected. Reduce it by deselecting applications (Options → Application selection) or raising the application traffic polling interval. The client bandwidth sensors toggle only controls the RX/TX and traffic sensors; it does not affect application traffic polling.
 
 Transient API failures raise `UpdateFailed`, which triggers Home Assistant's automatic back-off and retry — a brief "Unavailable" during a controller hiccup is expected and should self-resolve.
 
 ## Token Errors
 
-Token refresh is fully automatic: OAuth2 tokens refresh 5 minutes before expiry, and an expired refresh token triggers full re-authentication via client credentials. If you see persistent token errors in logs, authentication itself has failed (raising `ConfigEntryAuthFailed`) — use the **Reauthenticate** flow to obtain fresh credentials.
+Token refresh is fully automatic: OAuth2 tokens refresh 5 minutes before expiry, and an expired or rejected refresh token (including `-1001 Invalid request parameters`) triggers full re-authentication via client credentials. If you see persistent token errors in logs, authentication itself has failed (raising `ConfigEntryAuthFailed`) — use the **Reauthenticate** flow to obtain fresh credentials.
+
+Version 1.10.1 sent the refresh request in a format that controllers reject with `-1001`, which required a manual reauthentication roughly every two hours. Update to 1.11.0 or later.
 
 ## Reconfiguring the Integration
 

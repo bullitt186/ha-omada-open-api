@@ -1977,13 +1977,18 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     )
                 )
             )
-        schema_fields[vol.Optional(CONF_SELECTED_CLIENTS, default=field_default)] = (
-            SelectSelector(
-                SelectSelectorConfig(
-                    options=client_options,
-                    multiple=True,
-                    mode=SelectSelectorMode.DROPDOWN,
-                )
+        # A suggested value (not a default) lets the user clear the selection:
+        # the frontend omits an emptied optional field, and a default would
+        # silently restore the previous selection.
+        schema_fields[
+            vol.Optional(
+                CONF_SELECTED_CLIENTS, description={"suggested_value": field_default}
+            )
+        ] = SelectSelector(
+            SelectSelectorConfig(
+                options=client_options,
+                multiple=True,
+                mode=SelectSelectorMode.DROPDOWN,
             )
         )
 
@@ -2065,7 +2070,8 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         data_schema = vol.Schema(
             {
                 vol.Optional(
-                    CONF_SELECTED_APPLICATIONS, default=current_selection
+                    CONF_SELECTED_APPLICATIONS,
+                    description={"suggested_value": current_selection},
                 ): SelectSelector(
                     SelectSelectorConfig(
                         options=app_options,

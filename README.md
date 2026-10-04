@@ -190,7 +190,7 @@ combination.
 |---|---|---|
 | Sensor | `sensor.office_ap_connected_clients`, `sensor.office_ap_guest_clients` | Total, wired, wireless, and guest client counts where the device reports them |
 | Sensor | `sensor.office_ap_uptime`, `sensor.office_ap_cpu_utilization`, `sensor.office_ap_memory_utilization` | Device diagnostics, including type, tag, detail status, IP/IPv6, uplink, link speed, and temperature when available |
-| Sensor | `sensor.office_ap_daily_download`, `sensor.office_ap_daily_upload` | Daily device traffic totals; APs also expose live RX/TX activity (when the controller refreshes its counters less often than the integration polls, the last rate is held for up to 5 minutes instead of dropping to 0) |
+| Sensor | `sensor.office_ap_daily_download`, `sensor.office_ap_daily_upload` | Daily device traffic totals; APs also expose live RX/TX activity (when the controller refreshes its counters less often than the integration polls, the last rate is held for three polls, and at least 5 minutes, instead of dropping to 0) |
 | Sensor | `sensor.office_ap_clients_2_4_ghz`, `sensor.office_ap_tx_utilization_2_4_ghz` | Per-band client counts and TX/RX/interference/busy utilization for supported 2.4, 5, 5-2, and 6 GHz radios; utilization entities are disabled by default |
 | Sensor | `sensor.main_switch_poe_power_used`, `sensor.main_switch_port_3_poe_power` | PoE budget, used, remaining, and per-port power |
 | Binary Sensor | `binary_sensor.office_ap_status` | Online/offline connectivity |
@@ -381,7 +381,7 @@ and per-client monitoring entities.
 
 ### Application Selection
 
-Add or remove tracked DPI applications for per-client traffic monitoring. Each selected application creates upload and download sensors for every tracked client.
+Add or remove tracked DPI applications for per-client traffic monitoring. Each selected application creates upload and download sensors for every tracked client. While at least one application is selected, every application traffic polling cycle makes one API request per tracked client; with many tracked clients, keep the application list short or raise the application traffic polling interval. Clearing the selection stops application traffic polling.
 
 | Parameter | Type | Description |
 |---|---|---|
