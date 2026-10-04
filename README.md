@@ -256,7 +256,7 @@ type's schema.
 | Sensor | `sensor.johns_iphone_tx_activity` | TX rate (MB/s) |
 | Sensor | `sensor.johns_iphone_uptime` | Client uptime |
 | Binary Sensor | `binary_sensor.johns_iphone_power_save` | Power-save mode (wireless) |
-| Device Tracker | `device_tracker.johns_iphone` | Presence detection |
+| Device Tracker | `device_tracker.johns_iphone` | Presence detection; attributes `ssid`, `connected_ap`, `connected_switch`, `connection_type`, and for wireless clients `band` (2.4 GHz / 5 GHz / 6 GHz) and `channel` |
 | Switch | `switch.johns_iphone_network_access` | Block / unblock client |
 | Button | `button.johns_iphone_reconnect` | Reconnect wireless client |
 
