@@ -1499,8 +1499,9 @@ class OmadaApiClient:
             # dashboard endpoint at all. Degrade to "no Fusion ports" so
             # the speed-test coordinator can still return the working v1
             # speedTestResult data instead of failing every cycle. See
-            # GH #68.
-            if err.http_status == 404:
+            # GH #68. Some controllers reject the path with errorCode -1600
+            # ("Unsupported request path") instead of HTTP 404. See GH #64.
+            if err.http_status == 404 or err.error_code == -1600:
                 return []
             raise
         gateways: list[dict[str, Any]] = result.get("result", {}).get("data", [])

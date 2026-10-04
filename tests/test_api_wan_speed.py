@@ -113,6 +113,29 @@ async def test_get_gateway_wan_speed_test_ports_returns_empty_on_404() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_gateway_wan_speed_test_ports_returns_empty_on_unsupported_path() -> (
+    None
+):
+    """A controller rejecting the ISP dashboard path with -1600 has no ports.
+
+    Some non-Fusion controllers answer HTTP 200 with errorCode -1600
+    ("Unsupported request path") instead of HTTP 404. See GH #64 and #68.
+    """
+    client = OmadaApiClient.__new__(OmadaApiClient)
+    client._api_url = "https://controller.local"
+    client._omada_id = "controller-id"
+    client._authenticated_request = AsyncMock(
+        side_effect=OmadaApiError(
+            "API error -1600: Unsupported request path.", error_code=-1600
+        )
+    )
+
+    ports = await client.get_gateway_wan_speed_test_ports("site-id", "gateway-mac")
+
+    assert ports == []
+
+
+@pytest.mark.asyncio
 async def test_get_gateway_wan_speed_test_ports_reraises_other_errors() -> None:
     """A non-404 failure on the ISP dashboard endpoint still propagates."""
     client = OmadaApiClient.__new__(OmadaApiClient)
