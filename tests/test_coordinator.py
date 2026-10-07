@@ -185,7 +185,12 @@ async def test_fetch_site_clients_includes_radio_id(
     clients = await coordinator._fetch_site_clients()
 
     assert len(clients) == 1
+    assert clients[0]["name"] == "Phone"
+    assert clients[0]["mac"] == "11-22-33-44-55-AA"
+    assert clients[0]["ip"] == "10.0.0.50"
     assert clients[0]["radio_id"] == 1
+    assert clients[0]["radio_band"] == "5 GHz"
+    assert clients[0]["ap_mac"] == "AA-BB-CC-DD-EE-01"
 
 
 async def test_site_coordinator_fetches_poe_ports(
