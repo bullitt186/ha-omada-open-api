@@ -16,6 +16,41 @@ def normalize_client_mac(mac: str) -> str:
     return mac.replace(":", "").replace("-", "").upper()
 
 
+
+def normalize_radio_band(client: dict[str, Any]) -> str | None:
+    """Return a normalized 2.4/5/6 GHz band for a wireless client."""
+    for key in ("band", "radioBand", "frequencyBand", "wirelessBand"):
+        value = client.get(key)
+        if value is None:
+            continue
+        text = str(value).lower().replace("ghz", "").replace(" ", "")
+        if text in {"2.4", "2g", "2.4g"}:
+            return "2.4 GHz"
+        if text in {"5", "5g", "5g1", "5g2"}:
+            return "5 GHz"
+        if text in {"6", "6g"}:
+            return "6 GHz"
+
+    radio_id = client.get("radioId")
+    radio_map = {0: "2.4 GHz", 1: "5 GHz", 2: "5 GHz", 3: "6 GHz"}
+    try:
+        if radio_id is not None and int(radio_id) in radio_map:
+            return radio_map[int(radio_id)]
+    except (TypeError, ValueError):
+        pass
+
+    channel = client.get("channel")
+    try:
+        channel_num = int(channel)
+    except (TypeError, ValueError):
+        return None
+    if 1 <= channel_num <= 14:
+        return "2.4 GHz"
+    if 32 <= channel_num <= 196:
+        return "5 GHz"
+    return None
+
+
 def process_client(client: dict[str, Any]) -> dict[str, Any]:
     """Process and normalize client data.
 
@@ -57,6 +92,7 @@ def process_client(client: dict[str, Any]) -> dict[str, Any]:
         "ap_name": client.get("apName"),
         "ap_mac": client.get("apMac"),
         "radio_id": client.get("radioId"),
+        "radio_band": normalize_radio_band(client),
         "channel": client.get("channel"),
         # Switch connection (wired)
         "switch_name": client.get("switchName"),
