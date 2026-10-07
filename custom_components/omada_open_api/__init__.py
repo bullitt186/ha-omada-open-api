@@ -37,6 +37,7 @@ from .const import (
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -609,7 +610,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = []
     selected_app_ids: list[str] = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
 
-    if selected_app_ids and selected_client_macs:
+    client_bandwidth_enabled = entry.options.get(
+        CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True
+    )
+
+    if selected_app_ids and selected_client_macs and client_bandwidth_enabled:
         _LOGGER.info(
             "Setting up app traffic tracking for %d apps across %d clients",
             len(selected_app_ids),
@@ -643,6 +648,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 site_name,
                 len(app_coordinator.data),
             )
+
+    if selected_app_ids and selected_client_macs and not client_bandwidth_enabled:
+        _LOGGER.debug(
+            "Skipping app traffic polling because client bandwidth sensors are disabled"
+        )
 
     # Raise / clear a repair issue when DPI-based app tracking is configured
     # but no gateway is present.  DPI requires a gateway in the Omada network.
