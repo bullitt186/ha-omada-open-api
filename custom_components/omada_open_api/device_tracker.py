@@ -13,9 +13,9 @@ from homeassistant.components.device_tracker import (  # type: ignore[attr-defin
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
-from .const import DOMAIN
+from .const import CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT, DOMAIN
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
-from .devices import format_detail_status
+from .devices import build_client_device_info, format_detail_status, resolve_via_device_id
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
@@ -42,7 +42,16 @@ async def async_setup_entry(
     """Set up Omada device tracker from a config entry."""
     rd = entry.runtime_data
 
-    # --- Device trackers (APs, switches, gateways) ---
+    # Client device trackers are auto-discovered from the site coordinator.
+    # selected_clients remains reserved for the heavier per-client sensors and
+    # controls, so users get named presence devices without opting into extra
+    # polling or entity creation.
+    tracked: set[str] = set()
+    disconnect_timeout = entry.options.get(
+        CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
+    )
+
+    # --- Device trackers (APs, switches, gateways + automatically discovered clients) ---
     known_device_macs: set[str] = set()
     site_coordinators: list[OmadaSiteCoordinator] = list(rd.coordinators.values())
 
@@ -52,27 +61,44 @@ async def async_setup_entry(
         def _async_check_new_devices(
             coord: OmadaSiteCoordinator = site_coordinator,
         ) -> None:
-            """Add device trackers for newly discovered infrastructure devices."""
+            """Add newly discovered infrastructure and client device trackers."""
             devices = coord.data.get("devices", {}) if coord.data else {}
             new_macs = set(devices.keys()) - known_device_macs
-            if not new_macs:
-                return
+            if new_macs:
+                known_device_macs.update(new_macs)
+                async_add_entities(
+                    [OmadaDeviceTracker(coord, mac) for mac in new_macs]
+                )
 
-            known_device_macs.update(new_macs)
-
-            new_entities = [OmadaDeviceTracker(coord, mac) for mac in new_macs]
-            if new_entities:
-                async_add_entities(new_entities)
+            all_clients = coord.data.get("all_clients", []) if coord.data else []
+            new_clients: list[OmadaDiscoveredClientTracker] = []
+            for client in all_clients:
+                mac = client.get("mac")
+                if not mac or mac in tracked:
+                    continue
+                _LOGGER.debug(
+                    "Auto-discovered Omada client %s (%s)",
+                    client.get("name", mac),
+                    mac,
+                )
+                tracked.add(mac)
+                new_clients.append(
+                    OmadaDiscoveredClientTracker(
+                        coord,
+                        mac,
+                        disconnect_timeout=disconnect_timeout,
+                    )
+                )
+            if new_clients:
+                async_add_entities(new_clients)
 
         _async_check_new_devices()
         entry.async_on_unload(
             site_coordinator.async_add_listener(_async_check_new_devices)
         )
 
-    # --- Client trackers (network clients) ---
+    # --- Selected client trackers (backwards compatibility) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
-
-    tracked: set[str] = set()
 
     for coordinator in client_coordinators:
 
@@ -209,6 +235,140 @@ class OmadaDeviceTracker(
         return attrs
 
 
+class OmadaDiscoveredClientTracker(
+    OmadaEntity[OmadaSiteCoordinator],
+    ScannerEntity,
+):
+    """Automatically discovered Omada network client."""
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        client_mac: str,
+        *,
+        disconnect_timeout: int = DEFAULT_DISCONNECT_TIMEOUT,
+    ) -> None:
+        """Initialize an automatically discovered client tracker."""
+        super().__init__(coordinator)
+        self._client_mac = client_mac
+        self._disconnect_timeout = disconnect_timeout
+        self._last_seen: dt.datetime | None = dt.datetime.now(dt.UTC)
+
+        client = self._client_data
+        client_name = (
+            client.get("name") or client.get("host_name") or client_mac
+        )
+        self._attr_name = client_name
+        self._unique_id = f"{DOMAIN}_{client_mac}"
+        self._attr_mac_address = client_mac.replace("-", ":").lower()
+        self._update_device_info()
+
+    @property
+    def _client_data(self) -> dict[str, Any]:
+        """Return the currently active client payload."""
+        if not self.coordinator.data:
+            return {}
+        for client in self.coordinator.data.get("all_clients", []):
+            if client.get("mac") == self._client_mac:
+                return client
+        return {}
+
+    def _update_device_info(self) -> None:
+        """Update the Home Assistant device name and metadata from Omada."""
+        client = self._client_data
+        if not client:
+            return
+
+        if client.get("wireless") and client.get("ap_mac"):
+            parent_mac = client.get("ap_mac")
+        elif client.get("switch_mac"):
+            parent_mac = client.get("switch_mac")
+        else:
+            parent_mac = client.get("gateway_mac")
+
+        via_identifier = (
+            (DOMAIN, parent_mac)
+            if parent_mac
+            else (DOMAIN, f"site_{self.coordinator.site_id}")
+        )
+        via_device_id = resolve_via_device_id(self.coordinator.hass, via_identifier)
+        self._attr_device_info = build_client_device_info(
+            self._client_mac,
+            client,
+            self.coordinator.api_client.api_url,
+            via_device_id=via_device_id,
+        )
+
+    @property
+    def unique_id(self) -> str:
+        """Return the stable MAC-based unique ID."""
+        return self._unique_id
+
+    @property
+    def source_type(self) -> SourceType:
+        """Return router as the source type."""
+        return SourceType.ROUTER
+
+    @property
+    def is_connected(self) -> bool:
+        """Return whether the client is currently connected or in the grace period."""
+        client = self._client_data
+        if client:
+            self._last_seen = dt.datetime.now(dt.UTC)
+            return True
+
+        if self._disconnect_timeout > 0 and self._last_seen is not None:
+            elapsed = (dt.datetime.now(dt.UTC) - self._last_seen).total_seconds()
+            return elapsed < self._disconnect_timeout * 60
+        return False
+
+    @property
+    def ip_address(self) -> str | None:
+        """Return the current IP address."""
+        value = self._client_data.get("ip")
+        return value or None
+
+    @property
+    def hostname(self) -> str | None:
+        """Return the client hostname."""
+        client = self._client_data
+        return client.get("host_name") or client.get("name")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str | None]:
+        """Expose useful Omada client metadata."""
+        client = self._client_data
+        if not client:
+            return {}
+
+        attrs: dict[str, str | None] = {}
+        for source, target in (
+            ("ssid", "ssid"),
+            ("ap_name", "connected_ap"),
+            ("switch_name", "connected_switch"),
+            ("gateway_name", "connected_gateway"),
+            ("radio_band", "radio_band"),
+        ):
+            if client.get(source):
+                attrs[target] = str(client[source])
+        if client.get("channel") is not None:
+            attrs["channel"] = str(client["channel"])
+        if client.get("vendor"):
+            attrs["vendor"] = str(client["vendor"])
+        if client.get("device_type"):
+            attrs["device_type"] = str(client["device_type"])
+        attrs["connection_type"] = (
+            "wireless" if client.get("wireless") else "wired"
+        )
+        return attrs
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Refresh device metadata and entity state."""
+        self._update_device_info()
+        self.async_write_ha_state()
+
+
 class OmadaClientTracker(
     OmadaEntity[OmadaClientCoordinator],
     ScannerEntity,
@@ -295,6 +455,10 @@ class OmadaClientTracker(
             attrs["connected_switch"] = client["switch_name"]
         if client.get("wireless") is not None:
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
+        if client.get("radio_band"):
+            attrs["radio_band"] = client["radio_band"]
+        if client.get("channel") is not None:
+            attrs["channel"] = str(client["channel"])
         return attrs
 
     @callback

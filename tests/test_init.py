@@ -463,6 +463,37 @@ async def test_setup_entry_creates_wan_and_traffic_sensors(
     assert len(entry.runtime_data.device_stats_coordinators) > 0
 
 
+async def test_setup_entry_auto_discovers_client_without_selection(
+    hass: HomeAssistant,
+) -> None:
+    """Active clients get trackers even when selected_clients is empty."""
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_CLIENTS: []},
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.runtime_data.client_coordinators == []
+
+    registry = er.async_get(hass)
+    client_unique_id = f"{DOMAIN}_11-22-33-44-55-AA"
+    entity_id = registry.async_get_entity_id(
+        "device_tracker", DOMAIN, client_unique_id
+    )
+    assert entity_id is not None
+
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["friendly_name"] == "Phone"
+    assert state.attributes["hostname"] == "phone-host"
+    assert state.attributes["ip"] == "192.168.1.100"
+
+
 async def test_setup_entry_with_clients(hass: HomeAssistant) -> None:
     """Test setup with selected clients creates client coordinators."""
     entry = _build_entry(

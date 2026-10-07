@@ -143,7 +143,7 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
                 error_code = result.get("errorCode")
 
                 if error_code != 0:
-                    if error_code in (-44114, -44111, -44106):
+                    if error_code in (-1001, -44114, -44111, -44106):
                         _LOGGER.info(
                             "Token refresh failed (error %s: %s), falling back "
                             "to client_credentials grant",

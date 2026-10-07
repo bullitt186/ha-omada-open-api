@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
 from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
+
+def resolve_via_device_id(
+    hass: HomeAssistant, identifier: tuple[str, str]
+) -> str | None:
+    """Resolve an integration identifier to a Home Assistant device ID."""
+    registry = dr.async_get(hass)
+    device = registry.async_get_device(identifiers={identifier})
+    return device.id if device is not None else None
 
 
 def normalize_site_id(site_id: str) -> str:
@@ -168,7 +181,7 @@ def build_client_device_info(
     client_mac: str,
     client_data: dict[str, Any],
     api_url: str,
-    via_device: tuple[str, str],
+    via_device_id: str | None = None,
 ) -> DeviceInfo:
     """Build DeviceInfo for a network client device (MAC-only connections)."""
     client_name = client_data.get("name") or client_data.get("host_name") or client_mac
@@ -180,7 +193,7 @@ def build_client_device_info(
         model=client_data.get("device_type") or client_data.get("model"),
         sw_version=client_data.get("os_name"),
         configuration_url=api_url,
-        via_device=via_device,
+        via_device_id=via_device_id,
     )
 
 

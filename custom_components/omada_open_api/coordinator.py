@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiClient, OmadaApiError
-from .clients import process_client
+from .clients import normalize_radio_band, process_client
 from .const import (
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
@@ -380,13 +380,23 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 or client.get("hostName")
                                 or client.get("mac", "Unknown")
                             ),
+                            "host_name": client.get("hostName"),
                             "mac": client.get("mac", ""),
                             "ip": client.get("ip", ""),
+                            "vendor": client.get("vendor"),
+                            "device_type": client.get("deviceType"),
+                            "model": client.get("model"),
                             "wireless": client.get("wireless", False),
+                            "ssid": client.get("ssid"),
                             "radio_id": client.get("radioId"),
+                            "radio_band": normalize_radio_band(client),
+                            "channel": client.get("channel"),
                             "guest": client.get("guest", False),
+                            "ap_name": client.get("apName"),
                             "ap_mac": client.get("apMac"),
+                            "switch_name": client.get("switchName"),
                             "switch_mac": client.get("switchMac"),
+                            "gateway_name": client.get("gatewayName"),
                             "gateway_mac": client.get("gatewayMac"),
                         }
                     )
@@ -666,6 +676,21 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Counter rollback — device rebooted.
                     devices[mac]["rx_rate_mbps"] = 0.0
                     devices[mac]["tx_rate_mbps"] = 0.0
+                elif delta_rx == 0 and delta_tx == 0:
+                    # Some controllers refresh AP traffic counters less often
+                    # than the coordinator polls. Keep the previous published
+                    # rate and, importantly, keep the previous counter
+                    # baseline until a real counter change arrives. This avoids
+                    # alternating 0 / ~2x samples.
+                    stale_after = self._normal_interval.total_seconds() * 3
+                    if elapsed < stale_after:
+                        if "rx_rate_mbps" in prev:
+                            devices[mac]["rx_rate_mbps"] = prev["rx_rate_mbps"]
+                        if "tx_rate_mbps" in prev:
+                            devices[mac]["tx_rate_mbps"] = prev["tx_rate_mbps"]
+                        return
+                    devices[mac]["rx_rate_mbps"] = 0.0
+                    devices[mac]["tx_rate_mbps"] = 0.0
                 else:
                     devices[mac]["rx_rate_mbps"] = round(
                         delta_rx / elapsed / 1_000_000, 4
@@ -673,8 +698,15 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     devices[mac]["tx_rate_mbps"] = round(
                         delta_tx / elapsed / 1_000_000, 4
                     )
-        # Store current counters for next poll.
-        self._prev_traffic[mac] = {"rx": total_rx, "tx": total_tx, "ts": now}
+
+        # Store the latest real baseline and last published rates.
+        self._prev_traffic[mac] = {
+            "rx": total_rx,
+            "tx": total_tx,
+            "ts": now,
+            "rx_rate_mbps": devices[mac].get("rx_rate_mbps", 0.0),
+            "tx_rate_mbps": devices[mac].get("tx_rate_mbps", 0.0),
+        }
 
     async def _merge_gateway_temperature(
         self,
