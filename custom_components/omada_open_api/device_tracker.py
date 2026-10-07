@@ -295,6 +295,10 @@ class OmadaClientTracker(
             attrs["connected_switch"] = client["switch_name"]
         if client.get("wireless") is not None:
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
+        if client.get("radio_band"):
+            attrs["radio_band"] = client["radio_band"]
+        if client.get("channel") is not None:
+            attrs["channel"] = str(client["channel"])
         return attrs
 
     @callback
