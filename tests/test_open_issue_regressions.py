@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime as dt
-from types import MethodType
 from unittest.mock import AsyncMock
 
 from custom_components.omada_open_api.api import OmadaApiClient, OmadaApiError
