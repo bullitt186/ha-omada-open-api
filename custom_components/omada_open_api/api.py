@@ -1489,7 +1489,13 @@ class OmadaApiClient:
             f"{self._api_url}/openapi/v2/{self._omada_id}"
             f"/sites/{site_id}/dashboard/gateway/isp/load"
         )
-        result = await self._authenticated_request("get", url)
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError as err:
+            if err.http_status == 404:
+                _LOGGER.debug("Fusion WAN port endpoint is not available: %s", url)
+                return []
+            raise
         gateways: list[dict[str, Any]] = result.get("result", {}).get("data", [])
         for gateway in gateways:
             if gateway.get("mac") != gateway_mac:
@@ -1556,7 +1562,9 @@ class OmadaApiClient:
             try:
                 result = await self._authenticated_request("get", url, params=params)
             except OmadaApiError as err:
-                if fusion_filter_fallback and err.error_code == -1001:
+                if fusion_filter_fallback and (
+                    err.error_code == -1001 or err.http_status == 400
+                ):
                     _LOGGER.debug(
                         "VPN endpoint requires Fusion WireGuard filter; retrying"
                     )
@@ -1692,10 +1700,16 @@ class OmadaApiClient:
 class OmadaApiError(Exception):
     """General API exception."""
 
-    def __init__(self, message: str, error_code: int | None = None) -> None:
-        """Initialize with optional error code."""
+    def __init__(
+        self,
+        message: str,
+        error_code: int | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        """Initialize with optional API and HTTP error metadata."""
         super().__init__(message)
         self.error_code = error_code
+        self.http_status = http_status
 
 
 class OmadaApiAuthError(OmadaApiError):
