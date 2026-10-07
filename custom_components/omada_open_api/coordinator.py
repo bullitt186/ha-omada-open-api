@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiClient, OmadaApiError
-from .clients import process_client
+from .clients import normalize_radio_band, process_client
 from .const import (
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
@@ -380,13 +380,23 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                 or client.get("hostName")
                                 or client.get("mac", "Unknown")
                             ),
+                            "host_name": client.get("hostName"),
                             "mac": client.get("mac", ""),
                             "ip": client.get("ip", ""),
+                            "vendor": client.get("vendor"),
+                            "device_type": client.get("deviceType"),
+                            "model": client.get("model"),
                             "wireless": client.get("wireless", False),
+                            "ssid": client.get("ssid"),
                             "radio_id": client.get("radioId"),
+                            "radio_band": normalize_radio_band(client),
+                            "channel": client.get("channel"),
                             "guest": client.get("guest", False),
+                            "ap_name": client.get("apName"),
                             "ap_mac": client.get("apMac"),
+                            "switch_name": client.get("switchName"),
                             "switch_mac": client.get("switchMac"),
+                            "gateway_name": client.get("gatewayName"),
                             "gateway_mac": client.get("gatewayMac"),
                         }
                     )
