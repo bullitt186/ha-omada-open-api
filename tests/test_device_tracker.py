@@ -18,6 +18,7 @@ from custom_components.omada_open_api.coordinator import (
 from custom_components.omada_open_api.device_tracker import (
     OmadaClientTracker,
     OmadaDeviceTracker,
+    OmadaDiscoveredClientTracker,
 )
 from custom_components.omada_open_api.devices import process_device
 
@@ -550,3 +551,97 @@ async def test_client_tracker_handle_coordinator_update(
     tracker._handle_coordinator_update()
 
     tracker.async_write_ha_state.assert_called_once()
+
+
+
+# ===========================================================================
+# Automatically discovered client trackers
+# ===========================================================================
+
+
+def _build_discovery_coordinator(
+    hass: HomeAssistant,
+    clients: list[dict[str, Any]],
+) -> OmadaSiteCoordinator:
+    """Create a site coordinator containing auto-discovered clients."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(api_url="https://controller"),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = {
+        "devices": {},
+        "all_clients": clients,
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+    }
+    return coordinator
+
+
+async def test_discovered_client_uses_omada_name(hass: HomeAssistant) -> None:
+    """Automatically discovered clients use the controller name."""
+    client = {
+        "name": "Matan iPhone",
+        "host_name": "iPhone-Matan",
+        "mac": WIRELESS_MAC,
+        "ip": "192.168.1.100",
+        "wireless": True,
+        "ssid": "Home",
+        "radio_band": "5 GHz",
+        "channel": 36,
+        "vendor": "Apple",
+        "device_type": "Phone",
+    }
+    coordinator = _build_discovery_coordinator(hass, [client])
+    tracker = OmadaDiscoveredClientTracker(coordinator, WIRELESS_MAC)
+
+    assert tracker.name == "Matan iPhone"
+    assert tracker.unique_id == f"omada_open_api_{WIRELESS_MAC}"
+    assert tracker.is_connected is True
+    assert tracker.hostname == "iPhone-Matan"
+    assert tracker.extra_state_attributes["radio_band"] == "5 GHz"
+    assert tracker.extra_state_attributes["ssid"] == "Home"
+
+    info = tracker._attr_device_info
+    assert info is not None
+    assert info["name"] == "Matan iPhone"
+    assert info["manufacturer"] == "Apple"
+
+
+async def test_discovered_client_name_falls_back_to_hostname(
+    hass: HomeAssistant,
+) -> None:
+    """Hostname is used when Omada has no custom client name."""
+    client = {
+        "name": None,
+        "host_name": "living-room-tv",
+        "mac": WIRED_MAC,
+        "ip": "192.168.1.50",
+        "wireless": False,
+    }
+    coordinator = _build_discovery_coordinator(hass, [client])
+    tracker = OmadaDiscoveredClientTracker(coordinator, WIRED_MAC)
+
+    assert tracker.name == "living-room-tv"
+
+
+async def test_discovered_client_keeps_mac_stable_when_name_changes(
+    hass: HomeAssistant,
+) -> None:
+    """Changing the Omada display name does not change the unique ID."""
+    client = {
+        "name": "Old Name",
+        "host_name": "device-host",
+        "mac": WIRELESS_MAC,
+        "wireless": True,
+    }
+    coordinator = _build_discovery_coordinator(hass, [client])
+    tracker = OmadaDiscoveredClientTracker(coordinator, WIRELESS_MAC)
+    unique_id = tracker.unique_id
+
+    coordinator.data["all_clients"][0]["name"] = "New Name"
+    tracker._handle_coordinator_update()
+
+    assert tracker.unique_id == unique_id
+    assert tracker._attr_device_info["name"] == "New Name"
