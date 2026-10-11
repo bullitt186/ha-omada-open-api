@@ -18,10 +18,14 @@ from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+    CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
@@ -267,3 +271,41 @@ async def test_site_entity_settings_saves_value(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
+
+
+async def test_auto_discovery_is_off_by_default_and_saves_choice(
+    hass: HomeAssistant,
+) -> None:
+    """Discovery is opt-in; signal attributes default on when enabled."""
+    entry = _create_config_entry(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "tracker_settings"}
+    )
+    assert form["type"] == FlowResultType.FORM
+    defaults = {
+        k.schema: k.default() if callable(k.default) else k.default
+        for k in form["data_schema"].schema
+    }
+    assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is False
+    assert defaults[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_DISCONNECT_TIMEOUT: 5,
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: True,
+                CONF_AUTO_DISCOVERY_SSIDS: "Home, Guest",
+            },
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_SSIDS] == "Home, Guest"
+    assert entry.options[CONF_DISCONNECT_TIMEOUT] == 5

@@ -4,18 +4,34 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.device_tracker import (  # type: ignore[attr-defined]
+    BaseScannerEntity,
     ScannerEntity,
     SourceType,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
-from .const import CLIENT_RADIO_BANDS, DOMAIN
+from .clients import normalize_client_mac
+from .const import (
+    CLIENT_RADIO_BANDS,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+    CONF_AUTO_DISCOVERY_SSIDS,
+    CONF_DISCONNECT_TIMEOUT,
+    CONF_SELECTED_CLIENTS,
+    DOMAIN,
+)
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
-from .devices import format_detail_status
+from .devices import (
+    build_client_device_info,
+    format_detail_status,
+    resolve_via_device_id,
+)
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
@@ -69,6 +85,11 @@ async def async_setup_entry(
             site_coordinator.async_add_listener(_async_check_new_devices)
         )
 
+    # Only opt in to automatic client discovery explicitly. RSSI/SNR/
+    # quality attributes on discovered clients remain ON by default.
+    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
+        _setup_auto_client_trackers(hass, entry, site_coordinators, async_add_entities)
+
     # --- Client trackers (network clients) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
@@ -95,6 +116,301 @@ async def async_setup_entry(
 
         # Populate with currently known clients.
         _async_update_items(coordinator)
+
+
+def _setup_auto_client_trackers(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    site_coordinators: list[OmadaSiteCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Discover opted-in client presence via already fetched site data."""
+    selected_macs = {
+        normalize_client_mac(mac)
+        for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
+    }
+    ssids = {
+        value.strip()
+        for value in entry.options.get(CONF_AUTO_DISCOVERY_SSIDS, "").split(",")
+        if value.strip()
+    }
+    discovered_macs: set[str] = set()
+
+    # Restore existing tracker IDs from the entity registry at startup.
+    # A client not online during a restart should be 'away', not lost or
+    # recreated under a different ID when it returns.
+    previously_discovered: list[OmadaAutoClientTracker] = []
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.domain != "device_tracker"
+            or not entity.unique_id
+            or not entity.unique_id.startswith(f"{DOMAIN}_")
+            or entity.unique_id.startswith(f"{DOMAIN}_device_")
+        ):
+            continue
+        legacy_mac = entity.unique_id[len(DOMAIN) + 1 :]
+        canonical = normalize_client_mac(legacy_mac)
+        if (
+            not re.fullmatch(r"[0-9A-F]{12}", canonical)
+            or canonical in selected_macs
+            or canonical in discovered_macs
+        ):
+            continue
+        discovered_macs.add(canonical)
+        previously_discovered.append(
+            OmadaAutoClientTracker(
+                site_coordinators,
+                legacy_mac,
+                entry.runtime_data.site_devices,
+                entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                ssids,
+                entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+            )
+        )
+    if previously_discovered:
+        async_add_entities(previously_discovered)
+
+    @callback
+    def _async_discover_clients() -> None:
+        """Create only never-seen presence entities; retain missing ones offline."""
+        new_entities: list[OmadaAutoClientTracker] = []
+        for coord in site_coordinators:
+            if (
+                not coord.last_update_success
+                or not coord.data
+                or coord.data.get("clients_poll_ok", True) is False
+            ):
+                continue
+            for client in coord.data.get("all_clients", []):
+                raw_mac = client.get("mac")
+                if not isinstance(raw_mac, str):
+                    continue
+                mac = normalize_client_mac(raw_mac)
+                if not re.fullmatch(r"[0-9A-F]{12}", mac):
+                    continue
+                if mac in selected_macs or mac in discovered_macs:
+                    continue
+                # A filter, when provided, selects only matching wireless
+                # SSIDs. Wired clients have no SSID and are excluded.
+                if ssids and client.get("ssid") not in ssids:
+                    continue
+                discovered_macs.add(mac)
+                new_entities.append(
+                    OmadaAutoClientTracker(
+                        site_coordinators,
+                        "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
+                        entry.runtime_data.site_devices,
+                        entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                        ssids,
+                        entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+                    )
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    for site_coord in site_coordinators:
+        entry.async_on_unload(site_coord.async_add_listener(_async_discover_clients))
+    _async_discover_clients()
+
+
+class OmadaAutoClientTracker(BaseScannerEntity):
+    """Presence-only client tracker; one stable entity across all sites.
+
+    The existing manually selected OmadaClientTracker uses the same unique ID.
+    Setup excludes selected MACs, so the two implementations never coexist.
+    Devices that disappear are retained as away: the integration never deletes
+    user-customized entities or automations automatically.
+    """
+
+    _attr_should_poll = False
+
+    def __init__(
+        self,
+        site_coordinators: list[OmadaSiteCoordinator],
+        client_mac: str,
+        site_devices: dict[str, Any],
+        disconnect_timeout: int = 0,
+        allowed_ssids: set[str] | None = None,
+        signal_attributes: bool = True,
+    ) -> None:
+        """Use the existing site snapshots, never poll per client."""
+        self._coordinators = site_coordinators
+        self._client_mac = client_mac
+        self._canonical_mac = normalize_client_mac(client_mac)
+        self._site_devices = site_devices
+        self._disconnect_timeout = disconnect_timeout
+        self._allowed_ssids = allowed_ssids or set()
+        self._signal_attributes = signal_attributes
+        self._last_seen: dt.datetime | None = None
+        self._unique_id = f"{DOMAIN}_{client_mac}"
+        self._attr_mac_address = client_mac.replace("-", ":").lower()
+        self._attr_name = client_mac
+        # Keep the old device registry link even when this client was offline
+        # during HA startup and has no live API data yet.
+        first_site = site_coordinators[0] if site_coordinators else None
+        site_device = site_devices.get(first_site.site_id) if first_site else None
+        self._client_device_info: DeviceInfo | None = (
+            build_client_device_info(
+                client_mac,
+                {},
+                first_site.api_client.api_url,
+                site_device.id if site_device else None,
+            )
+            if first_site
+            else None
+        )
+        self._refresh_metadata()
+
+    def _current_client(self) -> tuple[OmadaSiteCoordinator, dict[str, Any]] | None:
+        """Find this MAC at any configured site, including after site roaming."""
+        for coord in self._coordinators:
+            if (
+                not coord.last_update_success
+                or not coord.data
+                or coord.data.get("clients_poll_ok", True) is False
+            ):
+                continue
+            index = coord.data.get("client_index")
+            if isinstance(index, dict):
+                client = index.get(self._canonical_mac)
+                if client is not None and (
+                    not self._allowed_ssids or client.get("ssid") in self._allowed_ssids
+                ):
+                    return coord, client
+                continue
+            # Compatibility for earlier cached coordinator snapshots.
+            for client in coord.data.get("all_clients", []):
+                mac = client.get("mac")
+                if (
+                    isinstance(mac, str)
+                    and normalize_client_mac(mac) == self._canonical_mac
+                    and (
+                        not self._allowed_ssids
+                        or client.get("ssid") in self._allowed_ssids
+                    )
+                ):
+                    return coord, client
+        return None
+
+    def _refresh_metadata(self) -> None:
+        """Update details without replacing the entity's stable unique ID."""
+        found = self._current_client()
+        if not found:
+            return
+        coord, client = found
+        self._last_seen = dt.datetime.now(dt.UTC)
+        self._attr_name = (
+            client.get("name") or client.get("host_name") or self._client_mac
+        )
+        parent_mac = (
+            client.get("ap_mac") if client.get("wireless") else client.get("switch_mac")
+        ) or client.get("gateway_mac")
+        parent_id = (
+            resolve_via_device_id(coord.hass, parent_mac) if parent_mac else None
+        )
+        if parent_id is None:
+            site = self._site_devices.get(coord.site_id)
+            parent_id = site.id if site else None
+        self._client_device_info = build_client_device_info(
+            self._client_mac, client, coord.api_client.api_url, parent_id
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the site coordinators already fetching active clients."""
+        await super().async_added_to_hass()
+        for coord in self._coordinators:
+            self.async_on_remove(coord.async_add_listener(self._handle_site_update))
+
+    @callback
+    def _handle_site_update(self) -> None:
+        """Track status and site transitions; never prune a missing client."""
+        self._refresh_metadata()
+        self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        """Use the established Omada unique ID, independent of raw MAC."""
+        return self._unique_id
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Expose a parent-aware registry device, even for restored offline IDs."""
+        return self._client_device_info
+
+    @property
+    def mac_address(self) -> str | None:
+        """Return the MAC as reported to the Home Assistant device registry."""
+        return self._attr_mac_address
+
+    @property
+    def source_type(self) -> SourceType:
+        """Presence is detected by the Omada router/controller."""
+        return SourceType.ROUTER
+
+    @property
+    def is_connected(self) -> bool:
+        """Return online state with the configured disconnection grace period."""
+        if self._current_client() is not None:
+            return True
+        if self._last_seen is not None and self._disconnect_timeout > 0:
+            elapsed = (dt.datetime.now(dt.UTC) - self._last_seen).total_seconds()
+            return elapsed < self._disconnect_timeout * 60
+        return False
+
+    @property
+    def available(self) -> bool:
+        """Avoid false away states when a site's API refresh has failed."""
+        return self._current_client() is not None or all(
+            coord.last_update_success
+            and (not coord.data or coord.data.get("clients_poll_ok", True))
+            for coord in self._coordinators
+        )
+
+    @property
+    def ip_address(self) -> str | None:
+        """Report last-known IP only while online."""
+        found = self._current_client()
+        return found[1].get("ip") if found else None
+
+    @property
+    def hostname(self) -> str | None:
+        """Expose the currently reported hostname."""
+        found = self._current_client()
+        return found[1].get("host_name") if found else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose only fields the Omada API actually reported."""
+        found = self._current_client()
+        if not found:
+            return {}
+        client = found[1]
+        attrs: dict[str, Any] = {}
+        for source, target in (("ssid", "ssid"), ("channel", "channel")):
+            if client.get(source) is not None:
+                attrs[target] = client[source]
+        if client.get("wireless") is not None:
+            attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
+        if client.get("wireless"):
+            radio_id = client.get("radio_id")
+            band = (
+                CLIENT_RADIO_BANDS.get(radio_id) if isinstance(radio_id, int) else None
+            )
+            if band:
+                attrs["band"] = band
+            if self._signal_attributes:
+                # Snapshot values are per-device, not per-SSID: roaming
+                # updates this existing tracker's attributes in place.
+                for key, attr in (
+                    ("rssi", "rssi_dbm"),
+                    ("snr", "snr_db"),
+                    ("signal_level", "signal_strength_percent"),
+                ):
+                    value = client.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        attrs[attr] = value
+        return attrs
 
 
 class OmadaDeviceTracker(

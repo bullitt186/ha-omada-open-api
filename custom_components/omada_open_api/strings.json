@@ -199,10 +199,16 @@
                 "title": "Device Tracker Settings",
                 "description": "Configure presence detection behavior for client device trackers.\n\nThe disconnect timeout adds a grace period before a client is marked as away. This prevents false 'away' events caused by brief Wi-Fi disconnections.\n\nRange: 0–60 minutes. Default: 0 (immediate, current behavior).",
                 "data": {
-                    "disconnect_timeout": "Client disconnect timeout (minutes)"
+                    "disconnect_timeout": "Client disconnect timeout (minutes)",
+                    "auto_discover_client_trackers": "Automatically discover client presence trackers (opt-in; off by default)",
+                    "auto_discovery_ssids": "Only these wireless SSIDs (comma-separated; blank means all)",
+                    "auto_discovery_signal_attributes": "Show Wi-Fi RSSI, SNR and signal quality on existing client trackers"
                 },
                 "data_description": {
-                    "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network."
+                    "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network.",
+                    "auto_discover_client_trackers": "Off by default. Opt in to create one presence-only tracker per active network client; large networks may create hundreds. Existing tracked clients keep their identity and richer controls.",
+                    "auto_discovery_ssids": "Optional exact SSID names separated by commas. When set, wired clients are excluded. Entities already discovered are retained as away rather than deleted.",
+                    "auto_discovery_signal_attributes": "Enabled by default. Shows controller-reported RSSI (dBm), SNR (dB) and signal level (%) as attributes of each existing tracker. SSID changes update the same device; no separate signal sensor entities are created."
                 }
             },
             "device_entity_settings": {

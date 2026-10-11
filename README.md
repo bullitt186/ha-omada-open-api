@@ -378,6 +378,49 @@ automation:
 
 ---
 
+## Presence-only automatic client discovery (experimental, #88)
+
+**Off by default for existing and new installations** to avoid creating
+hundreds of unexpected entities. Under **Configure → Device Tracker Settings**,
+enable *Automatically discover client presence trackers* explicitly. This
+creates presence-only `device_tracker` entities for
+active clients, without having to pick them one by one. It uses the site's
+**already-fetched active client list** and makes **no additional per-client
+API calls**. Selected clients keep their richer sensors and controls.
+
+- **Roaming does not create another device.** A normalized MAC is the
+  device's identity, while SSID, access point, band and signal metrics are
+  changing properties of that same device. Crossing SSIDs or sites updates
+  the same tracker and keeps Home Assistant customizations.
+- **Wi-Fi signal reporting defaults to enabled.** The existing tracker gains
+  three optional attributes where actually reported by the controller:
+  `rssi_dbm` (dBm), `snr_db` (dB), and `signal_strength_percent` (%).
+  These are **not additional entities**, do not trigger per-client polling,
+  and remain absent for missing measurements or wired clients. Turn them off
+  under Device Tracker Settings without disabling presence discovery.
+- One entity per normalized client MAC is created across sites, using the
+  same unique ID as a manually selected client. Enabling this feature never
+  creates a second tracker for an already-selected client.
+- You may enter exact comma-separated SSID names to limit automatic
+  discovery and presence to those wireless networks. With a filter active,
+  wired clients are excluded, and a client moving to an excluded SSID becomes
+  away. Leave it blank to discover both wireless and wired clients.
+- Changing the client name or moving between sites preserves the entity ID.
+  Existing custom names and automation references stay in the registry.
+- Missing clients become **away** (after the configured disconnect grace
+  period). **No registry entries/devices are automatically deleted** when a
+  client stays absent: this is intentional to protect user customizations.
+  A future opt-in cleanup policy can be discussed separately.
+- Discovering 200+ devices can enlarge Home Assistant's registry. Discovery
+  starts **disabled** and requires an explicit opt-in, including after an
+  upgrade. Disabling it later stops discovery without forcibly deleting
+  previously created entities.
+- This is independent of the selected-client bandwidth/signal switches and
+  of application-traffic selection. It does not enable expensive per-client
+  traffic polling or change application traffic settings.
+- Radio bands are derived only from the reported `radioId`, never from a
+  channel-number heuristic (6 GHz channels can overlap 2.4 GHz numbering).
+
 ## Options
 
 After initial setup, go to **Settings → Devices & Services → TP-Link Omada Open API → Configure** to access a menu with the following configuration options:

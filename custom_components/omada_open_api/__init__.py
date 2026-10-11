@@ -31,6 +31,7 @@ from .const import (
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -926,7 +927,9 @@ async def _cleanup_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None
             device_id = normalize_client_mac(identifier[1])
 
             # Remove deselected client devices
-            if device_id in deselected_clients:
+            if device_id in deselected_clients and not entry.options.get(
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
+            ):
                 _LOGGER.info("Removing deselected client device: %s", device.name)
                 device_registry.async_remove_device(device.id)
                 removed_count += 1
@@ -1133,6 +1136,21 @@ def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> 
     device_registry = dr.async_get(hass)
     devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
 
+    # Presence-only clients reuse the legacy unique IDs. Never mistake them
+    # for stale AP/switch/gateway devices: removing them destroys customizations.
+    auto_clients: set[str] = set()
+    # Previously auto-discovered tracker devices must survive even when the
+    # option is disabled; disabled discovery must not remove customizations.
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.domain == "device_tracker"
+            and entity.unique_id
+            and entity.unique_id.startswith(f"{DOMAIN}_")
+            and not entity.unique_id.startswith(f"{DOMAIN}_device_")
+        ):
+            auto_clients.add(normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :]))
+
     removed_count = 0
     for device in devices:
         for identifier in device.identifiers:
@@ -1142,6 +1160,11 @@ def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> 
 
             # Site devices are managed by site selection, not this pass.
             if device_id.startswith("SITE_"):
+                break
+
+            # Auto-discovered presence entities must remain in the registry when
+            # disconnected or stale. The user may have customized them.
+            if device_id in auto_clients:
                 break
 
             # Selected clients are managed by _cleanup_devices, not this

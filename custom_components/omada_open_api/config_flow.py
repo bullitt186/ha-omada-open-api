@@ -31,6 +31,9 @@ from .const import (
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+    CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -1651,6 +1654,15 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 data={
                     **self.config_entry.options,
                     CONF_DISCONNECT_TIMEOUT: user_input[CONF_DISCONNECT_TIMEOUT],
+                    CONF_AUTO_DISCOVER_CLIENT_TRACKERS: user_input[
+                        CONF_AUTO_DISCOVER_CLIENT_TRACKERS
+                    ],
+                    CONF_AUTO_DISCOVERY_SSIDS: user_input.get(
+                        CONF_AUTO_DISCOVERY_SSIDS, ""
+                    ).strip(),
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: user_input.get(
+                        CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                    ),
                 },
             )
 
@@ -1663,6 +1675,24 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 vol.Required(CONF_DISCONNECT_TIMEOUT, default=current_timeout): vol.All(
                     vol.Coerce(int), vol.Range(min=0, max=60)
                 ),
+                vol.Required(
+                    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+                    default=self.config_entry.options.get(
+                        CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
+                    ),
+                ): bool,
+                vol.Optional(
+                    CONF_AUTO_DISCOVERY_SSIDS,
+                    default=self.config_entry.options.get(
+                        CONF_AUTO_DISCOVERY_SSIDS, ""
+                    ),
+                ): str,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+                    default=self.config_entry.options.get(
+                        CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                    ),
+                ): bool,
             }
         )
 
