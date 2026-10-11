@@ -1138,18 +1138,19 @@ def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> 
     # Presence-only clients reuse the legacy unique IDs. Never mistake them
     # for stale AP/switch/gateway devices: removing them destroys customizations.
     auto_clients: set[str] = set()
-    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
-        registry = er.async_get(hass)
-        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if (
-                entity.domain == "device_tracker"
-                and entity.unique_id
-                and entity.unique_id.startswith(f"{DOMAIN}_")
-                and not entity.unique_id.startswith(f"{DOMAIN}_device_")
-            ):
-                auto_clients.add(
-                    normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :])
-                )
+    # Previously auto-discovered tracker devices must survive even when the
+    # option is disabled; disabled discovery must not remove customizations.
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.domain == "device_tracker"
+            and entity.unique_id
+            and entity.unique_id.startswith(f"{DOMAIN}_")
+            and not entity.unique_id.startswith(f"{DOMAIN}_device_")
+        ):
+            auto_clients.add(
+                normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :])
+            )
 
     removed_count = 0
     for device in devices:

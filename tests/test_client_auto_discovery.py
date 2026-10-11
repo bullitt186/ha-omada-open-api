@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from homeassistant.components.device_tracker import SourceType
 
@@ -188,3 +188,47 @@ async def test_no_band_guessing_from_24g_channel(hass: HomeAssistant) -> None:
     tracker = OmadaAutoClientTracker([site], MAC_A, {})
     assert tracker.extra_state_attributes["channel"] == 5
     assert tracker.extra_state_attributes["band"] == "6 GHz"
+
+
+async def test_failed_coordinator_is_unavailable_not_falsely_away(
+    hass: HomeAssistant,
+) -> None:
+    """Preserve presence semantics on transient controller fetch failures."""
+    site = _site(hass, "a", [_client(MAC_A, "Tablet")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    assert tracker.available
+    site.last_update_success = False
+    assert not tracker.available
+
+
+async def test_disabling_auto_discovery_preserves_old_client_registry(
+    hass: HomeAssistant,
+) -> None:
+    """Stale-infra pruning must never remove a historical client device."""
+    from custom_components.omada_open_api import _prune_stale_infra_devices
+
+    site = _site(hass, "a", [])
+    entry = _entry([site], {})  # Discovery has since been turned off.
+    device = SimpleNamespace(
+        id="custom-device", name="My customized phone",
+        identifiers={(DOMAIN, MAC_A)},
+    )
+    tracker_entity = SimpleNamespace(
+        domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"
+    )
+    with (
+        patch(
+            "custom_components.omada_open_api.dr.async_get"
+        ) as get_devices,
+        patch(
+            "custom_components.omada_open_api.dr.async_entries_for_config_entry",
+            return_value=[device],
+        ),
+        patch("custom_components.omada_open_api.er.async_get"),
+        patch(
+            "custom_components.omada_open_api.er.async_entries_for_config_entry",
+            return_value=[tracker_entity],
+        ),
+    ):
+        _prune_stale_infra_devices(hass, entry)
+        get_devices.return_value.async_remove_device.assert_not_called()

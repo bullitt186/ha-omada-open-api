@@ -251,6 +251,14 @@ class OmadaAutoClientTracker(ScannerEntity):
         return False
 
     @property
+    def available(self) -> bool:
+        """Avoid false away states when a site's API refresh has failed."""
+        return (
+            self._current_client() is not None
+            or all(coord.last_update_success for coord in self._coordinators)
+        )
+
+    @property
     def ip_address(self) -> str | None:
         """Report last-known IP only while online."""
         found = self._current_client()
