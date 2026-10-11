@@ -1,9 +1,4 @@
-## What's Changed in v1.11.0b1
-
-> **Beta release.** This is a pre-release for testing before v1.11.0. HACS
-> offers it only if you enabled beta versions for this integration (see
-> "Beta Versions" in the README). Please report results and problems in a
-> GitHub issue and mention the beta version.
+## What's Changed in v1.11.0
 
 This release fixes the token-refresh regression from v1.10.1 that forced a
 manual reauthentication roughly every two hours. It also fixes several
@@ -66,6 +61,8 @@ controller-compatibility issues and adds the radio band to client trackers.
 - @sebmuc99 for the precise root-cause reports #67, #68 and #69.
 - @vishlamba for #65, #66 and #78, @simonbosschieter for #85, and everyone
   who confirmed and tested #63.
+- @nareso and @oralallen82 for confirming the token-refresh fix on local
+  controllers during the v1.11.0b1 beta.
 
 ---
 
