@@ -320,7 +320,7 @@ class OmadaAutoClientTracker(ScannerEntity):
         return self._unique_id
 
     @property
-    def device_info(self) -> DeviceInfo | None:  # type: ignore[override]
+    def device_info(self) -> DeviceInfo | None:
         """Expose a parent-aware registry device, even for restored offline IDs."""
         return self._client_device_info
 
