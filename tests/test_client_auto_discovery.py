@@ -149,13 +149,17 @@ async def test_absent_clients_are_away_without_deleting_the_entity(
 async def test_ssid_filter_and_cross_site_duplicates(hass: HomeAssistant) -> None:
     """Only opted-in SSIDs are considered, with one entity per physical MAC."""
     site_a = _site(
-        hass, "a",
+        hass,
+        "a",
         [_client(MAC_A, "Phone", "Home"), _client(MAC_B, "Printer", None)],
     )
     site_b = _site(
-        hass, "b",
-        [_client(MAC_A.replace("-", ":"), "Phone", "Home"),
-         _client(MAC_C, "Guest", "Guest")],
+        hass,
+        "b",
+        [
+            _client(MAC_A.replace("-", ":"), "Phone", "Home"),
+            _client(MAC_C, "Guest", "Guest"),
+        ],
     )
     added: list = []
     await async_setup_entry(
@@ -210,16 +214,15 @@ async def test_disabling_auto_discovery_preserves_old_client_registry(
     site = _site(hass, "a", [])
     entry = _entry([site], {})  # Discovery has since been turned off.
     device = SimpleNamespace(
-        id="custom-device", name="My customized phone",
+        id="custom-device",
+        name="My customized phone",
         identifiers={(DOMAIN, MAC_A)},
     )
     tracker_entity = SimpleNamespace(
         domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"
     )
     with (
-        patch(
-            "custom_components.omada_open_api.dr.async_get"
-        ) as get_devices,
+        patch("custom_components.omada_open_api.dr.async_get") as get_devices,
         patch(
             "custom_components.omada_open_api.dr.async_entries_for_config_entry",
             return_value=[device],
@@ -233,13 +236,16 @@ async def test_disabling_auto_discovery_preserves_old_client_registry(
         _prune_stale_infra_devices(hass, entry)
         get_devices.return_value.async_remove_device.assert_not_called()
 
+
 async def test_offline_registered_tracker_is_restored_after_restart(
     hass: HomeAssistant,
 ) -> None:
     """Never drop previously discovered entity IDs when they are now offline."""
     site = _site(hass, "a", [])
     entry = _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True})
-    known = SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}")
+    known = SimpleNamespace(
+        domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"
+    )
     added: list = []
     with patch(
         "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
@@ -300,13 +306,10 @@ async def test_indexed_client_lookup_avoids_full_client_list_scan(
     """A normalized MAC index is sufficient for presence on large sites."""
     site = _site(hass, "a", [])
     site.data["all_clients"] = None
-    site.data["client_index"] = {
-        "1122334455AA": _client(MAC_A, "Tablet")
-    }
+    site.data["client_index"] = {"1122334455AA": _client(MAC_A, "Tablet")}
     tracker = OmadaAutoClientTracker([site], MAC_A, {})
     assert tracker.is_connected
     assert tracker.name == "Tablet"
-
 
 
 async def test_ssid_filter_is_rechecked_when_client_roams(
@@ -314,9 +317,7 @@ async def test_ssid_filter_is_rechecked_when_client_roams(
 ) -> None:
     """A tracker goes away after leaving an opted-in SSID."""
     site = _site(hass, "a", [_client(MAC_A, "Phone", "Home")])
-    tracker = OmadaAutoClientTracker(
-        [site], MAC_A, {}, allowed_ssids={"Home"}
-    )
+    tracker = OmadaAutoClientTracker([site], MAC_A, {}, allowed_ssids={"Home"})
     assert tracker.is_connected
     site.data["all_clients"] = [_client(MAC_A, "Phone", "Guest")]
     assert not tracker.is_connected
