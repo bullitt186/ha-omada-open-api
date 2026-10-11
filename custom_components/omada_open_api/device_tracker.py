@@ -23,9 +23,12 @@ from .const import (
     CONF_SELECTED_CLIENTS,
     DOMAIN,
 )
-from .devices import build_client_device_info, resolve_via_device_id
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
-from .devices import format_detail_status
+from .devices import (
+    build_client_device_info,
+    format_detail_status,
+    resolve_via_device_id,
+)
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
