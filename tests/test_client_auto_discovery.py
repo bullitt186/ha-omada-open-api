@@ -232,3 +232,37 @@ async def test_disabling_auto_discovery_preserves_old_client_registry(
     ):
         _prune_stale_infra_devices(hass, entry)
         get_devices.return_value.async_remove_device.assert_not_called()
+
+async def test_offline_registered_tracker_is_restored_after_restart(
+    hass: HomeAssistant,
+) -> None:
+    """Never drop previously discovered entity IDs when they are now offline."""
+    site = _site(hass, "a", [])
+    entry = _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True})
+    known = SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}")
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
+        return_value=[known],
+    ):
+        await async_setup_entry(hass, entry, added.extend)
+
+    assert len(added) == 1
+    restored = added[0]
+    assert restored.unique_id == f"{DOMAIN}_{MAC_A}"
+    assert restored.is_connected is False
+    assert restored.device_info["identifiers"] == {(DOMAIN, MAC_A)}
+
+
+async def test_new_mac_format_stable_even_if_api_uses_colons(
+    hass: HomeAssistant,
+) -> None:
+    """Normalize newly discovered IDs, preserving existing stored IDs verbatim."""
+    site = _site(hass, "a", [_client(MAC_A.replace("-", ":"), "Phone")])
+    added: list = []
+    await async_setup_entry(
+        hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+        added.extend,
+    )
+    assert len(added) == 1
+    assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"

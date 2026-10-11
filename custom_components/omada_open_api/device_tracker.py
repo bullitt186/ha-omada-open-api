@@ -12,6 +12,7 @@ from homeassistant.components.device_tracker import (  # type: ignore[attr-defin
     SourceType,
 )
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
 from .clients import normalize_client_mac
@@ -96,6 +97,39 @@ async def async_setup_entry(
         }
         discovered_macs: set[str] = set()
 
+        # Restore existing tracker IDs from the entity registry at startup.
+        # A client not online during a restart should be 'away', not lost or
+        # recreated under a different ID when it returns.
+        previously_discovered: list[OmadaAutoClientTracker] = []
+        registry = er.async_get(hass)
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if (
+                entity.domain != "device_tracker"
+                or not entity.unique_id
+                or not entity.unique_id.startswith(f"{DOMAIN}_")
+                or entity.unique_id.startswith(f"{DOMAIN}_device_")
+            ):
+                continue
+            legacy_mac = entity.unique_id[len(DOMAIN) + 1 :]
+            canonical = normalize_client_mac(legacy_mac)
+            if (
+                not re.fullmatch(r"[0-9A-F]{12}", canonical)
+                or canonical in selected_macs
+                or canonical in discovered_macs
+            ):
+                continue
+            discovered_macs.add(canonical)
+            previously_discovered.append(
+                OmadaAutoClientTracker(
+                    site_coordinators,
+                    legacy_mac,
+                    entry.runtime_data.site_devices,
+                    entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                )
+            )
+        if previously_discovered:
+            async_add_entities(previously_discovered)
+
         @callback
         def _async_discover_clients() -> None:
             """Create only never-seen presence entities; retain missing ones offline."""
@@ -120,7 +154,7 @@ async def async_setup_entry(
                     new_entities.append(
                         OmadaAutoClientTracker(
                             site_coordinators,
-                            raw_mac,
+                            "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
                             entry.runtime_data.site_devices,
                             entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
                         )
@@ -191,7 +225,21 @@ class OmadaAutoClientTracker(ScannerEntity):
         self._attr_unique_id = f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
         self._attr_name = client_mac
-        self._attr_device_info: DeviceInfo | None = None
+        # Keep the old device registry link even when this client was offline
+        # during HA startup and has no live API data yet.
+        first_site = site_coordinators[0] if site_coordinators else None
+        site_device = (
+            site_devices.get(first_site.site_id) if first_site else None
+        )
+        self._attr_device_info: DeviceInfo | None = (
+            build_client_device_info(
+                client_mac,
+                {},
+                first_site.api_client.api_url,
+                site_device.id if site_device else None,
+            )
+            if first_site else None
+        )
         self._refresh_metadata()
 
     def _current_client(self) -> tuple[OmadaSiteCoordinator, dict[str, Any]] | None:
