@@ -8,6 +8,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.device_tracker import (  # type: ignore[attr-defined]
+    BaseScannerEntity,
     ScannerEntity,
     SourceType,
 )
@@ -85,7 +86,7 @@ async def async_setup_entry(
 
     # Presence-only auto discovery reuses site coordinator's existing active
     # client list. Heavy client sensors/controls remain manually selected.
-    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
+    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, True):
         selected_macs = {
             normalize_client_mac(mac)
             for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
@@ -202,7 +203,7 @@ async def async_setup_entry(
         _async_update_items(coordinator)
 
 
-class OmadaAutoClientTracker(ScannerEntity):
+class OmadaAutoClientTracker(BaseScannerEntity):
     """Presence-only client tracker; one stable entity across all sites.
 
     The existing manually selected OmadaClientTracker uses the same unique ID.
@@ -316,13 +317,18 @@ class OmadaAutoClientTracker(ScannerEntity):
 
     @property
     def unique_id(self) -> str:
-        """Use the established Omada unique ID, not ScannerEntity's raw MAC."""
+        """Use the established Omada unique ID, independent of raw MAC."""
         return self._unique_id
 
     @property
     def device_info(self) -> DeviceInfo | None:
         """Expose a parent-aware registry device, even for restored offline IDs."""
         return self._client_device_info
+
+    @property
+    def mac_address(self) -> str | None:
+        """Return the MAC as reported to the Home Assistant device registry."""
+        return self._attr_mac_address
 
     @property
     def source_type(self) -> SourceType:

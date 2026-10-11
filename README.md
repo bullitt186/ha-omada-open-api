@@ -380,9 +380,10 @@ automation:
 
 ## Presence-only automatic client discovery (experimental, #88)
 
-**Off by default for existing and new installations.** Under **Configure →
-Device Tracker Settings**, optionally enable *Automatically discover client
-presence trackers*. This creates presence-only `device_tracker` entities for
+**Enabled by default for existing and new installations** when the
+updated integration is installed. Under **Configure → Device Tracker
+Settings**, you can switch *Automatically discover client presence trackers*
+off. When enabled, this creates presence-only `device_tracker` entities for
 active clients, without having to pick them one by one. It uses the site's
 **already-fetched active client list** and makes **no additional per-client
 API calls**. Selected clients keep their richer sensors and controls.
@@ -400,8 +401,9 @@ API calls**. Selected clients keep their richer sensors and controls.
   period). **No registry entries/devices are automatically deleted** when a
   client stays absent: this is intentional to protect user customizations.
   A future opt-in cleanup policy can be discussed separately.
-- Discovering 200+ devices can enlarge Home Assistant's registry. Decide
-  whether to enable it for each installation; disabling it stops discovery
+- Discovering 200+ devices can enlarge Home Assistant's registry. Discovery
+  starts enabled unless explicitly disabled, including on upgrades. Disable
+  the option if you do not want automatic detection. Disabling stops discovery
   but does not forcibly delete entities created previously.
 - This is independent of the selected-client bandwidth/signal switches and
   of application-traffic selection. It does not enable expensive per-client

@@ -272,10 +272,10 @@ async def test_site_entity_settings_saves_value(hass: HomeAssistant) -> None:
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
 
 
-async def test_opt_in_discovery_is_disabled_by_default_and_saves_choice(
+async def test_auto_discovery_is_enabled_by_default_and_saves_choice(
     hass: HomeAssistant,
 ) -> None:
-    """Options flow must never enable discovery on an existing installation."""
+    """Options flow starts enabled while letting the user override it."""
     entry = _create_config_entry(hass)
     with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
         await hass.config_entries.async_setup(entry.entry_id)
@@ -290,7 +290,7 @@ async def test_opt_in_discovery_is_disabled_by_default_and_saves_choice(
         k.schema: k.default() if callable(k.default) else k.default
         for k in form["data_schema"].schema
     }
-    assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is False
+    assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
 
     with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
         result = await hass.config_entries.options.async_configure(

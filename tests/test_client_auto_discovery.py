@@ -65,11 +65,24 @@ def _entry(sites: list[MagicMock], options: dict) -> MagicMock:
     return entry
 
 
-async def test_existing_installations_remain_opted_out(hass: HomeAssistant) -> None:
-    """Default-off does not silently add hundreds of entities."""
+async def test_existing_installations_discover_by_default(hass: HomeAssistant) -> None:
+    """With no explicit option, automatically add active clients."""
     site = _site(hass, "office", [_client(MAC_A, "Phone")])
     added: list = []
     await async_setup_entry(hass, _entry([site], {}), added.extend)
+    assert len(added) == 1
+    assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"
+
+
+async def test_explicit_user_opt_out_disables_auto_discovery(
+    hass: HomeAssistant,
+) -> None:
+    """An explicitly disabled installation creates no auto trackers."""
+    site = _site(hass, "office", [_client(MAC_A, "Phone")])
+    added: list = []
+    await async_setup_entry(
+        hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: False}), added.extend
+    )
     assert added == []
 
 
