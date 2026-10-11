@@ -512,3 +512,12 @@ async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
     assert tracker_off.unique_id == tracker.unique_id
     assert "rssi_dbm" not in tracker_off.extra_state_attributes
     assert tracker_off.is_connected
+
+    added: list = []
+    await async_setup_entry(
+        hass,
+        _entry([site], {CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: False}),
+        added.extend,
+    )
+    assert len(added) == 1
+    assert "rssi_dbm" not in added[0].extra_state_attributes
