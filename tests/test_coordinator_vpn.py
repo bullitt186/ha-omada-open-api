@@ -208,3 +208,53 @@ async def test_fetch_vpn_status_includes_disconnected_s2s_peers(
     assert coordinator.data["vpn_status"]["s2s"][0]["peers"] == [
         {"id": "peer-1", "name": "Remote site", "status": 0}
     ]
+
+
+async def test_vpn_http_400_stops_polling_that_vpn_type(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test an HTTP 400 VPN type is treated as unsupported and not re-polled."""
+    mock_api_client.get_vpn_s2s_stats = AsyncMock(
+        side_effect=OmadaApiError("HTTP 400: Bad Request", http_status=400)
+    )
+    mock_api_client.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_api_client.get_vpn_client_stats = AsyncMock(return_value=[])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert coordinator.data["vpn_status"]["s2s"] == []
+    assert mock_api_client.get_vpn_s2s_stats.await_count == 1
+    assert mock_api_client.get_vpn_server_stats.await_count == 2
+    assert mock_api_client.get_vpn_client_stats.await_count == 2
+
+
+async def test_vpn_transient_error_keeps_polling(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test a non-400 VPN failure is retried on the next refresh."""
+    mock_api_client.get_vpn_s2s_stats = AsyncMock(
+        side_effect=OmadaApiError("HTTP 503: Unavailable", http_status=503)
+    )
+    mock_api_client.get_vpn_server_stats = AsyncMock(return_value=[])
+    mock_api_client.get_vpn_client_stats = AsyncMock(return_value=[])
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    await coordinator.async_refresh()
+
+    assert mock_api_client.get_vpn_s2s_stats.await_count == 2

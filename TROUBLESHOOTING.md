@@ -63,6 +63,7 @@ LAN, so prefer one of these free alternatives when possible:
 2. VPN entities are created only for configured tunnels. The primary tunnel entity is a connectivity binary sensor named after the tunnel; peer/client telemetry is diagnostic and disabled by default.
 3. WAN speed-test entities require a gateway WAN port that exposes the speed-test endpoint. Use the **Run speed test** button and watch the **Speed test running** binary sensor while Omada performs the test.
 4. After adding or removing a VPN tunnel in Omada, wait for the next device polling interval or reload the integration.
+5. If the log shows `VPN stats are not supported by this controller`, the controller rejected that VPN stats endpoint with HTTP 400. The integration stops polling that VPN type until the entry is reloaded, so the warning appears once per reload rather than on every poll.
 
 ## Entities Showing "Unavailable"
 
