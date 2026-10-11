@@ -17,6 +17,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SSIDS,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_APP_SCAN_INTERVAL,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
@@ -267,3 +270,38 @@ async def test_site_entity_settings_saves_value(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
+
+
+async def test_opt_in_discovery_is_disabled_by_default_and_saves_choice(
+    hass: HomeAssistant,
+) -> None:
+    """Options flow must never enable discovery on an existing installation."""
+    entry = _create_config_entry(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "tracker_settings"}
+    )
+    assert form["type"] == FlowResultType.FORM
+    defaults = {
+        k.schema: k.default() if callable(k.default) else k.default
+        for k in form["data_schema"].schema
+    }
+    assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is False
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_DISCONNECT_TIMEOUT: 5,
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_SSIDS: "Home, Guest",
+            },
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_SSIDS] == "Home, Guest"
+    assert entry.options[CONF_DISCONNECT_TIMEOUT] == 5
