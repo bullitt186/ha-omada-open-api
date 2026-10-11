@@ -402,9 +402,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
                     ("signal_level", "signal_strength_percent"),
                 ):
                     value = client.get(key)
-                    if isinstance(value, (int, float)) and not isinstance(
-                        value, bool
-                    ):
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
                         attrs[attr] = value
         return attrs
 
