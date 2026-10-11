@@ -66,13 +66,12 @@ def _entry(sites: list[MagicMock], options: dict) -> MagicMock:
     return entry
 
 
-async def test_existing_installations_discover_by_default(hass: HomeAssistant) -> None:
-    """With no explicit option, automatically add active clients."""
+async def test_existing_installations_stay_opted_out(hass: HomeAssistant) -> None:
+    """Upgrading must not automatically register hundreds of clients."""
     site = _site(hass, "office", [_client(MAC_A, "Phone")])
     added: list = []
     await async_setup_entry(hass, _entry([site], {}), added.extend)
-    assert len(added) == 1
-    assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"
+    assert added == []
 
 
 async def test_explicit_user_opt_out_disables_auto_discovery(
@@ -440,7 +439,9 @@ async def test_signal_values_are_attributes_without_new_sensor_entities(
     phone.update({"rssi": -63, "snr": 29, "signal_level": 81})
     site = _site(hass, "a", [phone])
     added: list = []
-    await async_setup_entry(hass, _entry([site], {}), added.extend)
+    await async_setup_entry(
+        hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}), added.extend
+    )
     assert len(added) == 1
     tracker = added[0]
     assert tracker.unique_id == f"{DOMAIN}_{MAC_A}"
@@ -459,7 +460,11 @@ async def test_wifi_roaming_updates_existing_tracker_without_creating_another(
     home = _site(hass, "home", [initial])
     guest = _site(hass, "guest", [])
     added: list = []
-    await async_setup_entry(hass, _entry([home, guest], {}), added.extend)
+    await async_setup_entry(
+        hass,
+        _entry([home, guest], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+        added.extend,
+    )
     assert len(added) == 1
     tracker = added[0]
     device_id = tracker.unique_id
@@ -512,7 +517,13 @@ async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
     added: list = []
     await async_setup_entry(
         hass,
-        _entry([site], {CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: False}),
+        _entry(
+            [site],
+            {
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: False,
+            },
+        ),
         added.extend,
     )
     assert len(added) == 1

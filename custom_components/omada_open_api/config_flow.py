@@ -1678,7 +1678,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 vol.Required(
                     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
                     default=self.config_entry.options.get(
-                        CONF_AUTO_DISCOVER_CLIENT_TRACKERS, True
+                        CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
                     ),
                 ): bool,
                 vol.Optional(

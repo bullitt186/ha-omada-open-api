@@ -85,100 +85,12 @@ async def async_setup_entry(
             site_coordinator.async_add_listener(_async_check_new_devices)
         )
 
-    # Presence-only auto discovery reuses site coordinator's existing active
-    # client list. Heavy client sensors/controls remain manually selected.
-    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, True):
-        selected_macs = {
-            normalize_client_mac(mac)
-            for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
-        }
-        ssids = {
-            value.strip()
-            for value in entry.options.get(CONF_AUTO_DISCOVERY_SSIDS, "").split(",")
-            if value.strip()
-        }
-        discovered_macs: set[str] = set()
-
-        # Restore existing tracker IDs from the entity registry at startup.
-        # A client not online during a restart should be 'away', not lost or
-        # recreated under a different ID when it returns.
-        previously_discovered: list[OmadaAutoClientTracker] = []
-        registry = er.async_get(hass)
-        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-            if (
-                entity.domain != "device_tracker"
-                or not entity.unique_id
-                or not entity.unique_id.startswith(f"{DOMAIN}_")
-                or entity.unique_id.startswith(f"{DOMAIN}_device_")
-            ):
-                continue
-            legacy_mac = entity.unique_id[len(DOMAIN) + 1 :]
-            canonical = normalize_client_mac(legacy_mac)
-            if (
-                not re.fullmatch(r"[0-9A-F]{12}", canonical)
-                or canonical in selected_macs
-                or canonical in discovered_macs
-            ):
-                continue
-            discovered_macs.add(canonical)
-            previously_discovered.append(
-                OmadaAutoClientTracker(
-                    site_coordinators,
-                    legacy_mac,
-                    entry.runtime_data.site_devices,
-                    entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
-                    ssids,
-                    entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
-                )
-            )
-        if previously_discovered:
-            async_add_entities(previously_discovered)
-
-        @callback
-        def _async_discover_clients() -> None:
-            """Create only never-seen presence entities; retain missing ones offline."""
-            new_entities: list[OmadaAutoClientTracker] = []
-            for coord in site_coordinators:
-                if (
-                    not coord.last_update_success
-                    or not coord.data
-                    or coord.data.get("clients_poll_ok", True) is False
-                ):
-                    continue
-                for client in coord.data.get("all_clients", []):
-                    raw_mac = client.get("mac")
-                    if not isinstance(raw_mac, str):
-                        continue
-                    mac = normalize_client_mac(raw_mac)
-                    if not re.fullmatch(r"[0-9A-F]{12}", mac):
-                        continue
-                    if mac in selected_macs or mac in discovered_macs:
-                        continue
-                    # A filter, when provided, selects only matching wireless
-                    # SSIDs. Wired clients have no SSID and are excluded.
-                    if ssids and client.get("ssid") not in ssids:
-                        continue
-                    discovered_macs.add(mac)
-                    new_entities.append(
-                        OmadaAutoClientTracker(
-                            site_coordinators,
-                            "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
-                            entry.runtime_data.site_devices,
-                            entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
-                            ssids,
-                            entry.options.get(
-                                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
-                            ),
-                        )
-                    )
-            if new_entities:
-                async_add_entities(new_entities)
-
-        for site_coord in site_coordinators:
-            entry.async_on_unload(
-                site_coord.async_add_listener(_async_discover_clients)
-            )
-        _async_discover_clients()
+    # Only opt in to automatic client discovery explicitly. RSSI/SNR/
+    # quality attributes on discovered clients remain ON by default.
+    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
+        _setup_auto_client_trackers(
+            hass, entry, site_coordinators, async_add_entities
+        )
 
     # --- Client trackers (network clients) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
@@ -207,6 +119,105 @@ async def async_setup_entry(
         # Populate with currently known clients.
         _async_update_items(coordinator)
 
+
+def _setup_auto_client_trackers(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    site_coordinators: list[OmadaSiteCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Discover opted-in client presence via already fetched site data."""
+    selected_macs = {
+        normalize_client_mac(mac)
+        for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
+    }
+    ssids = {
+        value.strip()
+        for value in entry.options.get(CONF_AUTO_DISCOVERY_SSIDS, "").split(",")
+        if value.strip()
+    }
+    discovered_macs: set[str] = set()
+
+    # Restore existing tracker IDs from the entity registry at startup.
+    # A client not online during a restart should be 'away', not lost or
+    # recreated under a different ID when it returns.
+    previously_discovered: list[OmadaAutoClientTracker] = []
+    registry = er.async_get(hass)
+    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if (
+            entity.domain != "device_tracker"
+            or not entity.unique_id
+            or not entity.unique_id.startswith(f"{DOMAIN}_")
+            or entity.unique_id.startswith(f"{DOMAIN}_device_")
+        ):
+            continue
+        legacy_mac = entity.unique_id[len(DOMAIN) + 1 :]
+        canonical = normalize_client_mac(legacy_mac)
+        if (
+            not re.fullmatch(r"[0-9A-F]{12}", canonical)
+            or canonical in selected_macs
+            or canonical in discovered_macs
+        ):
+            continue
+        discovered_macs.add(canonical)
+        previously_discovered.append(
+            OmadaAutoClientTracker(
+                site_coordinators,
+                legacy_mac,
+                entry.runtime_data.site_devices,
+                entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                ssids,
+                entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+            )
+        )
+    if previously_discovered:
+        async_add_entities(previously_discovered)
+
+    @callback
+    def _async_discover_clients() -> None:
+        """Create only never-seen presence entities; retain missing ones offline."""
+        new_entities: list[OmadaAutoClientTracker] = []
+        for coord in site_coordinators:
+            if (
+                not coord.last_update_success
+                or not coord.data
+                or coord.data.get("clients_poll_ok", True) is False
+            ):
+                continue
+            for client in coord.data.get("all_clients", []):
+                raw_mac = client.get("mac")
+                if not isinstance(raw_mac, str):
+                    continue
+                mac = normalize_client_mac(raw_mac)
+                if not re.fullmatch(r"[0-9A-F]{12}", mac):
+                    continue
+                if mac in selected_macs or mac in discovered_macs:
+                    continue
+                # A filter, when provided, selects only matching wireless
+                # SSIDs. Wired clients have no SSID and are excluded.
+                if ssids and client.get("ssid") not in ssids:
+                    continue
+                discovered_macs.add(mac)
+                new_entities.append(
+                    OmadaAutoClientTracker(
+                        site_coordinators,
+                        "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
+                        entry.runtime_data.site_devices,
+                        entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                        ssids,
+                        entry.options.get(
+                            CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                        ),
+                    )
+                )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    for site_coord in site_coordinators:
+        entry.async_on_unload(
+            site_coord.async_add_listener(_async_discover_clients)
+        )
+    _async_discover_clients()
 
 class OmadaAutoClientTracker(BaseScannerEntity):
     """Presence-only client tracker; one stable entity across all sites.
