@@ -459,9 +459,7 @@ async def test_wifi_roaming_updates_existing_tracker_without_creating_another(
     home = _site(hass, "home", [initial])
     guest = _site(hass, "guest", [])
     added: list = []
-    await async_setup_entry(
-        hass, _entry([home, guest], {}), added.extend
-    )
+    await async_setup_entry(hass, _entry([home, guest], {}), added.extend)
     assert len(added) == 1
     tracker = added[0]
     device_id = tracker.unique_id
@@ -506,9 +504,7 @@ async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
     site = _site(hass, "home", [device])
     tracker = OmadaAutoClientTracker([site], MAC_A, {})
     assert tracker.extra_state_attributes["rssi_dbm"] == -52
-    tracker_off = OmadaAutoClientTracker(
-        [site], MAC_A, {}, signal_attributes=False
-    )
+    tracker_off = OmadaAutoClientTracker([site], MAC_A, {}, signal_attributes=False)
     assert tracker_off.unique_id == tracker.unique_id
     assert "rssi_dbm" not in tracker_off.extra_state_attributes
     assert tracker_off.is_connected
