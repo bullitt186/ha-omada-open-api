@@ -917,25 +917,26 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
         for vpn_type, fetch in fetchers.items():
-            vpn_status[vpn_type] = []
-            if vpn_type in self._unsupported_vpn_types:
-                continue
             try:
                 vpn_status[vpn_type] = await fetch(self.site_id)
             except OmadaApiError as err:
-                # An HTTP 400 that survives the Fusion filter fallback means
-                # this controller does not support the endpoint, so stop
-                # polling it until the entry is reloaded. See GH #63.
-                if err.http_status == 400:
+                vpn_status[vpn_type] = []
+                # HTTP 400 means the controller rejected every request for
+                # this VPN type. The API client retries it hourly; warn only
+                # once until it recovers. See GH #63.
+                if err.http_status != 400:
+                    _LOGGER.warning("Failed to fetch %s VPN stats: %s", vpn_type, err)
+                elif vpn_type not in self._unsupported_vpn_types:
                     self._unsupported_vpn_types.add(vpn_type)
                     _LOGGER.warning(
-                        "%s VPN stats are not supported by this controller "
-                        "(%s); polling stopped until the entry is reloaded",
+                        "%s VPN stats are not supported by this controller; "
+                        "retrying hourly",
                         vpn_type,
-                        err,
                     )
-                else:
-                    _LOGGER.warning("Failed to fetch %s VPN stats: %s", vpn_type, err)
+            else:
+                if vpn_type in self._unsupported_vpn_types:
+                    self._unsupported_vpn_types.discard(vpn_type)
+                    _LOGGER.info("%s VPN stats are available again", vpn_type)
 
         await self._fetch_vpn_peers(vpn_status)
 
