@@ -381,7 +381,9 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
         if client.get("wireless"):
             radio_id = client.get("radio_id")
-            band = CLIENT_RADIO_BANDS.get(radio_id) if isinstance(radio_id, int) else None
+            band = (
+                CLIENT_RADIO_BANDS.get(radio_id) if isinstance(radio_id, int) else None
+            )
             if band:
                 attrs["band"] = band
         return attrs
