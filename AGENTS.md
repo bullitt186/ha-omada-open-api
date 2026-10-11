@@ -233,15 +233,29 @@ Update user-facing documentation when changing configuration, entities,
 services/actions, supported behavior, or troubleshooting guidance. Keep public
 documentation in `README.md` and `TROUBLESHOOTING.md` accurate.
 
-For a release, first ensure the feature/fix work is on `main`, local checks and
-CI are green, and then:
+For a release, first ensure the feature/fix work is merged to `main` through a
+pull request, local checks and CI are green, and then:
 
 1. Select a semantic version: patch for fixes, minor for new features/entities,
    major for breaking changes.
 2. Update the same version in `custom_components/omada_open_api/manifest.json`
    and `pyproject.toml`.
 3. Write user-facing `RELEASE_NOTES.md` for that exact version.
-4. Commit the release metadata, tag `vX.Y.Z`, and push `main` plus the tag.
+4. Commit the release metadata on a branch and land it on `main` through a
+   pull request (see "Branch and tag protection").
+5. After the merge, fetch `main` and tag the merge commit explicitly, never a
+   local `main` that may be stale:
+
+   ```bash
+   git fetch origin main
+   git show <merge-sha>:custom_components/omada_open_api/manifest.json
+   git tag -a vX.Y.Z <merge-sha> -m "vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+   Confirm that the manifest shows `X.Y.Z` before tagging. After the push,
+   confirm that the release workflow succeeded and that the GitHub release is
+   marked as latest.
 
 The release workflow validates that the tag matches `manifest.json`, runs the
 quality gate, builds the integration archive, and creates the GitHub release.
@@ -263,6 +277,34 @@ Pre-releases let opted-in HACS users test a release before it goes public:
 
 The workflow rejects any other version format, and it rejects a stable tag that
 is not on `main`.
+
+### Branch and tag protection
+
+GitHub rulesets protect the default branch and release tags. Treat them as
+hard constraints:
+
+- `main` accepts changes only through pull requests. Never push directly to
+  `main`, force-push it, or delete it.
+- A pull request can merge only when these required checks pass on its current
+  head, with the branch up to date with `main`: `Lint & Format`,
+  `Type Check (mypy strict)`, `Test & Coverage`, `HACS & hassfest`, and
+  `Secret scan`. If a check is renamed in a workflow, update the ruleset in the
+  same change, otherwise pull requests wait on a check that never reports.
+- No approving review is required, but a red required check is never bypassed.
+- Merge pull requests with a merge commit. Use squash only for single-purpose
+  pull requests. An integration branch that bundles other pull requests must
+  use a merge commit, so GitHub marks the bundled pull requests as merged.
+  Linear history is not required.
+- Release tags `v*` cannot be deleted, moved, or force-pushed. A tag that
+  points at the wrong commit cannot be fixed by an agent; stop and ask the
+  maintainer, who can correct it with the admin bypass.
+- Never use, request, or work around the admin bypass, and never change or
+  disable the rulesets, unless the maintainer explicitly asks for that specific
+  change.
+
+When giving the maintainer shell commands to run, do not put `#` comments on
+the command lines. The maintainer's zsh does not treat them as comments, so
+they are passed to the command as arguments.
 
 ## Definition of done
 
