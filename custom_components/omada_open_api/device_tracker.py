@@ -88,9 +88,7 @@ async def async_setup_entry(
     # Only opt in to automatic client discovery explicitly. RSSI/SNR/
     # quality attributes on discovered clients remain ON by default.
     if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
-        _setup_auto_client_trackers(
-            hass, entry, site_coordinators, async_add_entities
-        )
+        _setup_auto_client_trackers(hass, entry, site_coordinators, async_add_entities)
 
     # --- Client trackers (network clients) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
@@ -205,19 +203,16 @@ def _setup_auto_client_trackers(
                         entry.runtime_data.site_devices,
                         entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
                         ssids,
-                        entry.options.get(
-                            CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
-                        ),
+                        entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
                     )
                 )
         if new_entities:
             async_add_entities(new_entities)
 
     for site_coord in site_coordinators:
-        entry.async_on_unload(
-            site_coord.async_add_listener(_async_discover_clients)
-        )
+        entry.async_on_unload(site_coord.async_add_listener(_async_discover_clients))
     _async_discover_clients()
+
 
 class OmadaAutoClientTracker(BaseScannerEntity):
     """Presence-only client tracker; one stable entity across all sites.
