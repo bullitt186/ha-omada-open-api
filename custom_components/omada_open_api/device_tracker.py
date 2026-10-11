@@ -201,7 +201,10 @@ class OmadaAutoClientTracker(ScannerEntity):
                 continue
             for client in coord.data.get("all_clients", []):
                 mac = client.get("mac")
-                if isinstance(mac, str) and normalize_client_mac(mac) == self._canonical_mac:
+                if (
+                    isinstance(mac, str)
+                    and normalize_client_mac(mac) == self._canonical_mac
+                ):
                     return coord, client
         return None
 
@@ -212,7 +215,9 @@ class OmadaAutoClientTracker(ScannerEntity):
             return
         coord, client = found
         self._last_seen = dt.datetime.now(dt.UTC)
-        self._attr_name = client.get("name") or client.get("host_name") or self._client_mac
+        self._attr_name = (
+            client.get("name") or client.get("host_name") or self._client_mac
+        )
         parent_mac = (
             client.get("ap_mac") if client.get("wireless") else client.get("switch_mac")
         ) or client.get("gateway_mac")
