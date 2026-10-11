@@ -168,9 +168,9 @@ async def async_setup_entry(
             if new_entities:
                 async_add_entities(new_entities)
 
-        for coordinator in site_coordinators:
+        for site_coord in site_coordinators:
             entry.async_on_unload(
-                coordinator.async_add_listener(_async_discover_clients)
+                site_coord.async_add_listener(_async_discover_clients)
             )
         _async_discover_clients()
 
@@ -229,14 +229,14 @@ class OmadaAutoClientTracker(ScannerEntity):
         self._disconnect_timeout = disconnect_timeout
         self._allowed_ssids = allowed_ssids or set()
         self._last_seen: dt.datetime | None = None
-        self._attr_unique_id = f"{DOMAIN}_{client_mac}"
+        self._unique_id = f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
         self._attr_name = client_mac
         # Keep the old device registry link even when this client was offline
         # during HA startup and has no live API data yet.
         first_site = site_coordinators[0] if site_coordinators else None
         site_device = site_devices.get(first_site.site_id) if first_site else None
-        self._attr_device_info: DeviceInfo | None = (
+        self._client_device_info: DeviceInfo | None = (
             build_client_device_info(
                 client_mac,
                 {},
@@ -298,7 +298,7 @@ class OmadaAutoClientTracker(ScannerEntity):
         if parent_id is None:
             site = self._site_devices.get(coord.site_id)
             parent_id = site.id if site else None
-        self._attr_device_info = build_client_device_info(
+        self._client_device_info = build_client_device_info(
             self._client_mac, client, coord.api_client.api_url, parent_id
         )
 
@@ -313,6 +313,16 @@ class OmadaAutoClientTracker(ScannerEntity):
         """Track status and site transitions; never prune a missing client."""
         self._refresh_metadata()
         self.async_write_ha_state()
+
+    @property
+    def unique_id(self) -> str:
+        """Use the established Omada unique ID, not ScannerEntity's raw MAC."""
+        return self._unique_id
+
+    @property
+    def device_info(self) -> DeviceInfo | None:  # type: ignore[override]
+        """Expose a parent-aware registry device, even for restored offline IDs."""
+        return self._client_device_info
 
     @property
     def source_type(self) -> SourceType:
@@ -364,7 +374,8 @@ class OmadaAutoClientTracker(ScannerEntity):
         if client.get("wireless") is not None:
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
         if client.get("wireless"):
-            band = CLIENT_RADIO_BANDS.get(client.get("radio_id"))
+            radio_id = client.get("radio_id")
+            band = CLIENT_RADIO_BANDS.get(radio_id) if isinstance(radio_id, int) else None
             if band:
                 attrs["band"] = band
         return attrs
