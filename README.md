@@ -391,8 +391,9 @@ API calls**. Selected clients keep their richer sensors and controls.
   same unique ID as a manually selected client. Enabling this feature never
   creates a second tracker for an already-selected client.
 - You may enter exact comma-separated SSID names to limit automatic
-  discovery to those wireless networks. With a filter active, wired clients
-  are excluded. Leave it blank to discover both wireless and wired clients.
+  discovery and presence to those wireless networks. With a filter active,
+  wired clients are excluded, and a client moving to an excluded SSID becomes
+  away. Leave it blank to discover both wireless and wired clients.
 - Changing the client name or moving between sites preserves the entity ID.
   Existing custom names and automation references stay in the registry.
 - Missing clients become **away** (after the configured disconnect grace

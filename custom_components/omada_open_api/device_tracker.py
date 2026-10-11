@@ -125,6 +125,7 @@ async def async_setup_entry(
                     legacy_mac,
                     entry.runtime_data.site_devices,
                     entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                    ssids,
                 )
             )
         if previously_discovered:
@@ -161,6 +162,7 @@ async def async_setup_entry(
                             "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
                             entry.runtime_data.site_devices,
                             entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                            ssids,
                         )
                     )
             if new_entities:
@@ -218,6 +220,7 @@ class OmadaAutoClientTracker(ScannerEntity):
         client_mac: str,
         site_devices: dict[str, Any],
         disconnect_timeout: int = 0,
+        allowed_ssids: set[str] | None = None,
     ) -> None:
         """Use the existing site snapshots, never poll per client."""
         self._coordinators = site_coordinators
@@ -225,6 +228,7 @@ class OmadaAutoClientTracker(ScannerEntity):
         self._canonical_mac = normalize_client_mac(client_mac)
         self._site_devices = site_devices
         self._disconnect_timeout = disconnect_timeout
+        self._allowed_ssids = allowed_ssids or set()
         self._last_seen: dt.datetime | None = None
         self._attr_unique_id = f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
@@ -258,7 +262,10 @@ class OmadaAutoClientTracker(ScannerEntity):
             index = coord.data.get("client_index")
             if isinstance(index, dict):
                 client = index.get(self._canonical_mac)
-                if client is not None:
+                if client is not None and (
+                    not self._allowed_ssids
+                    or client.get("ssid") in self._allowed_ssids
+                ):
                     return coord, client
                 continue
             # Compatibility for earlier cached coordinator snapshots.
@@ -267,6 +274,10 @@ class OmadaAutoClientTracker(ScannerEntity):
                 if (
                     isinstance(mac, str)
                     and normalize_client_mac(mac) == self._canonical_mac
+                    and (
+                        not self._allowed_ssids
+                        or client.get("ssid") in self._allowed_ssids
+                    )
                 ):
                     return coord, client
         return None

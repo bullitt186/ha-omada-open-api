@@ -306,3 +306,19 @@ async def test_indexed_client_lookup_avoids_full_client_list_scan(
     tracker = OmadaAutoClientTracker([site], MAC_A, {})
     assert tracker.is_connected
     assert tracker.name == "Tablet"
+
+
+
+async def test_ssid_filter_is_rechecked_when_client_roams(
+    hass: HomeAssistant,
+) -> None:
+    """A tracker goes away after leaving an opted-in SSID."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone", "Home")])
+    tracker = OmadaAutoClientTracker(
+        [site], MAC_A, {}, allowed_ssids={"Home"}
+    )
+    assert tracker.is_connected
+    site.data["all_clients"] = [_client(MAC_A, "Phone", "Guest")]
+    assert not tracker.is_connected
+    site.data["all_clients"] = [_client(MAC_A, "Phone", "Home")]
+    assert tracker.is_connected
