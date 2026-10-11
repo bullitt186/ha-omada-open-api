@@ -322,3 +322,97 @@ async def test_ssid_filter_is_rechecked_when_client_roams(
     assert not tracker.is_connected
     site.data["all_clients"] = [_client(MAC_A, "Phone", "Home")]
     assert tracker.is_connected
+
+
+async def test_invalid_and_selected_client_macs_are_not_auto_created(
+    hass: HomeAssistant,
+) -> None:
+    """Skip missing/malformed MACs and never duplicate a selected client."""
+    site = _site(
+        hass,
+        "a",
+        [
+            {"name": "No MAC", "active": True},
+            _client("not-a-mac", "Bad device"),
+            _client(MAC_B, "Selected phone"),
+        ],
+    )
+    added: list = []
+    await async_setup_entry(
+        hass,
+        _entry(
+            [site],
+            {
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_SELECTED_CLIENTS: [MAC_B],
+            },
+        ),
+        added.extend,
+    )
+    assert added == []
+
+
+async def test_registry_restore_ignores_invalid_selected_and_duplicate_ids(
+    hass: HomeAssistant,
+) -> None:
+    """Skip malformed and selected IDs during reboot restoration."""
+    site = _site(hass, "a", [])
+    stored = [
+        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_bad"),
+        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_B}"),
+        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"),
+        SimpleNamespace(
+            domain="device_tracker",
+            unique_id=f"{DOMAIN}_{MAC_A.replace('-', ':')}",
+        ),
+    ]
+    entry = _entry(
+        [site],
+        {
+            CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+            CONF_SELECTED_CLIENTS: [MAC_B],
+        },
+    )
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
+        return_value=stored,
+    ):
+        await async_setup_entry(hass, entry, added.extend)
+    assert len(added) == 1
+    assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"
+
+
+async def test_disconnected_grace_and_missing_host_details(
+    hass: HomeAssistant,
+) -> None:
+    """Preserve short disconnect grace and clear stale network attributes."""
+    import datetime as dt
+
+    site = _site(hass, "a", [_client(MAC_A, "Tablet", None)])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {}, disconnect_timeout=2)
+    assert tracker.extra_state_attributes["connection_type"] == "wired"
+    assert "band" not in tracker.extra_state_attributes
+    assert tracker.hostname == "laptop.local"
+    site.data["all_clients"] = []
+    assert tracker.is_connected
+    assert tracker.ip_address is None
+    assert tracker.hostname is None
+    assert tracker.extra_state_attributes == {}
+    tracker._last_seen = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=3)
+    assert not tracker.is_connected
+
+
+async def test_tracker_update_keeps_name_in_sync_without_recreating_entity(
+    hass: HomeAssistant,
+) -> None:
+    """A coordinator update writes state but retains its stable identity."""
+    site = _site(hass, "a", [_client(MAC_A, "First name")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    assert tracker.unique_id == f"{DOMAIN}_{MAC_A}"
+    site.data["all_clients"] = [_client(MAC_A, "New name")]
+    with patch.object(tracker, "async_write_ha_state") as write_state:
+        tracker._handle_site_update()
+        write_state.assert_called_once_with()
+    assert tracker.name == "New name"
+    assert tracker.unique_id == f"{DOMAIN}_{MAC_A}"
