@@ -243,9 +243,7 @@ async def test_offline_registered_tracker_is_restored_after_restart(
     """Never drop previously discovered entity IDs when they are now offline."""
     site = _site(hass, "a", [])
     entry = _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True})
-    known = SimpleNamespace(
-        domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"
-    )
+    known = SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}")
     added: list = []
     with patch(
         "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
@@ -267,7 +265,8 @@ async def test_new_mac_format_stable_even_if_api_uses_colons(
     site = _site(hass, "a", [_client(MAC_A.replace("-", ":"), "Phone")])
     added: list = []
     await async_setup_entry(
-        hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+        hass,
+        _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
         added.extend,
     )
     assert len(added) == 1

@@ -927,8 +927,9 @@ async def _cleanup_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None
             device_id = normalize_client_mac(identifier[1])
 
             # Remove deselected client devices
-            if (device_id in deselected_clients and
-                    not entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False)):
+            if device_id in deselected_clients and not entry.options.get(
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
+            ):
                 _LOGGER.info("Removing deselected client device: %s", device.name)
                 device_registry.async_remove_device(device.id)
                 removed_count += 1
@@ -1148,9 +1149,7 @@ def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> 
             and entity.unique_id.startswith(f"{DOMAIN}_")
             and not entity.unique_id.startswith(f"{DOMAIN}_device_")
         ):
-            auto_clients.add(
-                normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :])
-            )
+            auto_clients.add(normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :]))
 
     removed_count = 0
     for device in devices:

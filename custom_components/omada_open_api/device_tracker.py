@@ -202,7 +202,6 @@ async def async_setup_entry(
         _async_update_items(coordinator)
 
 
-
 class OmadaAutoClientTracker(ScannerEntity):
     """Presence-only client tracker; one stable entity across all sites.
 
@@ -236,9 +235,7 @@ class OmadaAutoClientTracker(ScannerEntity):
         # Keep the old device registry link even when this client was offline
         # during HA startup and has no live API data yet.
         first_site = site_coordinators[0] if site_coordinators else None
-        site_device = (
-            site_devices.get(first_site.site_id) if first_site else None
-        )
+        site_device = site_devices.get(first_site.site_id) if first_site else None
         self._attr_device_info: DeviceInfo | None = (
             build_client_device_info(
                 client_mac,
@@ -246,7 +243,8 @@ class OmadaAutoClientTracker(ScannerEntity):
                 first_site.api_client.api_url,
                 site_device.id if site_device else None,
             )
-            if first_site else None
+            if first_site
+            else None
         )
         self._refresh_metadata()
 
@@ -263,8 +261,7 @@ class OmadaAutoClientTracker(ScannerEntity):
             if isinstance(index, dict):
                 client = index.get(self._canonical_mac)
                 if client is not None and (
-                    not self._allowed_ssids
-                    or client.get("ssid") in self._allowed_ssids
+                    not self._allowed_ssids or client.get("ssid") in self._allowed_ssids
                 ):
                     return coord, client
                 continue
@@ -335,13 +332,10 @@ class OmadaAutoClientTracker(ScannerEntity):
     @property
     def available(self) -> bool:
         """Avoid false away states when a site's API refresh has failed."""
-        return (
-            self._current_client() is not None
-            or all(
-                coord.last_update_success
-                and (not coord.data or coord.data.get("clients_poll_ok", True))
-                for coord in self._coordinators
-            )
+        return self._current_client() is not None or all(
+            coord.last_update_success
+            and (not coord.data or coord.data.get("clients_poll_ok", True))
+            for coord in self._coordinators
         )
 
     @property
@@ -368,9 +362,7 @@ class OmadaAutoClientTracker(ScannerEntity):
             if client.get(source) is not None:
                 attrs[target] = client[source]
         if client.get("wireless") is not None:
-            attrs["connection_type"] = (
-                "wireless" if client["wireless"] else "wired"
-            )
+            attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
         if client.get("wireless"):
             band = CLIENT_RADIO_BANDS.get(client.get("radio_id"))
             if band:
