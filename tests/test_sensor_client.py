@@ -6,6 +6,9 @@ import datetime as _dt
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -51,6 +54,7 @@ def _create_client_sensor(
     client_mac: str,
     clients: dict[str, dict],
     description_key: str,
+    site_device_id: str | None = None,
 ) -> OmadaClientSensor:
     """Create an OmadaClientSensor with a mock coordinator."""
     coordinator = OmadaClientCoordinator(
@@ -59,6 +63,7 @@ def _create_client_sensor(
         site_id=TEST_SITE_ID,
         site_name=TEST_SITE_NAME,
         selected_client_macs=list(clients.keys()),
+        site_device_id=site_device_id,
     )
     coordinator.data = _build_client_coordinator_data(clients)
 
@@ -100,7 +105,19 @@ async def test_client_sensor_name(hass: HomeAssistant) -> None:
 
 
 async def test_client_sensor_device_info_wireless(hass: HomeAssistant) -> None:
-    """Test device_info links to parent AP for wireless client."""
+    """Test device_info links to parent AP for wireless client.
+
+    via_device_id (a real device-registry id) replaces the deprecated
+    via_device identifier tuple. See GH #69.
+    """
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    ap_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
     sensor = _create_client_sensor(
         hass,
         WIRELESS_MAC,
@@ -111,11 +128,20 @@ async def test_client_sensor_device_info_wireless(hass: HomeAssistant) -> None:
     assert (DOMAIN, WIRELESS_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Phone"
     assert device_info["manufacturer"] == "Apple"
-    assert device_info["via_device"] == (DOMAIN, "AA-BB-CC-DD-EE-01")
+    assert device_info["via_device_id"] == ap_device.id
+    assert "via_device" not in device_info
 
 
 async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
     """Test device_info links to parent switch for wired client."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    switch_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-02")},
+        name="Core Switch",
+    )
+
     sensor = _create_client_sensor(
         hass,
         WIRED_MAC,
@@ -126,7 +152,64 @@ async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
     assert (DOMAIN, WIRED_MAC) in device_info["identifiers"]
     assert device_info["name"] == "Desktop"
     assert device_info["manufacturer"] == "Dell"
-    assert device_info["via_device"] == (DOMAIN, "AA-BB-CC-DD-EE-02")
+    assert device_info["via_device_id"] == switch_device.id
+    assert "via_device" not in device_info
+
+
+async def test_client_sensor_device_info_parent_not_yet_registered(
+    hass: HomeAssistant,
+) -> None:
+    """Omits the via-device link when the parent device isn't registered yet.
+
+    Mirrors the previous via_device behavior of silently dropping an
+    unresolved link instead of raising. See GH #69.
+    """
+    sensor = _create_client_sensor(
+        hass,
+        WIRELESS_MAC,
+        {WIRELESS_MAC: _processed_wireless()},
+        "connection_status",
+    )
+    device_info = sensor._attr_device_info
+    assert "via_device_id" not in device_info
+    assert "via_device" not in device_info
+
+
+async def test_client_sensor_device_info_no_parent_uses_site(
+    hass: HomeAssistant,
+) -> None:
+    """Falls back to the real site device when no parent device is known.
+
+    Regression test for GH #69: the previous fallback used
+    (DOMAIN, coordinator.site_id), an identifier that was never actually
+    registered (the site device is registered with a "site_"-prefixed
+    identifier), so the link silently never worked.
+    """
+    client_data = {
+        "mac": "AA-BB-CC-00-00-02",
+        "name": "Orphan Client",
+        "hostName": "orphan",
+        "ip": "192.168.1.60",
+        "active": True,
+        "wireless": False,
+        "uptime": 10,
+        "trafficDown": 0,
+        "trafficUp": 0,
+        "activity": 0,
+    }
+    mac = "AA-BB-CC-00-00-02"
+    processed = process_client(client_data)
+
+    sensor = _create_client_sensor(
+        hass,
+        mac,
+        {mac: processed},
+        "connection_status",
+        site_device_id="real-site-device-id",
+    )
+    device_info = sensor._attr_device_info
+    assert device_info["via_device_id"] == "real-site-device-id"
+    assert "via_device" not in device_info
 
 
 async def test_client_sensor_device_info_excludes_ip_connection(
@@ -527,6 +610,14 @@ async def test_client_sensor_device_info_gateway_fallback(
     hass: HomeAssistant,
 ) -> None:
     """Test device_info uses gateway_mac when no AP or switch."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    gateway_device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "GW-AA-BB-CC-DD-EE")},
+        name="Main Gateway",
+    )
+
     gateway_client = {
         "mac": "AA-BB-CC-00-00-01",
         "name": "Gateway Client",
@@ -550,8 +641,8 @@ async def test_client_sensor_device_info_gateway_fallback(
     )
     info = sensor.device_info
     assert info is not None
-    via = info.get("via_device")
-    assert via == (DOMAIN, "GW-AA-BB-CC-DD-EE")
+    assert info.get("via_device_id") == gateway_device.id
+    assert "via_device" not in info
 
 
 # ---------------------------------------------------------------------------

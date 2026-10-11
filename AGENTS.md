@@ -246,6 +246,24 @@ CI are green, and then:
 The release workflow validates that the tag matches `manifest.json`, runs the
 quality gate, builds the integration archive, and creates the GitHub release.
 
+### Beta releases
+
+Pre-releases let opted-in HACS users test a release before it goes public:
+
+1. Use a PEP 440 pre-release version such as `X.Y.Zb1` (or `aN`/`rcN`) in
+   `manifest.json` and `pyproject.toml`, and start `RELEASE_NOTES.md` with a
+   beta notice.
+2. A beta may be tagged on an integration branch (`vX.Y.Zb1`) once local checks
+   pass and CI is green on a pull request from that branch.
+3. The release workflow publishes such tags as GitHub pre-releases and never
+   marks them as latest. HACS offers them only to users who enabled beta
+   versions for this repository.
+4. Increment the suffix for each further beta. For the final release, merge to
+   `main`, drop the suffix and the beta notice, and tag `vX.Y.Z` on `main`.
+
+The workflow rejects any other version format, and it rejects a stable tag that
+is not on `main`.
+
 ## Definition of done
 
 - The requested behavior is implemented within the existing architecture.

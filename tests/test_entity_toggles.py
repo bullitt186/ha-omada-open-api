@@ -221,6 +221,98 @@ async def test_device_bandwidth_sensors_skipped_when_disabled(
     assert reg.async_get_entity_id("sensor", DOMAIN, f"{gw_mac}_daily_download") is None
 
 
+async def test_client_bandwidth_sensors_skipped_when_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """Client downloaded/uploaded/RX/TX sensors are not created when disabled.
+
+    Regression test for GH #65: CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS was
+    defined and exposed in the options UI ("Bandwidth sensors (downloaded,
+    uploaded, RX/TX activity rate)") but never actually read anywhere, so
+    toggling it off had no effect at all.
+    """
+    client_mac = "11-22-33-44-55-AA"
+    entry = _build_entry(
+        hass,
+        {
+            CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS: False,
+            CONF_SELECTED_CLIENTS: [client_mac],
+        },
+        "test_toggle_client_bw",
+    )
+    mock = _build_mock_api([])
+    mock.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "mac": client_mac,
+                    "name": "Phone",
+                    "active": True,
+                    "wireless": True,
+                }
+            ],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    assert reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_downloaded") is None
+    assert reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_uploaded") is None
+    assert (
+        reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_rx_activity") is None
+    )
+    assert (
+        reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_tx_activity") is None
+    )
+    # Unrelated client sensors are still created.
+    assert (
+        reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_connection_status")
+        is not None
+    )
+
+
+async def test_client_bandwidth_sensors_created_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """Client downloaded/uploaded/RX/TX sensors are created by default."""
+    client_mac = "11-22-33-44-55-AB"
+    entry = _build_entry(
+        hass,
+        {CONF_SELECTED_CLIENTS: [client_mac]},
+        "test_toggle_client_bw_default",
+    )
+    mock = _build_mock_api([])
+    mock.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "mac": client_mac,
+                    "name": "Phone",
+                    "active": True,
+                    "wireless": True,
+                }
+            ],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    assert (
+        reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_downloaded")
+        is not None
+    )
+
+
 async def test_device_diagnostic_sensors_skipped_when_disabled(
     hass: HomeAssistant,
 ) -> None:

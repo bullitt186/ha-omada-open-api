@@ -1890,6 +1890,80 @@ async def test_options_application_selection(hass: HomeAssistant) -> None:
     assert entry.options[CONF_SELECTED_APPLICATIONS] == ["100"]
 
 
+def _options_entry(
+    hass: HomeAssistant, omada_id: str, options: dict
+) -> MockConfigEntry:
+    """Add a set-up OpenAPI config entry with the given options."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: omada_id,
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        options=options,
+    )
+    entry.add_to_hass(hass)
+    return entry
+
+
+async def test_options_client_selection_can_be_cleared(hass: HomeAssistant) -> None:
+    """Clearing all clients saves an empty selection (GH #65).
+
+    The frontend omits a cleared optional multi-select from the submission,
+    so the schema must not re-apply the previous selection as a default.
+    """
+    entry = _options_entry(
+        hass, "opt_clear_clients", {CONF_SELECTED_CLIENTS: ["AA-BB-CC-DD-EE-01"]}
+    )
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler._get_clients",
+        return_value=MOCK_CLIENTS,
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "client_selection"}
+        )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_SELECTED_CLIENTS] == []
+
+
+async def test_options_application_selection_can_be_cleared(
+    hass: HomeAssistant,
+) -> None:
+    """Clearing all applications saves an empty selection."""
+    entry = _options_entry(
+        hass, "opt_clear_apps", {CONF_SELECTED_APPLICATIONS: ["100"]}
+    )
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler._get_applications",
+        return_value=MOCK_APPLICATIONS,
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "application_selection"}
+        )
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_SELECTED_APPLICATIONS] == []
+
+
 async def test_options_application_selection_no_apps(hass: HomeAssistant) -> None:
     """Test options flow application selection with no apps available."""
     entry = MockConfigEntry(

@@ -30,6 +30,7 @@ from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
     CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
@@ -66,6 +67,7 @@ from .devices import (
     format_detail_status,
     format_link_speed,
     get_device_sort_key,
+    resolve_via_device_id,
 )
 from .entity import OmadaEntity
 
@@ -89,6 +91,16 @@ _DEVICE_DIAGNOSTIC_SENSOR_KEYS: frozenset[str] = frozenset(
         "uplink_port",
         "link_speed",
         "device_type",
+    }
+)
+
+# Client sensor keys that belong to the "bandwidth" toggle category.
+_CLIENT_BANDWIDTH_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        "downloaded",
+        "uploaded",
+        "rx_activity",
+        "tx_activity",
     }
 )
 
@@ -1636,6 +1648,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     opts = entry.options
     _enable_device_bandwidth = opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True)
     _enable_device_diagnostic = opts.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True)
+    _enable_client_bandwidth = opts.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True)
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
         rd.device_stats_coordinators
     )
@@ -1777,6 +1790,10 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                 _make_client_sensor(coord, desc, mac)
                 for mac in new_macs
                 for desc in CLIENT_SENSORS
+                if (
+                    _enable_client_bandwidth
+                    or desc.key not in _CLIENT_BANDWIDTH_SENSOR_KEYS
+                )
             ]
             if new_entities:
                 async_add_entities(new_entities)
@@ -1886,11 +1903,14 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
             device_mac, device_data, coordinator.api_client.api_url
         )
 
-        # Only set via_device for non-gateway devices
+        # Only set via_device_id for non-gateway devices
         if "gateway" not in device_type and "router" not in device_type:
             # For switches and other devices, use uplink device if available
+            # and already registered.
             if uplink_mac:
-                di["via_device"] = (DOMAIN, uplink_mac)
+                via_device_id = resolve_via_device_id(coordinator.hass, uplink_mac)
+                if via_device_id is not None:
+                    di["via_device_id"] = via_device_id
             # No fallback - if no uplink, device is standalone
 
         self._attr_device_info = di
@@ -2115,23 +2135,24 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
             # Client connected to gateway
             parent_device_mac = client_data.get("gateway_mac")
 
-        # Use parent device as via_device if identified, otherwise use site
-        via_device = (
-            (DOMAIN, parent_device_mac)
-            if parent_device_mac
-            else (DOMAIN, coordinator.site_id)
-        )
+        # Link to the identified parent device if it's already registered,
+        # otherwise fall back to the always-registered site device. See
+        # GH #69.
+        if parent_device_mac:
+            via_device_id = resolve_via_device_id(coordinator.hass, parent_device_mac)
+        else:
+            via_device_id = coordinator.site_device_id
 
         self._attr_device_info = build_client_device_info(
-            client_mac, client_data, coordinator.api_client.api_url, via_device
+            client_mac, client_data, coordinator.api_client.api_url, via_device_id
         )
         # Only log device info once per client (for signal strength sensor)
         if description.key == "signal_strength":
             _LOGGER.debug(
-                "Client device %s: parent=%s, via_device=%s",
+                "Client device %s: parent=%s, via_device_id=%s",
                 self._attr_device_info["name"],
                 parent_device_mac,
-                via_device,
+                via_device_id,
             )
 
     @property

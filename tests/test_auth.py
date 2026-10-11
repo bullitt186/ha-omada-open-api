@@ -105,7 +105,14 @@ class TestClientCredentialsAuth:
 
     @pytest.mark.asyncio
     async def test_refresh_sends_credentials_in_request_body(self) -> None:
-        """Refresh credentials are excluded from the request URL."""
+        """Refresh credentials are excluded from the URL and form-encoded.
+
+        Real Omada controllers (confirmed on Omada Software Controller
+        6.2.14.11 and 6.3.0.106, both local and cloud-hosted) reject a
+        refresh_token grant whose credentials are sent as a JSON body with
+        `errorCode -1001` ("Invalid request parameters"); only a
+        form-encoded body is accepted. See GH #63.
+        """
         auth = self._make_auth(
             token_expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
         )
@@ -131,7 +138,8 @@ class TestClientCredentialsAuth:
 
         request_kwargs = auth._session.post.call_args.kwargs
         assert request_kwargs["params"] == {"grant_type": "refresh_token"}
-        assert request_kwargs["json"] == {
+        assert "json" not in request_kwargs
+        assert request_kwargs["data"] == {
             "client_id": TEST_CLIENT_ID,
             "client_secret": TEST_CLIENT_SECRET,
             "refresh_token": "test_refresh",
@@ -180,6 +188,56 @@ class TestClientCredentialsAuth:
         )
 
         # Second call: client_credentials grant succeeds
+        fresh_response = AsyncMock()
+        fresh_response.status = 200
+        fresh_response.json = AsyncMock(
+            return_value={
+                "errorCode": 0,
+                "result": {
+                    "accessToken": "fresh_access",
+                    "refreshToken": "fresh_refresh",
+                    "expiresIn": 7200,
+                },
+            }
+        )
+
+        mock_ctx_1 = AsyncMock()
+        mock_ctx_1.__aenter__ = AsyncMock(return_value=refresh_response)
+        mock_ctx_1.__aexit__ = AsyncMock(return_value=False)
+
+        mock_ctx_2 = AsyncMock()
+        mock_ctx_2.__aenter__ = AsyncMock(return_value=fresh_response)
+        mock_ctx_2.__aexit__ = AsyncMock(return_value=False)
+
+        auth._session.post.side_effect = [mock_ctx_1, mock_ctx_2]
+
+        await auth.ensure_valid_session()
+
+        assert auth._access_token == "fresh_access"
+
+    @pytest.mark.asyncio
+    async def test_refresh_falls_back_to_fresh_tokens_on_invalid_params(
+        self,
+    ) -> None:
+        """When refresh returns -1001, falls back to client_credentials.
+
+        Some controllers answer a rejected refresh_token grant with HTTP
+        200 and `errorCode -1001` ("Invalid request parameters") instead of
+        HTTP 401, so the fallback must also trigger on this error code.
+        Without it, the config entry never self-recovers and every
+        subsequent poll fails until the user manually re-authenticates. See
+        GH #63.
+        """
+        auth = self._make_auth(
+            token_expires_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+        )
+
+        refresh_response = AsyncMock()
+        refresh_response.status = 200
+        refresh_response.json = AsyncMock(
+            return_value={"errorCode": -1001, "msg": "Invalid request parameters"}
+        )
+
         fresh_response = AsyncMock()
         fresh_response.status = 200
         fresh_response.json = AsyncMock(

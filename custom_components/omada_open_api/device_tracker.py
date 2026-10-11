@@ -13,7 +13,7 @@ from homeassistant.components.device_tracker import (  # type: ignore[attr-defin
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
-from .const import DOMAIN
+from .const import CLIENT_RADIO_BANDS, DOMAIN
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .devices import format_detail_status
 from .entity import OmadaEntity
@@ -281,12 +281,12 @@ class OmadaClientTracker(
         return host
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | None]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
         client = self.coordinator.data.get(self._client_mac)
         if client is None:
             return {}
-        attrs: dict[str, str | None] = {}
+        attrs: dict[str, Any] = {}
         if client.get("ssid"):
             attrs["ssid"] = client["ssid"]
         if client.get("ap_name"):
@@ -295,6 +295,12 @@ class OmadaClientTracker(
             attrs["connected_switch"] = client["switch_name"]
         if client.get("wireless") is not None:
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
+        if client.get("wireless"):
+            band = CLIENT_RADIO_BANDS.get(client.get("radio_id"))
+            if band:
+                attrs["band"] = band
+            if client.get("channel") is not None:
+                attrs["channel"] = client["channel"]
         return attrs
 
     @callback

@@ -1020,6 +1020,41 @@ async def test_client_coordinator_filters_selected_clients(
     assert data["11-22-33-44-55-AA"]["name"] == "Phone"
 
 
+async def test_client_coordinator_stores_site_device_id(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test the coordinator stores the real site device id for via_device_id.
+
+    See GH #69: client entities with no identified parent device link to
+    this id instead of a never-registered site identifier.
+    """
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=["11-22-33-44-55-AA"],
+        site_device_id="real-site-device-id",
+    )
+
+    assert coordinator.site_device_id == "real-site-device-id"
+
+
+async def test_client_coordinator_site_device_id_defaults_to_none(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Test site_device_id defaults to None when not provided."""
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=["11-22-33-44-55-AA"],
+    )
+
+    assert coordinator.site_device_id is None
+
+
 async def test_client_coordinator_handles_all_selected(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:

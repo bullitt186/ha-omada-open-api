@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import datetime as dt
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
@@ -244,3 +245,87 @@ async def test_coordinator_resets_rate_on_counter_rollback(
 
     rx_rate = data2["devices"][AP_MAC].get("rx_rate_mbps", 0.0)
     assert rx_rate == 0.0  # Rollback → rate reset to 0
+
+
+# ---------------------------------------------------------------------------
+# Coordinator: slow-advancing counters (GH #85)
+# ---------------------------------------------------------------------------
+
+
+def _rate_coordinator(
+    hass: HomeAssistant, scan_interval: int = 60
+) -> OmadaSiteCoordinator:
+    """Build a coordinator with the given device scan interval."""
+    return OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        scan_interval=scan_interval,
+    )
+
+
+def _poll(
+    coord: OmadaSiteCoordinator, rx: int, tx: int, now: dt.datetime
+) -> dict[str, Any]:
+    """Feed one set of cumulative counters and return the AP device data."""
+    devices: dict[str, dict[str, Any]] = {AP_MAC: {"mac": AP_MAC, "type": "ap"}}
+    coord._compute_and_store_rate(devices, AP_MAC, rx, tx, now)
+    return devices[AP_MAC]
+
+
+async def test_unchanged_counters_keep_last_rate(hass: HomeAssistant) -> None:
+    """A poll between two counter updates keeps the last published rate."""
+    coord = _rate_coordinator(hass)
+    start = dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC)
+
+    _poll(coord, 0, 0, start)
+    first = _poll(coord, 6_000_000, 3_000_000, start + dt.timedelta(seconds=60))
+    held = _poll(coord, 6_000_000, 3_000_000, start + dt.timedelta(seconds=120))
+
+    assert first["rx_rate_mbps"] == 0.1
+    assert held["rx_rate_mbps"] == 0.1
+    assert held["tx_rate_mbps"] == 0.05
+
+
+async def test_counter_change_divides_by_time_since_last_change(
+    hass: HomeAssistant,
+) -> None:
+    """Bytes accumulated over two polls are divided by both polls' time."""
+    coord = _rate_coordinator(hass)
+    start = dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC)
+
+    _poll(coord, 0, 0, start)
+    _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=60))
+    _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=120))
+    after = _poll(coord, 18_000_000, 18_000_000, start + dt.timedelta(seconds=180))
+
+    assert after["rx_rate_mbps"] == 0.1
+    assert after["tx_rate_mbps"] == 0.1
+
+
+async def test_counters_flat_beyond_hold_window_report_zero(
+    hass: HomeAssistant,
+) -> None:
+    """Counters flat for longer than the hold window mean an idle AP."""
+    coord = _rate_coordinator(hass)
+    start = dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC)
+
+    _poll(coord, 0, 0, start)
+    _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=60))
+    idle = _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=400))
+
+    assert idle["rx_rate_mbps"] == 0.0
+    assert idle["tx_rate_mbps"] == 0.0
+
+
+async def test_short_scan_interval_still_holds_rate(hass: HomeAssistant) -> None:
+    """A short scan interval does not shrink the hold window below the floor."""
+    coord = _rate_coordinator(hass, scan_interval=30)
+    start = dt.datetime(2026, 10, 1, 12, 0, tzinfo=dt.UTC)
+
+    _poll(coord, 0, 0, start)
+    _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=60))
+    held = _poll(coord, 6_000_000, 6_000_000, start + dt.timedelta(seconds=210))
+
+    assert held["rx_rate_mbps"] == 0.1

@@ -106,6 +106,18 @@ DEFAULT_CLIENT_SCAN_INTERVAL = 30
 DEFAULT_APP_SCAN_INTERVAL = 300
 DEFAULT_FIRMWARE_CHECK_INTERVAL = 1800  # 30 minutes
 DEFAULT_RADIO_UTIL_INTERVAL = 300  # 5 minutes
+# Polls an unchanged AP traffic counter may hold the last rate before idle.
+AP_ACTIVITY_HOLD_POLLS = 3
+# Lower bound for that hold window; some controllers update every ~150 s.
+AP_ACTIVITY_HOLD_MIN_SECONDS = 300
+
+# Omada client radioId to the frequency band it uses.
+CLIENT_RADIO_BANDS: dict[int, str] = {
+    0: "2.4 GHz",
+    1: "5 GHz",
+    2: "5 GHz",
+    3: "6 GHz",
+}
 UPGRADE_POLL_INTERVAL = 10  # Fast polling during firmware upgrades
 UPGRADE_COOLDOWN_POLLS = 3  # Extra fast-poll cycles after upgrade finishes
 MIN_SCAN_INTERVAL = 30

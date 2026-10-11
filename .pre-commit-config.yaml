@@ -7,7 +7,7 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.2
+    rev: v0.16.3
     hooks:
       # Run the linter (full repo, not just staged files — catches stale
       # noqa directives when pyproject.toml ignore rules change)
@@ -36,7 +36,7 @@ repos:
         exclude: \.pxd$
 
   - repo: https://github.com/PyCQA/pylint
-    rev: v4.0.5
+    rev: v4.0.7
     hooks:
       - id: pylint
         args: [--rcfile=pyproject.toml]

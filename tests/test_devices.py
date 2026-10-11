@@ -2,6 +2,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
+
 from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.devices import (
     build_client_device_info,
@@ -11,6 +19,7 @@ from custom_components.omada_open_api.devices import (
     get_device_sort_key,
     parse_uptime,
     process_device,
+    resolve_via_device_id,
 )
 
 # ---------------------------------------------------------------------------
@@ -228,7 +237,7 @@ def test_build_client_device_info_excludes_ip_connection() -> None:
         "11-22-33-44-55-66",
         client_data,
         "https://omada.example",
-        (DOMAIN, "site_1"),
+        "site-device-id",
     )
     assert ("mac", "11-22-33-44-55-66") in result["connections"]
     assert ("ip", "192.168.0.99") not in result["connections"]
@@ -236,7 +245,11 @@ def test_build_client_device_info_excludes_ip_connection() -> None:
 
 
 def test_build_client_device_info_fields() -> None:
-    """Test that build_client_device_info populates the expected fields."""
+    """Test that build_client_device_info populates the expected fields.
+
+    via_device_id (a real device-registry id) is used instead of the
+    deprecated via_device identifier tuple. See GH #69.
+    """
     client_data = {
         "name": "Laptop",
         "vendor": "Acme",
@@ -247,11 +260,55 @@ def test_build_client_device_info_fields() -> None:
         "11-22-33-44-55-66",
         client_data,
         "https://omada.example",
-        (DOMAIN, "AA-BB-CC-DD-EE-FF"),
+        "parent-device-id",
     )
     assert (DOMAIN, "11-22-33-44-55-66") in result["identifiers"]
     assert result["name"] == "Laptop"
     assert result["manufacturer"] == "Acme"
     assert result["model"] == "Laptop"
     assert result["sw_version"] == "macOS"
-    assert result["via_device"] == (DOMAIN, "AA-BB-CC-DD-EE-FF")
+    assert result["via_device_id"] == "parent-device-id"
+    assert "via_device" not in result
+
+
+def test_build_client_device_info_no_via_device_when_id_unknown() -> None:
+    """No via-device link is set when the via-device id is unknown."""
+    client_data = {"name": "Laptop"}
+    result = build_client_device_info(
+        "11-22-33-44-55-66", client_data, "https://omada.example", None
+    )
+    assert "via_device_id" not in result
+    assert "via_device" not in result
+
+
+# ---------------------------------------------------------------------------
+# resolve_via_device_id
+# ---------------------------------------------------------------------------
+
+
+async def test_resolve_via_device_id_found(hass: HomeAssistant) -> None:
+    """Returns the registry id of an already-registered peer device."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+        name="Office AP",
+    )
+
+    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01")
+
+    assert result == device.id
+
+
+async def test_resolve_via_device_id_not_registered_returns_none(
+    hass: HomeAssistant,
+) -> None:
+    """Returns None when the peer device hasn't been registered yet.
+
+    Mirrors the deprecated via_device identifier's lenient behavior
+    (silently dropping the link) instead of raising. See GH #69.
+    """
+    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-99")
+
+    assert result is None

@@ -566,6 +566,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 site_name,
             )
 
+    # Register Site device entities for each configured site. This happens
+    # before client coordinators are created so a client with no identified
+    # parent AP/switch/gateway can link its via_device_id to the site
+    # device's real (always-registered) id. See GH #69.
+    device_reg = dr.async_get(hass)
+    site_devices: dict[str, dr.DeviceEntry] = {}
+    for site_id, coordinator in coordinators.items():
+        site_device = device_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, f"site_{site_id}")},
+            name=f"{coordinator.site_name} - Site",
+            manufacturer="TP-Link",
+            model="Omada Site",
+            configuration_url=entry.data[CONF_API_URL],
+        )
+        site_devices[site_id] = site_device
+        _LOGGER.debug(
+            "Registered Site device for site '%s' (%s)",
+            coordinator.site_name,
+            site_id,
+        )
+
     # Create client coordinators for selected clients
     client_coordinators: list[OmadaClientCoordinator] = []
     selected_client_macs: list[str] = entry.options.get(CONF_SELECTED_CLIENTS, [])
@@ -584,6 +606,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             disconnect_timeout = entry.options.get(
                 CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
             )
+            client_site_device = site_devices.get(site_id)
             client_coordinator = OmadaClientCoordinator(
                 hass=hass,
                 api_client=api_client,
@@ -592,6 +615,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 selected_client_macs=selected_client_macs,
                 scan_interval=client_interval,
                 disconnect_timeout=disconnect_timeout,
+                site_device_id=client_site_device.id if client_site_device else None,
             )
 
             # Perform initial data fetch
@@ -747,25 +771,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             "Total SSIDs across %d site(s): %d",
             len(coordinators),
             total_ssids,
-        )
-
-    # Register Site device entities for each configured site
-    device_reg = dr.async_get(hass)
-    site_devices: dict[str, dr.DeviceEntry] = {}
-    for site_id, coordinator in coordinators.items():
-        site_device = device_reg.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            identifiers={(DOMAIN, f"site_{site_id}")},
-            name=f"{coordinator.site_name} - Site",
-            manufacturer="TP-Link",
-            model="Omada Site",
-            configuration_url=entry.data[CONF_API_URL],
-        )
-        site_devices[site_id] = site_device
-        _LOGGER.debug(
-            "Registered Site device for site '%s' (%s)",
-            coordinator.site_name,
-            site_id,
         )
 
     entry.runtime_data = OmadaRuntimeData(

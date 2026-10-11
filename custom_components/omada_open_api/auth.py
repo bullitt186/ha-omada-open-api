@@ -109,6 +109,9 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
 
         url = f"{self._api_url}/openapi/authorize/token"
         params = {"grant_type": "refresh_token"}
+        # Real Omada controllers reject a refresh_token grant whose
+        # credentials are sent as a JSON body with errorCode -1001; only a
+        # form-encoded body is accepted. See GH #63.
         data = {
             "client_id": self._client_id,
             "client_secret": self._client_secret,
@@ -119,7 +122,7 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
             async with self._session.post(
                 url,
                 params=params,
-                json=data,
+                data=data,
                 timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
             ) as response:
                 if response.status == 401:
@@ -143,7 +146,13 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
                 error_code = result.get("errorCode")
 
                 if error_code != 0:
-                    if error_code in (-44114, -44111, -44106):
+                    # -1001 is included as defense-in-depth: some
+                    # controllers return it (HTTP 200) rather than HTTP 401
+                    # when a refresh request is rejected, so treating it
+                    # like an expired refresh token lets the entry
+                    # self-heal via client_credentials instead of failing
+                    # permanently until a manual reauth.
+                    if error_code in (-44114, -44111, -44106, -1001):
                         _LOGGER.info(
                             "Token refresh failed (error %s: %s), falling back "
                             "to client_credentials grant",
