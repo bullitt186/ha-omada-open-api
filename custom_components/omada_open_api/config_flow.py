@@ -32,6 +32,7 @@ from .const import (
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
@@ -1659,6 +1660,9 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     CONF_AUTO_DISCOVERY_SSIDS: user_input.get(
                         CONF_AUTO_DISCOVERY_SSIDS, ""
                     ).strip(),
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: user_input.get(
+                        CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                    ),
                 },
             )
 
@@ -1683,6 +1687,12 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                         CONF_AUTO_DISCOVERY_SSIDS, ""
                     ),
                 ): str,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+                    default=self.config_entry.options.get(
+                        CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                    ),
+                ): bool,
             }
         )
 

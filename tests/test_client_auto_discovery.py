@@ -10,6 +10,7 @@ from homeassistant.components.device_tracker import SourceType
 
 from custom_components.omada_open_api.const import (
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_SELECTED_CLIENTS,
     DOMAIN,
@@ -429,3 +430,85 @@ async def test_tracker_update_keeps_name_in_sync_without_recreating_entity(
         write_state.assert_called_once_with()
     assert tracker.name == "New name"
     assert tracker.unique_id == f"{DOMAIN}_{MAC_A}"
+
+
+async def test_signal_values_are_attributes_without_new_sensor_entities(
+    hass: HomeAssistant,
+) -> None:
+    """Controller RSSI/SNR/quality are attached to one tracker for a client."""
+    phone = _client(MAC_A, "Phone", "Home")
+    phone.update({"rssi": -63, "snr": 29, "signal_level": 81})
+    site = _site(hass, "a", [phone])
+    added: list = []
+    await async_setup_entry(hass, _entry([site], {}), added.extend)
+    assert len(added) == 1
+    tracker = added[0]
+    assert tracker.unique_id == f"{DOMAIN}_{MAC_A}"
+    assert tracker.extra_state_attributes["ssid"] == "Home"
+    assert tracker.extra_state_attributes["rssi_dbm"] == -63
+    assert tracker.extra_state_attributes["snr_db"] == 29
+    assert tracker.extra_state_attributes["signal_strength_percent"] == 81
+
+
+async def test_wifi_roaming_updates_existing_tracker_without_creating_another(
+    hass: HomeAssistant,
+) -> None:
+    """One MAC remains one device across SSIDs, APs and selected Omada sites."""
+    initial = _client(MAC_A, "Phone", "Home")
+    initial.update({"rssi": -74, "snr": 20, "signal_level": 51})
+    home = _site(hass, "home", [initial])
+    guest = _site(hass, "guest", [])
+    added: list = []
+    await async_setup_entry(
+        hass, _entry([home, guest], {}), added.extend
+    )
+    assert len(added) == 1
+    tracker = added[0]
+    device_id = tracker.unique_id
+    assert tracker.extra_state_attributes["rssi_dbm"] == -74
+    # Move the same MAC to another SSID and another site, changing MAC notation.
+    next_link = _client(MAC_A.replace("-", ":"), "Phone", "Guest")
+    next_link.update({"rssi": -48, "snr": 38, "signal_level": 95})
+    home.data["all_clients"] = []
+    guest.data["all_clients"] = [next_link]
+    tracker._refresh_metadata()
+    for site in (home, guest):
+        for listener in site.async_add_listener.call_args_list:
+            listener.args[0]()
+    assert len(added) == 1
+    assert tracker.unique_id == device_id
+    assert tracker.extra_state_attributes["ssid"] == "Guest"
+    assert tracker.extra_state_attributes["rssi_dbm"] == -48
+    assert tracker.extra_state_attributes["snr_db"] == 38
+
+
+async def test_missing_or_wired_signal_data_is_never_invented(
+    hass: HomeAssistant,
+) -> None:
+    """Missing measurement keys do not become guessed or zero values."""
+    site = _site(hass, "home", [_client(MAC_A, "Phone")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    assert "rssi_dbm" not in tracker.extra_state_attributes
+    assert "snr_db" not in tracker.extra_state_attributes
+    wired = _client(MAC_A, "Printer", None)
+    wired.update({"rssi": -44, "snr": 21, "signal_level": 70})
+    site.data["all_clients"] = [wired]
+    assert "rssi_dbm" not in tracker.extra_state_attributes
+    assert "snr_db" not in tracker.extra_state_attributes
+
+
+async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """Disable metrics without removing or replacing the presence entity."""
+    device = _client(MAC_A, "Phone")
+    device.update({"rssi": -52, "snr": 35, "signal_level": 88})
+    site = _site(hass, "home", [device])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    assert tracker.extra_state_attributes["rssi_dbm"] == -52
+    tracker_off = OmadaAutoClientTracker(
+        [site], MAC_A, {}, signal_attributes=False
+    )
+    assert tracker_off.unique_id == tracker.unique_id
+    assert "rssi_dbm" not in tracker_off.extra_state_attributes
+    assert tracker_off.is_connected

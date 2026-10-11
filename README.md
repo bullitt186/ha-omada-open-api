@@ -388,6 +388,16 @@ active clients, without having to pick them one by one. It uses the site's
 **already-fetched active client list** and makes **no additional per-client
 API calls**. Selected clients keep their richer sensors and controls.
 
+- **Roaming does not create another device.** A normalized MAC is the
+  device's identity, while SSID, access point, band and signal metrics are
+  changing properties of that same device. Crossing SSIDs or sites updates
+  the same tracker and keeps Home Assistant customizations.
+- **Wi-Fi signal reporting defaults to enabled.** The existing tracker gains
+  three optional attributes where actually reported by the controller:
+  `rssi_dbm` (dBm), `snr_db` (dB), and `signal_strength_percent` (%).
+  These are **not additional entities**, do not trigger per-client polling,
+  and remain absent for missing measurements or wired clients. Turn them off
+  under Device Tracker Settings without disabling presence discovery.
 - One entity per normalized client MAC is created across sites, using the
   same unique ID as a manually selected client. Enabling this feature never
   creates a second tracker for an already-selected client.

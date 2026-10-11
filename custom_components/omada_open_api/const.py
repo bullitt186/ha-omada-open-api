@@ -18,6 +18,7 @@ CONF_SELECTED_CLIENTS = "selected_clients"
 # Separate presence-only discovery; heavyweight sensors remain selected-client opt-in.
 CONF_AUTO_DISCOVER_CLIENT_TRACKERS = "auto_discover_client_trackers"
 CONF_AUTO_DISCOVERY_SSIDS = "auto_discovery_ssids"
+CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES = "auto_discovery_signal_attributes"
 CONF_SELECTED_APPLICATIONS = "selected_applications"
 CONF_SSID_FILTER = "ssid_filter"
 CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"

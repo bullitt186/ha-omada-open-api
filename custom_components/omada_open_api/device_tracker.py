@@ -20,6 +20,7 @@ from .clients import normalize_client_mac
 from .const import (
     CLIENT_RADIO_BANDS,
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_DISCONNECT_TIMEOUT,
     CONF_SELECTED_CLIENTS,
@@ -127,6 +128,7 @@ async def async_setup_entry(
                     entry.runtime_data.site_devices,
                     entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
                     ssids,
+                    entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
                 )
             )
         if previously_discovered:
@@ -164,6 +166,9 @@ async def async_setup_entry(
                             entry.runtime_data.site_devices,
                             entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
                             ssids,
+                            entry.options.get(
+                                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                            ),
                         )
                     )
             if new_entities:
@@ -221,6 +226,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         site_devices: dict[str, Any],
         disconnect_timeout: int = 0,
         allowed_ssids: set[str] | None = None,
+        signal_attributes: bool = True,
     ) -> None:
         """Use the existing site snapshots, never poll per client."""
         self._coordinators = site_coordinators
@@ -229,6 +235,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         self._site_devices = site_devices
         self._disconnect_timeout = disconnect_timeout
         self._allowed_ssids = allowed_ssids or set()
+        self._signal_attributes = signal_attributes
         self._last_seen: dt.datetime | None = None
         self._unique_id = f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
@@ -386,6 +393,19 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             )
             if band:
                 attrs["band"] = band
+            if self._signal_attributes:
+                # Snapshot values are per-device, not per-SSID: roaming
+                # updates this existing tracker's attributes in place.
+                for key, attr in (
+                    ("rssi", "rssi_dbm"),
+                    ("snr", "snr_db"),
+                    ("signal_level", "signal_strength_percent"),
+                ):
+                    value = client.get(key)
+                    if isinstance(value, (int, float)) and not isinstance(
+                        value, bool
+                    ):
+                        attrs[attr] = value
         return attrs
 
 

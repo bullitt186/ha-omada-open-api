@@ -201,12 +201,14 @@
                 "data": {
                     "disconnect_timeout": "Client disconnect timeout (minutes)",
                     "auto_discover_client_trackers": "Automatically discover client presence trackers (enabled by default)",
-                    "auto_discovery_ssids": "Only these wireless SSIDs (comma-separated; blank means all)"
+                    "auto_discovery_ssids": "Only these wireless SSIDs (comma-separated; blank means all)",
+                    "auto_discovery_signal_attributes": "Show Wi-Fi RSSI, SNR and signal quality on existing client trackers"
                 },
                 "data_description": {
                     "disconnect_timeout": "Set to 0 for immediate disconnect detection. Values 1–60 keep the device marked as home for this many minutes after it disappears from the network.",
                     "auto_discover_client_trackers": "On by default. Adds one presence-only tracker per active network client, potentially hundreds. Turn off to disable new automatic detection; already registered clients are retained. Selected clients keep their existing tracker and controls.",
-                    "auto_discovery_ssids": "Optional exact SSID names separated by commas. When set, wired clients are excluded. Entities already discovered are retained as away rather than deleted."
+                    "auto_discovery_ssids": "Optional exact SSID names separated by commas. When set, wired clients are excluded. Entities already discovered are retained as away rather than deleted.",
+                    "auto_discovery_signal_attributes": "Enabled by default. Shows controller-reported RSSI (dBm), SNR (dB) and signal level (%) as attributes of each existing tracker. SSID changes update the same device; no separate signal sensor entities are created."
                 }
             },
             "device_entity_settings": {

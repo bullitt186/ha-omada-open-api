@@ -19,6 +19,7 @@ from custom_components.omada_open_api.const import (
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
@@ -291,6 +292,7 @@ async def test_auto_discovery_is_enabled_by_default_and_saves_choice(
         for k in form["data_schema"].schema
     }
     assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
+    assert defaults[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
 
     with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
         result = await hass.config_entries.options.async_configure(
@@ -298,10 +300,12 @@ async def test_auto_discovery_is_enabled_by_default_and_saves_choice(
             {
                 CONF_DISCONNECT_TIMEOUT: 5,
                 CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: True,
                 CONF_AUTO_DISCOVERY_SSIDS: "Home, Guest",
             },
         )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
     assert entry.options[CONF_AUTO_DISCOVERY_SSIDS] == "Home, Guest"
     assert entry.options[CONF_DISCONNECT_TIMEOUT] == 5
