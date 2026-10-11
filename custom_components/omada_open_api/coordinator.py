@@ -69,6 +69,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.site_id = site_id
         self.site_name = site_name
         self._enable_vpn_status = enable_vpn_status
+        self._unsupported_vpn_types: set[str] = set()
 
         # Firmware info cache — checked less frequently than device data.
         self._firmware_info: dict[str, dict[str, Any]] = {}
@@ -909,28 +910,32 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         """
         vpn_status: dict[str, list[dict[str, Any]]] = {}
+        fetchers = {
+            "s2s": self.api_client.get_vpn_s2s_stats,
+            "server": self.api_client.get_vpn_server_stats,
+            "client": self.api_client.get_vpn_client_stats,
+        }
 
-        try:
-            vpn_status["s2s"] = await self.api_client.get_vpn_s2s_stats(self.site_id)
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch S2S VPN stats: %s", err)
-            vpn_status["s2s"] = []
-
-        try:
-            vpn_status["server"] = await self.api_client.get_vpn_server_stats(
-                self.site_id
-            )
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch VPN server stats: %s", err)
-            vpn_status["server"] = []
-
-        try:
-            vpn_status["client"] = await self.api_client.get_vpn_client_stats(
-                self.site_id
-            )
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch VPN client stats: %s", err)
-            vpn_status["client"] = []
+        for vpn_type, fetch in fetchers.items():
+            vpn_status[vpn_type] = []
+            if vpn_type in self._unsupported_vpn_types:
+                continue
+            try:
+                vpn_status[vpn_type] = await fetch(self.site_id)
+            except OmadaApiError as err:
+                # An HTTP 400 that survives the Fusion filter fallback means
+                # this controller does not support the endpoint, so stop
+                # polling it until the entry is reloaded. See GH #63.
+                if err.http_status == 400:
+                    self._unsupported_vpn_types.add(vpn_type)
+                    _LOGGER.warning(
+                        "%s VPN stats are not supported by this controller "
+                        "(%s); polling stopped until the entry is reloaded",
+                        vpn_type,
+                        err,
+                    )
+                else:
+                    _LOGGER.warning("Failed to fetch %s VPN stats: %s", vpn_type, err)
 
         await self._fetch_vpn_peers(vpn_status)
 
