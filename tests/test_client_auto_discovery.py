@@ -266,3 +266,43 @@ async def test_new_mac_format_stable_even_if_api_uses_colons(
     )
     assert len(added) == 1
     assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"
+
+
+async def test_failed_optional_client_api_is_unavailable_not_away(
+    hass: HomeAssistant,
+) -> None:
+    """An otherwise successful site refresh must not misreport clients away."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    site.data["all_clients"] = []
+    site.data["clients_poll_ok"] = False
+    assert not tracker.available
+
+
+async def test_failed_client_poll_does_not_create_new_devices(
+    hass: HomeAssistant,
+) -> None:
+    """Do not create presence devices from failed/stale site client queries."""
+    site = _site(hass, "a", [_client(MAC_A, "Tablet")])
+    site.data["clients_poll_ok"] = False
+    added: list = []
+    await async_setup_entry(
+        hass,
+        _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+        added.extend,
+    )
+    assert added == []
+
+
+async def test_indexed_client_lookup_avoids_full_client_list_scan(
+    hass: HomeAssistant,
+) -> None:
+    """A normalized MAC index is sufficient for presence on large sites."""
+    site = _site(hass, "a", [])
+    site.data["all_clients"] = None
+    site.data["client_index"] = {
+        "1122334455AA": _client(MAC_A, "Tablet")
+    }
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+    assert tracker.is_connected
+    assert tracker.name == "Tablet"

@@ -135,7 +135,11 @@ async def async_setup_entry(
             """Create only never-seen presence entities; retain missing ones offline."""
             new_entities: list[OmadaAutoClientTracker] = []
             for coord in site_coordinators:
-                if not coord.last_update_success or not coord.data:
+                if (
+                    not coord.last_update_success
+                    or not coord.data
+                    or coord.data.get("clients_poll_ok", True) is False
+                ):
                     continue
                 for client in coord.data.get("all_clients", []):
                     raw_mac = client.get("mac")
@@ -245,8 +249,19 @@ class OmadaAutoClientTracker(ScannerEntity):
     def _current_client(self) -> tuple[OmadaSiteCoordinator, dict[str, Any]] | None:
         """Find this MAC at any configured site, including after site roaming."""
         for coord in self._coordinators:
-            if not coord.last_update_success or not coord.data:
+            if (
+                not coord.last_update_success
+                or not coord.data
+                or coord.data.get("clients_poll_ok", True) is False
+            ):
                 continue
+            index = coord.data.get("client_index")
+            if isinstance(index, dict):
+                client = index.get(self._canonical_mac)
+                if client is not None:
+                    return coord, client
+                continue
+            # Compatibility for earlier cached coordinator snapshots.
             for client in coord.data.get("all_clients", []):
                 mac = client.get("mac")
                 if (
@@ -311,7 +326,11 @@ class OmadaAutoClientTracker(ScannerEntity):
         """Avoid false away states when a site's API refresh has failed."""
         return (
             self._current_client() is not None
-            or all(coord.last_update_success for coord in self._coordinators)
+            or all(
+                coord.last_update_success
+                and (not coord.data or coord.data.get("clients_poll_ok", True))
+                for coord in self._coordinators
+            )
         )
 
     @property
