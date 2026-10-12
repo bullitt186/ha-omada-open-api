@@ -424,7 +424,9 @@ class OmadaDeviceBinarySensor(
             # For switches and other devices, use uplink device if available
             # and already registered.
             if uplink_mac:
-                via_device_id = resolve_via_device_id(coordinator.hass, uplink_mac)
+                via_device_id = resolve_via_device_id(
+                    coordinator.hass, uplink_mac, coordinator.config_entry
+                )
                 if via_device_id is not None:
                     di["via_device_id"] = via_device_id
             # No fallback - if no uplink, device is standalone
