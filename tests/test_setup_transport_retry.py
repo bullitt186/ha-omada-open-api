@@ -35,3 +35,17 @@ def test_application_error_is_not_transient():
 
 def test_authentication_error_is_not_transient():
     assert not _is_transient_connection_error(OmadaApiAuthError("invalid credentials"))
+
+def test_nested_transport_error_is_retriable():
+    """Wrapped networking errors must survive multiple API layers."""
+    inner = _wrapped(ConnectionRefusedError(111, "Connection refused"))
+    outer = OmadaApiError("Unable to query sites")
+    outer.__cause__ = inner
+    assert _is_transient_connection_error(outer)
+
+
+def test_unrelated_application_failure_is_not_misclassified():
+    """Error text without a transport exception cause must not trigger retry."""
+    assert not _is_transient_connection_error(
+        OmadaApiError("Connection refused by account policy")
+    )
