@@ -54,6 +54,7 @@ def _create_device_sensor(
     devices: dict[str, dict],
     description_key: str,
     sensor_list: tuple = DEVICE_SENSORS,
+    config_entry: MockConfigEntry | None = None,
 ) -> OmadaDeviceSensor:
     """Create an OmadaDeviceSensor with a mock coordinator."""
     coordinator = OmadaSiteCoordinator(
@@ -62,6 +63,7 @@ def _create_device_sensor(
         site_id=TEST_SITE_ID,
         site_name=TEST_SITE_NAME,
     )
+    coordinator.config_entry = config_entry
     coordinator.data = _build_coordinator_data(devices)
 
     description = next(d for d in sensor_list if d.key == description_key)
@@ -308,7 +310,9 @@ async def test_device_sensor_device_info_uplink_registered(
 
     ap_raw = {**SAMPLE_DEVICE_AP, "uplinkDeviceMac": SWITCH_MAC}
     data = process_device(ap_raw)
-    sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "client_num")
+    sensor = _create_device_sensor(
+        hass, AP_MAC, {AP_MAC: data}, "client_num", config_entry=entry
+    )
 
     device_info = sensor._attr_device_info
     assert device_info["via_device_id"] == switch_device.id
