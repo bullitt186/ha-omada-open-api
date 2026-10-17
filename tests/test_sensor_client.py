@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime as _dt
+import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
@@ -55,6 +55,7 @@ def _create_client_sensor(
     clients: dict[str, dict],
     description_key: str,
     site_device_id: str | None = None,
+    config_entry: MockConfigEntry | None = None,
 ) -> OmadaClientSensor:
     """Create an OmadaClientSensor with a mock coordinator."""
     coordinator = OmadaClientCoordinator(
@@ -65,6 +66,7 @@ def _create_client_sensor(
         selected_client_macs=list(clients.keys()),
         site_device_id=site_device_id,
     )
+    coordinator.config_entry = config_entry
     coordinator.data = _build_client_coordinator_data(clients)
 
     # Find the matching description
@@ -123,6 +125,7 @@ async def test_client_sensor_device_info_wireless(hass: HomeAssistant) -> None:
         WIRELESS_MAC,
         {WIRELESS_MAC: _processed_wireless()},
         "connection_status",
+        config_entry=entry,
     )
     device_info = sensor._attr_device_info
     assert (DOMAIN, WIRELESS_MAC) in device_info["identifiers"]
@@ -147,6 +150,7 @@ async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
         WIRED_MAC,
         {WIRED_MAC: _processed_wired()},
         "connection_status",
+        config_entry=entry,
     )
     device_info = sensor._attr_device_info
     assert (DOMAIN, WIRED_MAC) in device_info["identifiers"]
@@ -489,7 +493,7 @@ async def test_client_uptime_wireless(hass: HomeAssistant) -> None:
         "client_uptime",
     )
     value = sensor.native_value
-    assert isinstance(value, _dt.datetime)
+    assert isinstance(value, dt.datetime)
     assert value.tzinfo is not None
 
 
@@ -502,7 +506,7 @@ async def test_client_uptime_wired(hass: HomeAssistant) -> None:
         "client_uptime",
     )
     value = sensor.native_value
-    assert isinstance(value, _dt.datetime)
+    assert isinstance(value, dt.datetime)
     assert value.tzinfo is not None
 
 
@@ -638,6 +642,7 @@ async def test_client_sensor_device_info_gateway_fallback(
         mac,
         {mac: processed},
         "connection_status",
+        config_entry=entry,
     )
     info = sensor.device_info
     assert info is not None
@@ -650,7 +655,7 @@ async def test_client_sensor_device_info_gateway_fallback(
 # ---------------------------------------------------------------------------
 
 _SENSOR_MODULE = "custom_components.omada_open_api.sensor"
-_UTC = _dt.UTC
+_UTC = dt.UTC
 
 
 def _create_client_uptime_sensor(
@@ -677,7 +682,7 @@ def _create_client_uptime_sensor(
 
 async def test_client_uptime_first_call_publishes(hass: HomeAssistant) -> None:
     """Test first native_value call publishes the snapped boot timestamp."""
-    base = _dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     data["uptime"] = 100
     sensor = _create_client_uptime_sensor(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
@@ -686,15 +691,15 @@ async def test_client_uptime_first_call_publishes(hass: HomeAssistant) -> None:
         mock_dt.utcnow.return_value = base
         value = sensor.native_value
 
-    expected = _dt.datetime(2026, 1, 1, 11, 58, 30, tzinfo=_UTC)
+    expected = dt.datetime(2026, 1, 1, 11, 58, 30, tzinfo=_UTC)
     assert value == expected
-    assert isinstance(value, _dt.datetime)
+    assert isinstance(value, dt.datetime)
     assert value.tzinfo is not None
 
 
 async def test_client_uptime_no_update_small_change(hass: HomeAssistant) -> None:
     """Test no state update when computed boot time changes by < 60 s."""
-    base = _dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     data["uptime"] = 100
     sensor = _create_client_uptime_sensor(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
@@ -706,7 +711,7 @@ async def test_client_uptime_no_update_small_change(hass: HomeAssistant) -> None
     data["uptime"] = 130
     sensor.coordinator.data = {WIRELESS_MAC: data}
     with patch(f"{_SENSOR_MODULE}.dt_util") as mock_dt:
-        mock_dt.utcnow.return_value = base + _dt.timedelta(seconds=30)
+        mock_dt.utcnow.return_value = base + dt.timedelta(seconds=30)
         v2 = sensor.native_value
 
     assert v2 == v1
@@ -714,7 +719,7 @@ async def test_client_uptime_no_update_small_change(hass: HomeAssistant) -> None
 
 async def test_client_uptime_update_after_large_change(hass: HomeAssistant) -> None:
     """Test new state published when boot time shifts by >= 60 s."""
-    base = _dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     data["uptime"] = 100
     sensor = _create_client_uptime_sensor(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
@@ -726,7 +731,7 @@ async def test_client_uptime_update_after_large_change(hass: HomeAssistant) -> N
     data["uptime"] = 160
     sensor.coordinator.data = {WIRELESS_MAC: data}
     with patch(f"{_SENSOR_MODULE}.dt_util") as mock_dt:
-        mock_dt.utcnow.return_value = base + _dt.timedelta(seconds=120)
+        mock_dt.utcnow.return_value = base + dt.timedelta(seconds=120)
         v2 = sensor.native_value
 
     assert v2 is not None
@@ -738,7 +743,7 @@ async def test_client_uptime_reconnect_publishes_immediately(
     hass: HomeAssistant,
 ) -> None:
     """Test reconnect (uptime drops > 120 s) forces an immediate state update."""
-    base = _dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     data["uptime"] = 3600
     sensor = _create_client_uptime_sensor(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
@@ -750,7 +755,7 @@ async def test_client_uptime_reconnect_publishes_immediately(
     data["uptime"] = 10
     sensor.coordinator.data = {WIRELESS_MAC: data}
     with patch(f"{_SENSOR_MODULE}.dt_util") as mock_dt:
-        mock_dt.utcnow.return_value = base + _dt.timedelta(seconds=10)
+        mock_dt.utcnow.return_value = base + dt.timedelta(seconds=10)
         v2 = sensor.native_value
 
     assert v2 is not None
@@ -762,7 +767,7 @@ async def test_client_uptime_no_flip_flop_around_boundary(
     hass: HomeAssistant,
 ) -> None:
     """Test ceil-to-30s prevents jitter across a 30-second boundary."""
-    base = _dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
+    base = dt.datetime(2026, 1, 1, 12, 0, 0, tzinfo=_UTC)
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     data["uptime"] = 65
     sensor = _create_client_uptime_sensor(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
@@ -774,7 +779,7 @@ async def test_client_uptime_no_flip_flop_around_boundary(
     data["uptime"] = 66
     sensor.coordinator.data = {WIRELESS_MAC: data}
     with patch(f"{_SENSOR_MODULE}.dt_util") as mock_dt:
-        mock_dt.utcnow.return_value = base + _dt.timedelta(seconds=1)
+        mock_dt.utcnow.return_value = base + dt.timedelta(seconds=1)
         v2 = sensor.native_value
 
     assert v1 == v2

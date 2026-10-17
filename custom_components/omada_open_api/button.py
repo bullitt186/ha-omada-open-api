@@ -5,13 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.button import ButtonDeviceClass, ButtonEntity
+from homeassistant.components.button import ButtonDeviceClass, ButtonEntity  # type: ignore[attr-defined]
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
-    DeviceInfo,
-    EntityCategory,
-)
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
 from .const import DOMAIN

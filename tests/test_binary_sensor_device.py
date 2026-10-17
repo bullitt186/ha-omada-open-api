@@ -47,6 +47,7 @@ def _create_device_binary_sensor(
     device_mac: str,
     devices: dict[str, dict],
     description_key: str,
+    config_entry: MockConfigEntry | None = None,
 ) -> OmadaDeviceBinarySensor:
     """Create an OmadaDeviceBinarySensor with mock coordinator."""
     coordinator = OmadaSiteCoordinator(
@@ -55,6 +56,7 @@ def _create_device_binary_sensor(
         site_id=TEST_SITE_ID,
         site_name=TEST_SITE_NAME,
     )
+    coordinator.config_entry = config_entry
     coordinator.data = _build_coordinator_data(devices)
 
     description = next(d for d in DEVICE_BINARY_SENSORS if d.key == description_key)
@@ -90,7 +92,9 @@ async def test_device_binary_sensor_device_info_uplink_registered(
     ap_raw = {**SAMPLE_DEVICE_AP, "uplinkDeviceMac": SWITCH_MAC}
     data = process_device(ap_raw)
     description_key = DEVICE_BINARY_SENSORS[0].key
-    sensor = _create_device_binary_sensor(hass, AP_MAC, {AP_MAC: data}, description_key)
+    sensor = _create_device_binary_sensor(
+        hass, AP_MAC, {AP_MAC: data}, description_key, config_entry=entry
+    )
 
     device_info = sensor._attr_device_info
     assert device_info["via_device_id"] == switch_device.id
