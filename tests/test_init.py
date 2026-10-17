@@ -1470,7 +1470,9 @@ async def test_prune_removes_vanished_infra_device(hass: HomeAssistant) -> None:
     switch_mac = "AA-BB-CC-DD-EE-02"
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
-    switch_device = dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)})
+    switch_device = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, switch_mac), entry.entry_id
+    )
     assert switch_device is not None
     assert er.async_entries_for_device(ent_reg, switch_device.id)
 
@@ -1483,7 +1485,10 @@ async def test_prune_removes_vanished_infra_device(hass: HomeAssistant) -> None:
     await coordinator.async_refresh()
     await hass.async_block_till_done()
 
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is None
+    assert (
+        dev_reg.async_get_device_by_identifier((DOMAIN, switch_mac), entry.entry_id)
+        is None
+    )
     assert er.async_entries_for_device(ent_reg, switch_device.id) == []
 
 
@@ -1503,7 +1508,10 @@ async def test_prune_skips_when_coordinator_unhealthy(hass: HomeAssistant) -> No
 
     switch_mac = "AA-BB-CC-DD-EE-02"
     dev_reg = dr.async_get(hass)
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is not None
+    assert (
+        dev_reg.async_get_device_by_identifier((DOMAIN, switch_mac), entry.entry_id)
+        is not None
+    )
 
     mock_client.get_devices = AsyncMock(side_effect=OmadaApiError("Connection lost"))
     coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
@@ -1511,7 +1519,10 @@ async def test_prune_skips_when_coordinator_unhealthy(hass: HomeAssistant) -> No
     await hass.async_block_till_done()
 
     assert coordinator.last_update_success is False
-    assert dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)}) is not None
+    assert (
+        dev_reg.async_get_device_by_identifier((DOMAIN, switch_mac), entry.entry_id)
+        is not None
+    )
 
 
 async def test_prune_does_not_touch_selected_client_or_site_devices(
@@ -1733,8 +1744,10 @@ async def test_setup_entry_recreates_clean_devices_after_merge(
 
     # Each MAC now has its own device carrying exactly one identifier — the
     # merge is gone, replaced by clean, separate per-MAC devices.
-    ap_device = dev_reg.async_get_device(identifiers={(DOMAIN, ap_mac)})
-    switch_device = dev_reg.async_get_device(identifiers={(DOMAIN, switch_mac)})
+    ap_device = dev_reg.async_get_device_by_identifier((DOMAIN, ap_mac), entry.entry_id)
+    switch_device = dev_reg.async_get_device_by_identifier(
+        (DOMAIN, switch_mac), entry.entry_id
+    )
     assert ap_device is not None
     assert switch_device is not None
     assert ap_device.identifiers == {(DOMAIN, ap_mac)}

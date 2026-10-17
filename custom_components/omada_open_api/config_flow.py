@@ -315,7 +315,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
         )
 
@@ -344,7 +344,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="cloud",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
         )
 
@@ -376,7 +376,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="local",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "example_url": "https://192.168.1.100:8043",
@@ -462,7 +462,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="fusion",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "example_url": "https://192.168.1.1",
@@ -632,7 +632,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="credentials",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders=description_placeholders,
         )
@@ -672,7 +672,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="sites",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "site_count": str(len(self._available_sites)),
@@ -770,7 +770,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="ssid_filter",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             description_placeholders={
                 "ssid_count": str(len(available_ssids)),
                 "client_count": str(len(all_clients)),
@@ -849,7 +849,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="clients",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "client_count": str(len(display_clients)),
@@ -1151,7 +1151,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="applications",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "app_count": str(len(self._available_applications)),
@@ -1308,7 +1308,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
         )
 
@@ -1373,7 +1373,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure_sites",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "site_count": str(len(sites)),
@@ -1479,7 +1479,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
         )
 
@@ -1665,7 +1665,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="gateway_entity_settings",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     async def async_step_tracker_settings(
@@ -1695,7 +1695,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="tracker_settings",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     async def async_step_device_entity_settings(
@@ -1749,7 +1749,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="device_entity_settings",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     async def async_step_client_entity_settings(
@@ -1801,7 +1801,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="client_entity_settings",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     async def async_step_site_entity_settings(
@@ -1832,7 +1832,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="site_entity_settings",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     async def async_step_update_intervals(
@@ -1885,7 +1885,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="update_intervals",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
         )
 
     def _adopt_client_mac_spelling(self) -> None:
@@ -2049,7 +2049,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="client_selection",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "client_count": str(len(display_clients)),
@@ -2137,7 +2137,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
 
         return self.async_show_form(
             step_id="application_selection",
-            data_schema=data_schema,
+            data_schema=data_schema,  # type: ignore[arg-type]
             errors=errors,
             description_placeholders={
                 "app_count": str(len(self._available_applications)),
