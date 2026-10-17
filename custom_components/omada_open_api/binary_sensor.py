@@ -11,10 +11,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntityDescription,
 )
 from homeassistant.core import callback
-from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
-    DeviceInfo,
-    EntityCategory,
-)
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import (

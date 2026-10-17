@@ -23,10 +23,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
-    DeviceInfo,
-    EntityCategory,
-)
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .const import (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import datetime as _dt
+import datetime as dt
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -100,7 +100,7 @@ async def test_uptime_sensor_string(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_AP)
     sensor = _create_device_sensor(hass, AP_MAC, {AP_MAC: data}, "uptime")
     value = sensor.native_value
-    assert isinstance(value, _dt.datetime)
+    assert isinstance(value, dt.datetime)
     assert value.tzinfo is not None
 
 
@@ -109,7 +109,7 @@ async def test_uptime_sensor_int(hass: HomeAssistant) -> None:
     data = process_device(SAMPLE_DEVICE_SWITCH)
     sensor = _create_device_sensor(hass, SWITCH_MAC, {SWITCH_MAC: data}, "uptime")
     value = sensor.native_value
-    assert isinstance(value, _dt.datetime)
+    assert isinstance(value, dt.datetime)
     assert value.tzinfo is not None
 
 
