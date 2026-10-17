@@ -27,6 +27,10 @@ and retries setup when the controller is still starting.
   than one Omada config entry, parent devices are now looked up within the
   owning entry. This also replaces a device registry call that Home
   Assistant 2027.8 removes.
+- **No more "Unclosed client session" errors with Fusion gateways**
+  (PR #110). The integration and its setup and options dialogs now close
+  their Fusion web sessions when they unload or finish, so reloading the
+  integration no longer logs these errors.
 - **All VPN types are reported on controllers that need a type filter** (#63,
   #67, PR #93). Some controllers, such as Software Controller 6.3 and Fusion
   gateways, only answer the VPN stats endpoints when a VPN type is given.
