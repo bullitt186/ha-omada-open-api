@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.switch import (  # type: ignore[attr-defined]
-    SwitchDeviceClass,
-    SwitchEntity,
-)
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity  # type: ignore[attr-defined]
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
