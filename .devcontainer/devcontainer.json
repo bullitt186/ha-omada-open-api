@@ -32,7 +32,7 @@
       }
     }
   },
-  "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv --clear .venv && .venv/bin/pip install -r requirements_dev.txt && pre-commit install",
+  "postCreateCommand": "pip3 install --upgrade pip uv && python3 -m venv --clear .venv && .venv/bin/pip install -r requirements_dev.txt && .venv/bin/pre-commit install",
   "remoteUser": "vscode",
   "features": {
     "ghcr.io/devcontainers/features/git:1": {},
