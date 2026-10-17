@@ -6,10 +6,7 @@ import datetime as dt
 import logging
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.device_tracker import (  # type: ignore[attr-defined]
-    ScannerEntity,
-    SourceType,
-)
+from homeassistant.components.device_tracker import ScannerEntity, SourceType  # type: ignore[attr-defined]
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
 
