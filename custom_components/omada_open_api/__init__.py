@@ -429,6 +429,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             connector = aiohttp.TCPConnector(ssl=False)
             jar = aiohttp.CookieJar(unsafe=True)
             session = aiohttp.ClientSession(connector=connector, cookie_jar=jar)
+            # The entry owns this session. Unload callbacks also run when
+            # setup fails, so the session is never leaked.
+            entry.async_on_unload(session.close)
 
             async def _fusion_token_callback(*_args: str) -> None:
                 """No-op for Fusion — session is re-created from credentials."""

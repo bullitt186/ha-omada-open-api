@@ -4002,6 +4002,49 @@ async def test_options_get_fusion_session_creates_and_caches(
         await session.close()
 
 
+async def test_options_flow_closes_fusion_session_when_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Ending the options flow closes the Fusion session it created."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    session = flow._get_fusion_session()
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert session.closed
+
+
+async def test_config_flow_closes_fusion_session_when_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Ending the config flow closes the Fusion session it created."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    session = flow._get_fusion_session()
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert session.closed
+
+
+async def test_flow_removal_without_fusion_session_is_noop(
+    hass: HomeAssistant,
+) -> None:
+    """Flows that never created a Fusion session end without error."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert flow._fusion_session is None
+
+
 async def test_options_ensure_fusion_auth_falls_back_without_runtime_data(
     hass: HomeAssistant,
 ) -> None:
