@@ -12,6 +12,7 @@ from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined
 from .const import DOMAIN
 
 if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
 
@@ -23,16 +24,23 @@ def normalize_site_id(site_id: str) -> str:
 _LOGGER = logging.getLogger(__name__)
 
 
-def resolve_via_device_id(hass: HomeAssistant, mac: str) -> str | None:
-    """Look up the device-registry id of an already-registered peer device.
+def resolve_via_device_id(
+    hass: HomeAssistant, mac: str, config_entry: ConfigEntry | None
+) -> str | None:
+    """Look up a registered peer device within its owning config entry.
 
     Returns None when the peer device (e.g. an uplink switch/gateway, or a
     client's parent AP) hasn't been registered yet, so the caller can omit
     the via-device link instead of passing an unresolved identifier to the
     deprecated via_device field, or an invalid id to via_device_id (which
-    raises). See GH #69.
+    raises). Without an owning entry, omit the link rather than resolving
+    an ambiguous identifier across controllers. See GH #69 and #94.
     """
-    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, mac)})
+    if config_entry is None:
+        return None
+    device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, mac), config_entry.entry_id
+    )
     return device.id if device else None
 
 

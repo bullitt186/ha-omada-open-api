@@ -296,7 +296,7 @@ async def test_resolve_via_device_id_found(hass: HomeAssistant) -> None:
         name="Office AP",
     )
 
-    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01")
+    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01", entry)
 
     assert result == device.id
 
@@ -309,6 +309,54 @@ async def test_resolve_via_device_id_not_registered_returns_none(
     Mirrors the deprecated via_device identifier's lenient behavior
     (silently dropping the link) instead of raising. See GH #69.
     """
-    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-99")
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    result = resolve_via_device_id(hass, "AA-BB-CC-DD-EE-99", entry)
 
     assert result is None
+
+
+async def test_resolve_via_device_id_scopes_duplicate_mac_to_config_entry(
+    hass: HomeAssistant,
+) -> None:
+    """The same MAC in two controllers resolves only inside the owning entry."""
+    first = MockConfigEntry(domain=DOMAIN, unique_id="first-controller")
+    second = MockConfigEntry(domain=DOMAIN, unique_id="second-controller")
+    first.add_to_hass(hass)
+    second.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    first_device = registry.async_get_or_create(
+        config_entry_id=first.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+    )
+    second_device = registry.async_get_or_create(
+        config_entry_id=second.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+    )
+
+    assert first_device.id != second_device.id
+    assert resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01", first) == first_device.id
+    assert resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01", second) == second_device.id
+
+
+async def test_resolve_via_device_id_does_not_link_to_another_entry(
+    hass: HomeAssistant,
+) -> None:
+    """A parent registered only under another controller is treated as absent."""
+    owner = MockConfigEntry(domain=DOMAIN, unique_id="owner")
+    other = MockConfigEntry(domain=DOMAIN, unique_id="other")
+    owner.add_to_hass(hass)
+    other.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=other.entry_id,
+        identifiers={(DOMAIN, "AA-BB-CC-DD-EE-01")},
+    )
+
+    assert resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01", owner) is None
+
+
+async def test_resolve_via_device_id_without_owner_returns_none(
+    hass: HomeAssistant,
+) -> None:
+    """Never guess an owner when no config entry is available."""
+    assert resolve_via_device_id(hass, "AA-BB-CC-DD-EE-01", None) is None
