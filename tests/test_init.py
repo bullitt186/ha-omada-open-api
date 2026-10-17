@@ -37,8 +37,10 @@ from custom_components.omada_open_api import (
 )
 from custom_components.omada_open_api.api import OmadaApiAuthError, OmadaApiError
 from custom_components.omada_open_api.const import (
+    AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_AUTH_MODE,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -47,11 +49,13 @@ from custom_components.omada_open_api.const import (
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
+    CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
     CONF_SELECTED_APPLICATIONS,
     CONF_SELECTED_CLIENTS,
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
+    CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
@@ -289,6 +293,73 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
     assert TEST_SITE_ID in runtime.coordinators
     assert (TEST_SITE_ID, "AA-BB-CC-DD-EE-03") in runtime.wan_speed_test_coordinators
     assert runtime.has_write_access is True
+
+
+def _fusion_entry(hass: HomeAssistant) -> MockConfigEntry:
+    """Create a Fusion (web_session) entry."""
+    return _build_entry(
+        hass,
+        data_overrides={
+            CONF_AUTH_MODE: AUTH_MODE_WEB_SESSION,
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_FUSION,
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+        },
+    )
+
+
+def _track_sessions() -> tuple[Any, list[aiohttp.ClientSession]]:
+    """Patch the integration's ClientSession and record created sessions."""
+    real_session_cls = aiohttp.ClientSession
+    sessions: list[aiohttp.ClientSession] = []
+
+    def _create(*args: Any, **kwargs: Any) -> aiohttp.ClientSession:
+        session = real_session_cls(*args, **kwargs)
+        sessions.append(session)
+        return session
+
+    patcher = patch(
+        "custom_components.omada_open_api.aiohttp.ClientSession", side_effect=_create
+    )
+    return patcher, sessions
+
+
+async def test_fusion_session_closed_on_unload(hass: HomeAssistant) -> None:
+    """The Fusion session the entry owns is closed when it unloads."""
+    entry = _fusion_entry(hass)
+    patcher, _mock_client = _patch_api_client()
+    session_patcher, sessions = _track_sessions()
+
+    with patcher, session_patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.state is ConfigEntryState.LOADED
+        assert len(sessions) == 1
+        assert not sessions[0].closed
+
+        await hass.config_entries.async_unload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert sessions[0].closed
+
+
+async def test_fusion_session_closed_when_setup_not_ready(
+    hass: HomeAssistant,
+) -> None:
+    """A Fusion setup that fails must not leak its session."""
+    entry = _fusion_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=TimeoutError()),
+    )
+    session_patcher, sessions = _track_sessions()
+
+    with patcher, session_patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert len(sessions) == 1
+    assert sessions[0].closed
 
 
 async def test_setup_entry_success_with_verify_ssl(hass: HomeAssistant) -> None:
