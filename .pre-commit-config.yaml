@@ -7,7 +7,7 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.3
+    rev: v0.17.0
     hooks:
       # Run the linter (full repo, not just staged files — catches stale
       # noqa directives when pyproject.toml ignore rules change)
@@ -50,7 +50,7 @@ repos:
         files: ^custom_components/
         additional_dependencies:
           - types-requests
-          - homeassistant==2026.8.2
+          - homeassistant==2026.10.1
 
   - repo: local
     hooks:
