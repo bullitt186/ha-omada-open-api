@@ -55,6 +55,7 @@ def _create_client_sensor(
     clients: dict[str, dict],
     description_key: str,
     site_device_id: str | None = None,
+    config_entry: MockConfigEntry | None = None,
 ) -> OmadaClientSensor:
     """Create an OmadaClientSensor with a mock coordinator."""
     coordinator = OmadaClientCoordinator(
@@ -65,6 +66,7 @@ def _create_client_sensor(
         selected_client_macs=list(clients.keys()),
         site_device_id=site_device_id,
     )
+    coordinator.config_entry = config_entry
     coordinator.data = _build_client_coordinator_data(clients)
 
     # Find the matching description
@@ -123,6 +125,7 @@ async def test_client_sensor_device_info_wireless(hass: HomeAssistant) -> None:
         WIRELESS_MAC,
         {WIRELESS_MAC: _processed_wireless()},
         "connection_status",
+        config_entry=entry,
     )
     device_info = sensor._attr_device_info
     assert (DOMAIN, WIRELESS_MAC) in device_info["identifiers"]
@@ -147,6 +150,7 @@ async def test_client_sensor_device_info_wired(hass: HomeAssistant) -> None:
         WIRED_MAC,
         {WIRED_MAC: _processed_wired()},
         "connection_status",
+        config_entry=entry,
     )
     device_info = sensor._attr_device_info
     assert (DOMAIN, WIRED_MAC) in device_info["identifiers"]
@@ -638,6 +642,7 @@ async def test_client_sensor_device_info_gateway_fallback(
         mac,
         {mac: processed},
         "connection_status",
+        config_entry=entry,
     )
     info = sensor.device_info
     assert info is not None
