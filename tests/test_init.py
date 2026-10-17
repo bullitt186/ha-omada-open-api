@@ -11,7 +11,11 @@ import aiohttp
 from aiohttp.client_reqrep import ConnectionKey
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_VERIFY_SSL
-from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryNotReady,
+    ServiceValidationError,
+)
 from homeassistant.helpers import (
     device_registry as dr,
     entity_registry as er,
@@ -212,6 +216,55 @@ def test_resolve_verify_ssl_missing_values_default_off() -> None:
 # ---------------------------------------------------------------------------
 
 
+async def test_setup_transport_refusal_defers_to_home_assistant_retry(
+    hass: HomeAssistant,
+) -> None:
+    """Connection refusal during initial sites fetch is not a credential error."""
+    entry = _build_entry(hass)
+    error = OmadaApiError("Connection error: controller unavailable")
+    error.__cause__ = ConnectionRefusedError(111, "Connection refused")
+    patcher, mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=error),
+    )
+
+    with patcher, pytest.raises(ConfigEntryNotReady, match="temporarily unreachable"):
+        await async_setup_entry(hass, entry)
+
+    mock_client.get_sites.assert_awaited_once()
+
+
+async def test_setup_login_transport_failure_defers_to_retry(
+    hass: HomeAssistant,
+) -> None:
+    """An auth strategy transport failure must not claim bad credentials."""
+    entry = _build_entry(hass)
+    error = OmadaApiAuthError("Connection error during login")
+    error.__cause__ = ConnectionRefusedError(111, "Connection refused")
+    patcher, mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=error),
+    )
+
+    with patcher, pytest.raises(ConfigEntryNotReady, match="temporarily unreachable"):
+        await async_setup_entry(hass, entry)
+
+    mock_client.get_sites.assert_awaited_once()
+
+
+async def test_setup_login_invalid_credentials_remains_auth_failure(
+    hass: HomeAssistant,
+) -> None:
+    """Real credential rejection remains ConfigEntryAuthFailed."""
+    entry = _build_entry(hass)
+    patcher, mock_client = _patch_api_client(
+        get_sites=AsyncMock(side_effect=OmadaApiAuthError("wrong password")),
+    )
+
+    with patcher, pytest.raises(ConfigEntryAuthFailed):
+        await async_setup_entry(hass, entry)
+
+    mock_client.get_sites.assert_awaited_once()
+
+
 async def test_setup_entry_success(hass: HomeAssistant) -> None:
     """Test successful integration setup with one site."""
     entry = _build_entry(hass)
@@ -230,6 +283,7 @@ async def test_setup_entry_success(hass: HomeAssistant) -> None:
 
     mock_get_clientsession.assert_called_once_with(hass, verify_ssl=False)
     assert entry.state is ConfigEntryState.LOADED
+    _mock_client.get_sites.assert_awaited_once()
     runtime = entry.runtime_data
     assert runtime.api_client is not None
     assert TEST_SITE_ID in runtime.coordinators
