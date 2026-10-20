@@ -1,71 +1,43 @@
-## What's Changed in v1.11.0
+## What's Changed in v1.11.1
 
-This release fixes the token-refresh regression from v1.10.1 that forced a
-manual reauthentication roughly every two hours. It also fixes several
-controller-compatibility issues and adds the radio band to client trackers.
+This patch release fixes VPN monitoring on controllers that require a VPN
+type filter, stops repeated VPN errors in the log on controllers that don't
+support the VPN stats endpoints, lists every client in the client selection,
+and retries setup when the controller is still starting.
 
 ### Fixed
 
-- **Token refresh works again; no more reauthentication loop** (#63, #66,
-  #65, PR #70). v1.10.1 sent the `refresh_token` grant as a JSON body, which
-  Omada controllers reject with `-1001 Invalid request parameters`. The
-  request now uses a form-encoded body, so credentials still stay out of the
-  URL. If a controller ever rejects a refresh with `-1001` again, the
-  integration falls back to a fresh client-credentials login instead of
-  requiring a manual reauthentication.
-- **VPN status sensors on controller 6.3** (#67, PR #71). A bare HTTP 400 from
-  the VPN stats endpoints now triggers the same `vpnType` filter fallback as
-  the `-1001` error code.
-- **WAN speed test on non-Fusion controllers** (#68, PR #72). The Fusion-only
-  ISP dashboard endpoint no longer fails the whole speed-test update when the
-  controller answers with HTTP 404 or `-1600 Unsupported request path`. The
-  regular speed-test results stay available.
-- **Device hierarchy ready for Home Assistant 2027.8** (#69, PR #73). Devices
-  now link to their parent by device registry ID (`via_device_id`) instead of
-  the deprecated `via_device` identifier. This also fixes a link to an
-  identifier that was never registered.
-- **"Client bandwidth sensors" option is honored** (#65, PR #74). Turning it
-  off now prevents the client downloaded/uploaded and RX/TX activity sensors
-  from being created.
-- **AP RX/TX activity no longer alternates with 0** (#85). Some controllers,
-  such as the OC200, refresh AP traffic counters only about every 150 seconds.
-  When a poll sees unchanged counters, the last rate is now kept instead of
-  publishing 0.0 and then twice the real rate on the next poll. An AP reports
-  0 only after its counters have been flat for three polls, and for at least
-  5 minutes.
-- **Client and application selections can be cleared** (#65). Removing every
-  tracked client or application in the options dialog previously restored the
-  old selection on save.
+- **Client selection lists every client and keeps your selection** (#96,
+  PR #108). The setup and options flows only offered the first 200 clients
+  the controller returned, and saving the options silently removed selected
+  clients outside those 200. All known clients are now listed, online
+  clients first. Selected clients the controller no longer lists stay
+  selected and appear by MAC address, so you can still deselect them.
+- **Setup retries when the controller is not reachable yet** (#97, PR #98).
+  If Home Assistant starts before the Omada controller, a refused or failed
+  connection no longer reports invalid credentials. Home Assistant retries
+  the setup instead. Real credential and TLS certificate errors are still
+  reported as before.
+- **Uplink devices link to the right controller** (#94, PR #95). With more
+  than one Omada config entry, parent devices are now looked up within the
+  owning entry. This also replaces a device registry call that Home
+  Assistant 2027.8 removes.
+- **No more "Unclosed client session" errors with Fusion gateways**
+  (PR #110). The integration and its setup and options dialogs now close
+  their Fusion web sessions when they unload or finish, so reloading the
+  integration no longer logs these errors.
+- **All VPN types are reported on controllers that need a type filter** (#63,
+  #67, PR #93). Some controllers, such as Software Controller 6.3 and Fusion
+  gateways, only answer the VPN stats endpoints when a VPN type is given.
+  The integration used to ask for WireGuard only. It now queries every type
+  each endpoint accepts, so IPsec site-to-site tunnels and L2TP, PPTP and
+  OpenVPN servers and clients appear as well. Existing WireGuard entities
+  are unchanged.
+- **No more VPN errors every minute on unsupported controllers** (#63,
+  PR #91, PR #93). If a controller rejects every request for a VPN type, as
+  reported on Software Controller 6.2.14.11, the integration logs one
+  warning and checks again every hour instead of logging errors on every
+  poll. When the controller starts answering, the entities return and an
+  info message is logged.
 
-### Added
-
-- **Radio band and channel on client trackers** (#78). Wireless client
-  `device_tracker` entities now expose `band` (`2.4 GHz`, `5 GHz` or `6 GHz`)
-  and `channel` attributes.
-
-### Documentation
-
-- Explains which settings reduce API load with many tracked clients:
-  application traffic makes one request per tracked client per cycle.
-
-### Maintenance
-
-- Development tooling updated: ruff 0.16.3, pylint 4.0.7, pytest-cov,
-  pytest-timeout. Also updated: the GitHub Actions for CodeQL, hassfest and
-  release.
-
-### Thanks
-
-- @oralallen82 (PR #64) and @matanmesika (PR #77) for the token-refresh
-  fixes and live-controller verification.
-- @sebmuc99 for the precise root-cause reports #67, #68 and #69.
-- @vishlamba for #65, #66 and #78, @simonbosschieter for #85, and everyone
-  who confirmed and tested #63.
-- @nareso and @oralallen82 for confirming the token-refresh fix on local
-  controllers during the v1.11.0b1 beta.
-
----
-
-**Upgrade note:** if your entry is currently waiting for reauthentication
-because of the v1.10.1 token issue, reauthenticate once after updating. Token
-refresh then continues automatically.
+**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.11.0...v1.11.1
