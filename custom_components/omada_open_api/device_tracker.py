@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import datetime as dt
 import logging
 import re
@@ -20,6 +21,11 @@ from .clients import normalize_client_mac
 from .const import (
     CLIENT_RADIO_BANDS,
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
+    CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
+    CONF_AUTO_DISCOVERY_REQUIRE_NAME,
     CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_DISCONNECT_TIMEOUT,
@@ -35,6 +41,8 @@ from .devices import (
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -48,6 +56,71 @@ PARALLEL_UPDATES = 0
 # The API returns status=0 for disconnected devices and various
 # positive integers (1, 14, …) for connected states.
 _STATUS_DISCONNECTED = 0
+
+
+@dataclass(frozen=True, slots=True)
+class AutoDiscoveryFilter:
+    """Options controlling which cached clients become auto trackers."""
+
+    allowed_ssids: frozenset[str] = frozenset()
+    include_wired: bool = True
+    exclude_guests: bool = True
+    exclude_local_macs: bool = False
+    require_name: bool = False
+    excluded_macs: frozenset[str] = frozenset()
+
+    def allows(self, client: dict[str, Any], mac: str) -> bool:
+        """Return whether a normalized client passes every configured filter."""
+        if mac in self.excluded_macs:
+            return False
+        if self.exclude_guests and client.get("guest", False):
+            return False
+        if self.exclude_local_macs and int(mac[:2], 16) & 0x02:
+            return False
+        if self.require_name and not _has_meaningful_client_name(client, mac):
+            return False
+        if not client.get("wireless", False):
+            return self.include_wired
+        return not self.allowed_ssids or client.get("ssid") in self.allowed_ssids
+
+
+def _has_meaningful_client_name(client: dict[str, Any], mac: str) -> bool:
+    """Return whether the API supplied a name other than the client MAC."""
+    for value in (client.get("name"), client.get("host_name")):
+        if not isinstance(value, str) or not value.strip():
+            continue
+        if normalize_client_mac(value) != mac:
+            return True
+    return False
+
+
+def _string_option_values(value: Any) -> frozenset[str]:
+    """Normalize legacy comma-separated and current list-valued options."""
+    values = value.split(",") if isinstance(value, str) else value
+    if not isinstance(values, (list, tuple, set, frozenset)):
+        return frozenset()
+    return frozenset(
+        item.strip() for item in values if isinstance(item, str) and item.strip()
+    )
+
+
+def _auto_discovery_filter(options: Mapping[str, Any]) -> AutoDiscoveryFilter:
+    """Build a typed filter from config-entry options."""
+    excluded_macs = frozenset(
+        normalized
+        for value in _string_option_values(
+            options.get(CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS, [])
+        )
+        if re.fullmatch(r"[0-9A-F]{12}", normalized := normalize_client_mac(value))
+    )
+    return AutoDiscoveryFilter(
+        allowed_ssids=_string_option_values(options.get(CONF_AUTO_DISCOVERY_SSIDS, [])),
+        include_wired=options.get(CONF_AUTO_DISCOVERY_INCLUDE_WIRED, True),
+        exclude_guests=options.get(CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS, True),
+        exclude_local_macs=options.get(CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False),
+        require_name=options.get(CONF_AUTO_DISCOVERY_REQUIRE_NAME, False),
+        excluded_macs=excluded_macs,
+    )
 
 
 async def async_setup_entry(
@@ -129,11 +202,7 @@ def _setup_auto_client_trackers(
         normalize_client_mac(mac)
         for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
     }
-    ssids = {
-        value.strip()
-        for value in entry.options.get(CONF_AUTO_DISCOVERY_SSIDS, "").split(",")
-        if value.strip()
-    }
+    discovery_filter = _auto_discovery_filter(entry.options)
     discovered_macs: set[str] = set()
 
     # Restore existing tracker IDs from the entity registry at startup.
@@ -164,8 +233,9 @@ def _setup_auto_client_trackers(
                 legacy_mac,
                 entry.runtime_data.site_devices,
                 entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
-                ssids,
+                discovery_filter.allowed_ssids,
                 entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+                discovery_filter,
             )
         )
     if previously_discovered:
@@ -191,9 +261,7 @@ def _setup_auto_client_trackers(
                     continue
                 if mac in selected_macs or mac in discovered_macs:
                     continue
-                # A filter, when provided, selects only matching wireless
-                # SSIDs. Wired clients have no SSID and are excluded.
-                if ssids and client.get("ssid") not in ssids:
+                if not discovery_filter.allows(client, mac):
                     continue
                 discovered_macs.add(mac)
                 new_entities.append(
@@ -202,8 +270,9 @@ def _setup_auto_client_trackers(
                         "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
                         entry.runtime_data.site_devices,
                         entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
-                        ssids,
+                        discovery_filter.allowed_ssids,
                         entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+                        discovery_filter,
                     )
                 )
         if new_entities:
@@ -231,8 +300,9 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         client_mac: str,
         site_devices: dict[str, Any],
         disconnect_timeout: int = 0,
-        allowed_ssids: set[str] | None = None,
+        allowed_ssids: Collection[str] | None = None,
         signal_attributes: bool = True,
+        discovery_filter: AutoDiscoveryFilter | None = None,
     ) -> None:
         """Use the existing site snapshots, never poll per client."""
         self._coordinators = site_coordinators
@@ -240,7 +310,9 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         self._canonical_mac = normalize_client_mac(client_mac)
         self._site_devices = site_devices
         self._disconnect_timeout = disconnect_timeout
-        self._allowed_ssids = allowed_ssids or set()
+        self._discovery_filter = discovery_filter or AutoDiscoveryFilter(
+            allowed_ssids=frozenset(allowed_ssids or set())
+        )
         self._signal_attributes = signal_attributes
         self._last_seen: dt.datetime | None = None
         self._unique_id = f"{DOMAIN}_{client_mac}"
@@ -274,8 +346,8 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             index = coord.data.get("client_index")
             if isinstance(index, dict):
                 client = index.get(self._canonical_mac)
-                if client is not None and (
-                    not self._allowed_ssids or client.get("ssid") in self._allowed_ssids
+                if client is not None and self._discovery_filter.allows(
+                    client, self._canonical_mac
                 ):
                     return coord, client
                 continue
@@ -285,10 +357,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
                 if (
                     isinstance(mac, str)
                     and normalize_client_mac(mac) == self._canonical_mac
-                    and (
-                        not self._allowed_ssids
-                        or client.get("ssid") in self._allowed_ssids
-                    )
+                    and self._discovery_filter.allows(client, self._canonical_mac)
                 ):
                     return coord, client
         return None

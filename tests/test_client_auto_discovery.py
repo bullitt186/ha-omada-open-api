@@ -10,6 +10,11 @@ from homeassistant.components.device_tracker import SourceType
 
 from custom_components.omada_open_api.const import (
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
+    CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
+    CONF_AUTO_DISCOVERY_REQUIRE_NAME,
     CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_SELECTED_CLIENTS,
@@ -182,12 +187,97 @@ async def test_ssid_filter_and_cross_site_duplicates(hass: HomeAssistant) -> Non
             {
                 CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
                 CONF_AUTO_DISCOVERY_SSIDS: "Home",
+                CONF_AUTO_DISCOVERY_INCLUDE_WIRED: False,
             },
         ),
         added.extend,
     )
     assert len(added) == 1
     assert added[0].unique_id == f"{DOMAIN}_{MAC_A}"
+
+
+async def test_auto_discovery_safe_filter_defaults(hass: HomeAssistant) -> None:
+    """Defaults include wired/private clients but exclude guest clients."""
+    guest = _client(MAC_A, "Guest phone")
+    guest["guest"] = True
+    wired = _client(MAC_B, "Printer", None)
+    private = _client("12-22-33-44-55-CC", "Private phone")
+    site = _site(hass, "a", [guest, wired, private])
+    added: list = []
+
+    await async_setup_entry(
+        hass,
+        _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+        added.extend,
+    )
+
+    assert {entity.unique_id for entity in added} == {
+        f"{DOMAIN}_{MAC_B}",
+        f"{DOMAIN}_12-22-33-44-55-CC",
+    }
+
+
+async def test_auto_discovery_applies_all_optional_filters(
+    hass: HomeAssistant,
+) -> None:
+    """Wired, guest, private, and unnamed clients can all be excluded."""
+    guest = _client(MAC_A, "Guest phone")
+    guest["guest"] = True
+    wired = _client(MAC_B, "Printer", None)
+    private = _client("12-22-33-44-55-CC", "Private phone")
+    unnamed = _client("10-22-33-44-55-DD", "")
+    unnamed["host_name"] = ""
+    allowed = _client("10-22-33-44-55-EE", "Laptop")
+    site = _site(hass, "a", [guest, wired, private, unnamed, allowed])
+    added: list = []
+
+    await async_setup_entry(
+        hass,
+        _entry(
+            [site],
+            {
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_INCLUDE_WIRED: False,
+                CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS: True,
+                CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS: True,
+                CONF_AUTO_DISCOVERY_REQUIRE_NAME: True,
+            },
+        ),
+        added.extend,
+    )
+
+    assert [entity.unique_id for entity in added] == [f"{DOMAIN}_10-22-33-44-55-EE"]
+
+
+async def test_auto_discovery_ssid_list_and_explicit_exclusions(
+    hass: HomeAssistant,
+) -> None:
+    """List-valued SSIDs and excluded MACs are applied after normalization."""
+    site = _site(
+        hass,
+        "a",
+        [
+            _client(MAC_A, "Excluded", "Home"),
+            _client(MAC_B, "Allowed", "Home"),
+            _client(MAC_C, "Other", "IoT"),
+        ],
+    )
+    added: list = []
+
+    await async_setup_entry(
+        hass,
+        _entry(
+            [site],
+            {
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_SSIDS: ["Home"],
+                CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS: [MAC_A.replace("-", ":").lower()],
+            },
+        ),
+        added.extend,
+    )
+
+    assert [entity.unique_id for entity in added] == [f"{DOMAIN}_{MAC_B}"]
 
 
 async def test_parent_falls_back_to_site_device(hass: HomeAssistant) -> None:
