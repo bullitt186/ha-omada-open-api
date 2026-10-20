@@ -378,7 +378,7 @@ automation:
 
 ---
 
-## Presence-only automatic client discovery (experimental, #88)
+## Presence-only automatic client discovery (#88)
 
 **Off by default for existing and new installations** to avoid creating
 hundreds of unexpected entities. Under **Configure → Device Tracker Settings**,
@@ -387,6 +387,11 @@ creates presence-only `device_tracker` entities for
 active clients, without having to pick them one by one. It uses the site's
 **already-fetched active client list** and makes **no additional per-client
 API calls**. Selected clients keep their richer sensors and controls.
+
+Automatic discovery creates exactly one lightweight tracker per client that
+passes the configured filters. For example, 250 matching MAC addresses can
+create 250 tracker entities, but no bandwidth sensors, switches, buttons, or
+extra API requests. Review the filters before enabling it on a large network.
 
 - **Roaming does not create another device.** A normalized MAC is the
   device's identity, while SSID, access point, band and signal metrics are
@@ -401,20 +406,27 @@ API calls**. Selected clients keep their richer sensors and controls.
 - One entity per normalized client MAC is created across sites, using the
   same unique ID as a manually selected client. Enabling this feature never
   creates a second tracker for an already-selected client.
-- You may enter exact comma-separated SSID names to limit automatic
-  discovery and presence to those wireless networks. With a filter active,
-  wired clients are excluded, and a client moving to an excluded SSID becomes
-  away. Leave it blank to discover both wireless and wired clients.
+- You can select exact SSID names to limit wireless discovery; an empty
+  selection permits every SSID. Wired clients are controlled separately and
+  are included by default. Guest clients are excluded by default. Additional
+  options can exclude locally administered (private/randomized) MAC addresses,
+  unnamed clients, and specific MAC addresses. A private MAC can change over
+  time, so the same physical device may otherwise create multiple trackers.
 - Changing the client name or moving between sites preserves the entity ID.
   Existing custom names and automation references stay in the registry.
 - Missing clients become **away** (after the configured disconnect grace
-  period). **No registry entries/devices are automatically deleted** when a
-  client stays absent: this is intentional to protect user customizations.
-  A future opt-in cleanup policy can be discussed separately.
+  period). After 30 days by default, the integration removes an absent
+  auto-created tracker from the entity registry. The retention period is
+  configurable from 0 to 3650 days; `0` disables deletion. Cleanup runs only
+  after complete successful client polls, never after an API failure. If its
+  device has any other registry entity, the device itself is retained.
+- Automatic registry deletion also removes custom names, area assignments,
+  disabled-state choices, and other registry customizations attached only to
+  that tracker. A returning client is discovered as a new registry entry.
 - Discovering 200+ devices can enlarge Home Assistant's registry. Discovery
   starts **disabled** and requires an explicit opt-in, including after an
-  upgrade. Disabling it later stops discovery without forcibly deleting
-  previously created entities.
+  upgrade. Disabling it later stops new discovery; existing auto-trackers
+  continue to age according to the retention period (`0` keeps them forever).
 - This is independent of the selected-client bandwidth/signal switches and
   of application-traffic selection. It does not enable expensive per-client
   traffic polling or change application traffic settings.
@@ -438,6 +450,20 @@ and per-client monitoring entities.
 |---|---|---|
 | **Filter by SSID** | Multi-select | Restricts the displayed wireless clients to selected SSIDs; wired clients always remain visible and clients hidden by the filter keep their existing selection. |
 | **Clients to Track** | Multi-select | Select clients to create entities for. All known clients are listed, online clients first. Selected clients the controller no longer lists stay selected and are shown by MAC address. |
+
+### Device Tracker Settings
+
+| Parameter | Default | Description |
+|---|---:|---|
+| **Automatically discover client presence trackers** | Off | Creates one presence-only tracker for each matching active client. |
+| **Remove absent auto-discovered trackers after** | 30 days | Accepts 0–3650 days; `0` keeps registry entries indefinitely. |
+| **Wireless networks** | All | Limits wireless discovery to selected SSIDs. |
+| **Include wired clients** | On | Allows clients without a wireless connection. |
+| **Exclude guest clients** | On | Prevents temporary guest-network clients from creating trackers. |
+| **Exclude private/randomized MAC addresses** | Off | Skips locally administered MAC addresses, which may rotate. |
+| **Require a client name** | Off | Skips clients for which the controller reports neither a name nor hostname. |
+| **Excluded clients** | None | Explicit MAC-address denylist for automatic discovery. |
+| **Include Wi-Fi signal attributes** | On | Adds reported RSSI, SNR, and signal-strength values as attributes, not extra entities. |
 
 ### Application Selection
 
