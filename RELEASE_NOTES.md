@@ -1,9 +1,4 @@
-## What's Changed in v1.11.1b2
-
-> **Beta release.** This is a pre-release for testing before v1.11.1. HACS
-> offers it only if you enabled beta versions for this integration (see
-> "Beta Versions" in the README). Please report results and problems in a
-> GitHub issue and mention the beta version.
+## What's Changed in v1.11.1
 
 This patch release fixes VPN monitoring on controllers that require a VPN
 type filter, stops repeated VPN errors in the log on controllers that don't
@@ -45,4 +40,4 @@ and retries setup when the controller is still starting.
   poll. When the controller starts answering, the entities return and an
   info message is logged.
 
-**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.11.0...v1.11.1b2
+**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.11.0...v1.11.1
