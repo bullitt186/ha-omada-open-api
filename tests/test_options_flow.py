@@ -18,10 +18,20 @@ from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
+    CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
+    CONF_AUTO_DISCOVERY_REQUIRE_NAME,
+    CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+    CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_OMADA_ID,
     CONF_REFRESH_TOKEN,
@@ -267,3 +277,91 @@ async def test_site_entity_settings_saves_value(hass: HomeAssistant) -> None:
 
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
+
+
+async def test_auto_discovery_is_off_by_default_and_saves_choice(
+    hass: HomeAssistant,
+) -> None:
+    """Discovery is opt-in; signal attributes default on when enabled."""
+    entry = _create_config_entry(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "tracker_settings"}
+    )
+    assert form["type"] == FlowResultType.FORM
+    defaults = {
+        k.schema: k.default() if callable(k.default) else k.default
+        for k in form["data_schema"].schema
+    }
+    assert defaults[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is False
+    assert defaults[CONF_AUTO_DISCOVERY_RETENTION_DAYS] == 30
+    assert defaults[CONF_AUTO_DISCOVERY_INCLUDE_WIRED] is True
+    assert defaults[CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS] is True
+    assert defaults[CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS] is False
+    assert defaults[CONF_AUTO_DISCOVERY_REQUIRE_NAME] is False
+    assert defaults[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_DISCONNECT_TIMEOUT: 5,
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_RETENTION_DAYS: 45,
+                CONF_AUTO_DISCOVERY_INCLUDE_WIRED: False,
+                CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS: False,
+                CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS: True,
+                CONF_AUTO_DISCOVERY_REQUIRE_NAME: True,
+                CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS: ["AA-BB-CC-DD-EE-FF"],
+                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: True,
+                CONF_AUTO_DISCOVERY_SSIDS: ["Home", "Guest"],
+            },
+        )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_AUTO_DISCOVER_CLIENT_TRACKERS] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_RETENTION_DAYS] == 45
+    assert entry.options[CONF_AUTO_DISCOVERY_INCLUDE_WIRED] is False
+    assert entry.options[CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS] is False
+    assert entry.options[CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_REQUIRE_NAME] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS] == ["AA-BB-CC-DD-EE-FF"]
+    assert entry.options[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
+    assert entry.options[CONF_AUTO_DISCOVERY_SSIDS] == ["Home", "Guest"]
+    assert entry.options[CONF_DISCONNECT_TIMEOUT] == 5
+
+
+@pytest.mark.parametrize("retention_days", [-1, 3651])
+async def test_auto_discovery_retention_rejects_out_of_range_values(
+    hass: HomeAssistant,
+    retention_days: int,
+) -> None:
+    """Retention accepts zero through ten years only."""
+    entry = _create_config_entry(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        menu["flow_id"], {"next_step_id": "tracker_settings"}
+    )
+    with pytest.raises(InvalidData, match=CONF_AUTO_DISCOVERY_RETENTION_DAYS):
+        await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_DISCONNECT_TIMEOUT: 5,
+                CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True,
+                CONF_AUTO_DISCOVERY_RETENTION_DAYS: retention_days,
+                CONF_AUTO_DISCOVERY_INCLUDE_WIRED: True,
+                CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS: True,
+                CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS: False,
+                CONF_AUTO_DISCOVERY_REQUIRE_NAME: False,
+                CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS: [],
+                CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: True,
+                CONF_AUTO_DISCOVERY_SSIDS: [],
+            },
+        )

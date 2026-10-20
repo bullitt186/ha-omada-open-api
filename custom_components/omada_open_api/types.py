@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from homeassistant.helpers import device_registry as dr
 
     from .api import OmadaApiClient
+    from .auto_discovery import AutoClientManager
     from .coordinator import (
         OmadaAppTrafficCoordinator,
         OmadaClientCoordinator,
@@ -40,6 +41,7 @@ class OmadaRuntimeData:
     wan_speed_test_coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator] = (
         field(default_factory=dict)
     )
+    auto_client_manager: AutoClientManager | None = None
 
 
 type OmadaConfigEntry = ConfigEntry[OmadaRuntimeData]

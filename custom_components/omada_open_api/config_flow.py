@@ -33,6 +33,15 @@ from .const import (
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
+    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS,
+    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
+    CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
+    CONF_AUTO_DISCOVERY_REQUIRE_NAME,
+    CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+    CONF_AUTO_DISCOVERY_SSIDS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
@@ -64,6 +73,7 @@ from .const import (
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DEFAULT_APP_SCAN_INTERVAL,
+    DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_DISCONNECT_TIMEOUT,
@@ -1684,25 +1694,111 @@ class OmadaOptionsFlowHandler(OptionsFlow):
     async def async_step_tracker_settings(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Handle device tracker settings (disconnect timeout)."""
+        """Handle device tracker and automatic client discovery settings."""
+        opts = self.config_entry.options
         if user_input is not None:
             return self.async_create_entry(
                 title="",
                 data={
-                    **self.config_entry.options,
+                    **opts,
                     CONF_DISCONNECT_TIMEOUT: user_input[CONF_DISCONNECT_TIMEOUT],
+                    CONF_AUTO_DISCOVER_CLIENT_TRACKERS: user_input.get(
+                        CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
+                    ),
+                    CONF_AUTO_DISCOVERY_RETENTION_DAYS: user_input.get(
+                        CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+                        DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
+                    ),
+                    CONF_AUTO_DISCOVERY_SSIDS: list(
+                        user_input.get(CONF_AUTO_DISCOVERY_SSIDS, [])
+                    ),
+                    CONF_AUTO_DISCOVERY_INCLUDE_WIRED: user_input.get(
+                        CONF_AUTO_DISCOVERY_INCLUDE_WIRED, True
+                    ),
+                    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS: user_input.get(
+                        CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS, True
+                    ),
+                    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS: user_input.get(
+                        CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False
+                    ),
+                    CONF_AUTO_DISCOVERY_REQUIRE_NAME: user_input.get(
+                        CONF_AUTO_DISCOVERY_REQUIRE_NAME, False
+                    ),
+                    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS: list(
+                        user_input.get(CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS, [])
+                    ),
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES: user_input.get(
+                        CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True
+                    ),
                 },
             )
 
-        current_timeout = self.config_entry.options.get(
-            CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
-        )
+        current_timeout = opts.get(CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT)
+        saved_ssids = opts.get(CONF_AUTO_DISCOVERY_SSIDS, [])
+        if isinstance(saved_ssids, str):
+            saved_ssids = [
+                ssid.strip() for ssid in saved_ssids.split(",") if ssid.strip()
+            ]
+        saved_exclusions = opts.get(CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS, [])
 
         data_schema = vol.Schema(
             {
                 vol.Required(CONF_DISCONNECT_TIMEOUT, default=current_timeout): vol.All(
                     vol.Coerce(int), vol.Range(min=0, max=60)
                 ),
+                vol.Required(
+                    CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
+                    default=opts.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False),
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+                    default=opts.get(
+                        CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+                        DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=3650)),
+                vol.Optional(
+                    CONF_AUTO_DISCOVERY_SSIDS,
+                    default=saved_ssids,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=sorted(set(saved_ssids)),
+                        multiple=True,
+                        custom_value=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
+                    default=opts.get(CONF_AUTO_DISCOVERY_INCLUDE_WIRED, True),
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS,
+                    default=opts.get(CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS, True),
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+                    default=opts.get(CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False),
+                ): bool,
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_REQUIRE_NAME,
+                    default=opts.get(CONF_AUTO_DISCOVERY_REQUIRE_NAME, False),
+                ): bool,
+                vol.Optional(
+                    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
+                    default=saved_exclusions,
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=sorted(set(saved_exclusions)),
+                        multiple=True,
+                        custom_value=True,
+                        mode=SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Required(
+                    CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
+                    default=opts.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+                ): bool,
             }
         )
 
