@@ -62,7 +62,9 @@ def _client(mac: str, name: str, ssid: str | None = "Home") -> dict:
 def _entry(sites: list[MagicMock], options: dict) -> MagicMock:
     """Provide runtime_data without fetching from the controller."""
     entry = MagicMock()
+    entry.entry_id = "auto-discovery-entry"
     entry.options = options
+    entry.async_on_unload.side_effect = lambda unsubscribe: unsubscribe()
     entry.runtime_data = SimpleNamespace(
         coordinators={s.site_id: s for s in sites},
         site_devices={},
@@ -346,11 +348,15 @@ async def test_offline_registered_tracker_is_restored_after_restart(
     """Never drop previously discovered entity IDs when they are now offline."""
     site = _site(hass, "a", [])
     entry = _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True})
-    known = SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}")
     added: list = []
     with patch(
-        "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
-        return_value=[known],
+        "custom_components.omada_open_api.auto_discovery.Store.async_load",
+        return_value={
+            "1122334455AA": {
+                "entity_unique_id": f"{DOMAIN}_{MAC_A}",
+                "last_seen": "2026-01-01T00:00:00+00:00",
+            }
+        },
     ):
         await async_setup_entry(hass, entry, added.extend)
 
@@ -400,6 +406,76 @@ async def test_failed_client_poll_does_not_create_new_devices(
         added.extend,
     )
     assert added == []
+
+
+async def test_cleanup_waits_for_every_site_client_poll(
+    hass: HomeAssistant,
+) -> None:
+    """An expired record survives while any relevant site poll has failed."""
+    good = _site(hass, "good", [])
+    failed = _site(hass, "failed", [])
+    failed.data["clients_poll_ok"] = False
+    entry = _entry(
+        [good, failed],
+        {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True},
+    )
+    stored = {
+        "1122334455AA": {
+            "entity_unique_id": f"{DOMAIN}_{MAC_A}",
+            "last_seen": "2020-01-01T00:00:00+00:00",
+        }
+    }
+    added: list = []
+
+    with (
+        patch(
+            "custom_components.omada_open_api.auto_discovery.Store.async_load",
+            return_value=stored,
+        ),
+        patch("custom_components.omada_open_api.auto_discovery.Store.async_delay_save"),
+    ):
+        await async_setup_entry(hass, entry, added.extend)
+        await hass.async_block_till_done()
+
+    assert MAC_A.replace("-", "") in entry.runtime_data.auto_client_manager.records
+
+
+async def test_expired_client_can_be_rediscovered_after_cleanup(
+    hass: HomeAssistant,
+) -> None:
+    """Cleanup releases ownership so a later sighting creates a fresh tracker."""
+    site = _site(hass, "a", [])
+    listeners: list = []
+    site.async_add_listener.side_effect = lambda listener: (
+        listeners.append(listener) or (lambda: None)
+    )
+    entry = _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True})
+    stored = {
+        "1122334455AA": {
+            "entity_unique_id": f"{DOMAIN}_{MAC_A}",
+            "last_seen": "2020-01-01T00:00:00+00:00",
+        }
+    }
+    added: list = []
+
+    with (
+        patch(
+            "custom_components.omada_open_api.auto_discovery.Store.async_load",
+            return_value=stored,
+        ),
+        patch("custom_components.omada_open_api.auto_discovery.Store.async_delay_save"),
+    ):
+        await async_setup_entry(hass, entry, added.extend)
+        await hass.async_block_till_done()
+        assert entry.runtime_data.auto_client_manager.records == {}
+        site.data["all_clients"] = [_client(MAC_A, "Returned")]
+        for listener in listeners:
+            listener()
+
+    assert [entity.unique_id for entity in added] == [
+        f"{DOMAIN}_{MAC_A}",
+        f"{DOMAIN}_{MAC_A}",
+    ]
 
 
 async def test_indexed_client_lookup_avoids_full_client_list_scan(
@@ -460,15 +536,12 @@ async def test_registry_restore_ignores_invalid_selected_and_duplicate_ids(
 ) -> None:
     """Skip malformed and selected IDs during reboot restoration."""
     site = _site(hass, "a", [])
-    stored = [
-        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_bad"),
-        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_B}"),
-        SimpleNamespace(domain="device_tracker", unique_id=f"{DOMAIN}_{MAC_A}"),
-        SimpleNamespace(
-            domain="device_tracker",
-            unique_id=f"{DOMAIN}_{MAC_A.replace('-', ':')}",
-        ),
-    ]
+    last_seen = "2026-01-01T00:00:00+00:00"
+    stored = {
+        "bad": {"entity_unique_id": f"{DOMAIN}_bad", "last_seen": last_seen},
+        MAC_B: {"entity_unique_id": f"{DOMAIN}_{MAC_B}", "last_seen": last_seen},
+        MAC_A: {"entity_unique_id": f"{DOMAIN}_{MAC_A}", "last_seen": last_seen},
+    }
     entry = _entry(
         [site],
         {
@@ -478,7 +551,7 @@ async def test_registry_restore_ignores_invalid_selected_and_duplicate_ids(
     )
     added: list = []
     with patch(
-        "custom_components.omada_open_api.device_tracker.er.async_entries_for_config_entry",
+        "custom_components.omada_open_api.auto_discovery.Store.async_load",
         return_value=stored,
     ):
         await async_setup_entry(hass, entry, added.extend)

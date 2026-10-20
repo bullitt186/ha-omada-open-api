@@ -14,9 +14,10 @@ from homeassistant.components.device_tracker import (  # type: ignore[attr-defin
     SourceType,
 )
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
+from homeassistant.helpers.event import async_track_time_interval
 
+from .auto_discovery import AutoClientManager
 from .clients import normalize_client_mac
 from .const import (
     CLIENT_RADIO_BANDS,
@@ -26,10 +27,12 @@ from .const import (
     CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
     CONF_AUTO_DISCOVERY_INCLUDE_WIRED,
     CONF_AUTO_DISCOVERY_REQUIRE_NAME,
+    CONF_AUTO_DISCOVERY_RETENTION_DAYS,
     CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES,
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_DISCONNECT_TIMEOUT,
     CONF_SELECTED_CLIENTS,
+    DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
     DOMAIN,
 )
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
@@ -123,6 +126,43 @@ def _auto_discovery_filter(options: Mapping[str, Any]) -> AutoDiscoveryFilter:
     )
 
 
+def _all_client_polls_successful(
+    site_coordinators: list[OmadaSiteCoordinator],
+) -> bool:
+    """Return whether every relevant site has a complete fresh client snapshot."""
+    return bool(site_coordinators) and all(
+        coord.last_update_success
+        and bool(coord.data)
+        and coord.data.get("clients_poll_ok", True) is not False
+        for coord in site_coordinators
+    )
+
+
+def _visible_auto_clients(
+    site_coordinators: list[OmadaSiteCoordinator],
+    discovery_filter: AutoDiscoveryFilter,
+) -> dict[str, dict[str, Any]]:
+    """Collect filtered clients from successful cached site snapshots."""
+    visible: dict[str, dict[str, Any]] = {}
+    for coord in site_coordinators:
+        if (
+            not coord.last_update_success
+            or not coord.data
+            or coord.data.get("clients_poll_ok", True) is False
+        ):
+            continue
+        for client in coord.data.get("all_clients", []):
+            raw_mac = client.get("mac")
+            if not isinstance(raw_mac, str):
+                continue
+            mac = normalize_client_mac(raw_mac)
+            if re.fullmatch(r"[0-9A-F]{12}", mac) and discovery_filter.allows(
+                client, mac
+            ):
+                visible[mac] = client
+    return visible
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
@@ -158,10 +198,9 @@ async def async_setup_entry(
             site_coordinator.async_add_listener(_async_check_new_devices)
         )
 
-    # Only opt in to automatic client discovery explicitly. RSSI/SNR/
-    # quality attributes on discovered clients remain ON by default.
-    if entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False):
-        _setup_auto_client_trackers(hass, entry, site_coordinators, async_add_entities)
+    await _setup_auto_client_trackers(
+        hass, entry, site_coordinators, async_add_entities
+    )
 
     # --- Client trackers (network clients) ---
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
@@ -191,7 +230,7 @@ async def async_setup_entry(
         _async_update_items(coordinator)
 
 
-def _setup_auto_client_trackers(
+async def _setup_auto_client_trackers(
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
     site_coordinators: list[OmadaSiteCoordinator],
@@ -202,85 +241,125 @@ def _setup_auto_client_trackers(
         normalize_client_mac(mac)
         for mac in entry.options.get(CONF_SELECTED_CLIENTS, [])
     }
+    discovery_enabled = entry.options.get(CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False)
     discovery_filter = _auto_discovery_filter(entry.options)
-    discovered_macs: set[str] = set()
+    manager = AutoClientManager(
+        hass,
+        entry.entry_id,
+        retention_days=entry.options.get(
+            CONF_AUTO_DISCOVERY_RETENTION_DAYS,
+            DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
+        ),
+        selected_macs=selected_macs,
+    )
+    await manager.async_load()
+    entry.runtime_data.auto_client_manager = manager
+    if not discovery_enabled and not manager.records:
+        return
+    discovered_macs = set(manager.records)
 
-    # Restore existing tracker IDs from the entity registry at startup.
-    # A client not online during a restart should be 'away', not lost or
-    # recreated under a different ID when it returns.
-    previously_discovered: list[OmadaAutoClientTracker] = []
-    registry = er.async_get(hass)
-    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+    previously_discovered = _restore_auto_client_trackers(
+        entry, site_coordinators, manager, discovery_filter
+    )
+    if previously_discovered:
+        async_add_entities(previously_discovered)
+
+    last_cleanup: dt.datetime | None = None
+    cleanup_pending = False
+
+    async def _async_cleanup(visible_macs: set[str], now: dt.datetime) -> None:
+        nonlocal cleanup_pending, last_cleanup
+        try:
+            removed = await manager.async_cleanup(
+                visible_macs,
+                polls_successful=_all_client_polls_successful(site_coordinators),
+                now=now,
+            )
+            discovered_macs.difference_update(removed)
+            last_cleanup = now
+        finally:
+            cleanup_pending = False
+
+    @callback
+    def _async_discover_clients(*, force_cleanup: bool = False) -> None:
+        """Create only never-seen presence entities; retain missing ones offline."""
+        nonlocal cleanup_pending
+        visible = _visible_auto_clients(site_coordinators, discovery_filter)
+        new_entities: list[OmadaAutoClientTracker] = []
+        for mac in visible:
+            record = manager.records.get(mac)
+            if record is not None:
+                manager.mark_seen(mac, record["entity_unique_id"])
+                continue
+            if not discovery_enabled or mac in selected_macs or mac in discovered_macs:
+                continue
+            client_mac = "-".join(mac[index : index + 2] for index in range(0, 12, 2))
+            unique_id = f"{DOMAIN}_{client_mac}"
+            manager.mark_seen(mac, unique_id)
+            discovered_macs.add(mac)
+            new_entities.append(
+                OmadaAutoClientTracker(
+                    site_coordinators,
+                    client_mac,
+                    entry.runtime_data.site_devices,
+                    entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
+                    discovery_filter.allowed_ssids,
+                    entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
+                    discovery_filter,
+                    unique_id,
+                )
+            )
+        if new_entities:
+            async_add_entities(new_entities)
+
+        now = dt.datetime.now(dt.UTC)
+        cleanup_due = last_cleanup is None or now >= last_cleanup + dt.timedelta(days=1)
         if (
-            entity.domain != "device_tracker"
-            or not entity.unique_id
-            or not entity.unique_id.startswith(f"{DOMAIN}_")
-            or entity.unique_id.startswith(f"{DOMAIN}_device_")
+            _all_client_polls_successful(site_coordinators)
+            and not cleanup_pending
+            and (force_cleanup or cleanup_due)
         ):
-            continue
-        legacy_mac = entity.unique_id[len(DOMAIN) + 1 :]
-        canonical = normalize_client_mac(legacy_mac)
-        if (
-            not re.fullmatch(r"[0-9A-F]{12}", canonical)
-            or canonical in selected_macs
-            or canonical in discovered_macs
-        ):
-            continue
-        discovered_macs.add(canonical)
-        previously_discovered.append(
+            cleanup_pending = True
+            hass.async_create_task(
+                _async_cleanup(set(visible), now),
+                "Clean up expired Omada auto-discovered clients",
+            )
+
+    for site_coord in site_coordinators:
+        entry.async_on_unload(site_coord.async_add_listener(_async_discover_clients))
+    _async_discover_clients()
+    entry.async_on_unload(
+        async_track_time_interval(
+            hass,
+            lambda _now: _async_discover_clients(force_cleanup=True),
+            dt.timedelta(days=1),
+        )
+    )
+
+
+def _restore_auto_client_trackers(
+    entry: OmadaConfigEntry,
+    site_coordinators: list[OmadaSiteCoordinator],
+    manager: AutoClientManager,
+    discovery_filter: AutoDiscoveryFilter,
+) -> list[OmadaAutoClientTracker]:
+    """Restore only tracker IDs proven to be owned by the manager store."""
+    restored: list[OmadaAutoClientTracker] = []
+    for canonical, record in manager.records.items():
+        client_mac = "-".join(canonical[index : index + 2] for index in range(0, 12, 2))
+        restored.append(
             OmadaAutoClientTracker(
                 site_coordinators,
-                legacy_mac,
+                client_mac,
                 entry.runtime_data.site_devices,
                 entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
                 discovery_filter.allowed_ssids,
                 entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
                 discovery_filter,
+                record["entity_unique_id"],
             )
         )
-    if previously_discovered:
-        async_add_entities(previously_discovered)
-
-    @callback
-    def _async_discover_clients() -> None:
-        """Create only never-seen presence entities; retain missing ones offline."""
-        new_entities: list[OmadaAutoClientTracker] = []
-        for coord in site_coordinators:
-            if (
-                not coord.last_update_success
-                or not coord.data
-                or coord.data.get("clients_poll_ok", True) is False
-            ):
-                continue
-            for client in coord.data.get("all_clients", []):
-                raw_mac = client.get("mac")
-                if not isinstance(raw_mac, str):
-                    continue
-                mac = normalize_client_mac(raw_mac)
-                if not re.fullmatch(r"[0-9A-F]{12}", mac):
-                    continue
-                if mac in selected_macs or mac in discovered_macs:
-                    continue
-                if not discovery_filter.allows(client, mac):
-                    continue
-                discovered_macs.add(mac)
-                new_entities.append(
-                    OmadaAutoClientTracker(
-                        site_coordinators,
-                        "-".join(mac[i : i + 2] for i in range(0, 12, 2)),
-                        entry.runtime_data.site_devices,
-                        entry.options.get(CONF_DISCONNECT_TIMEOUT, 0),
-                        discovery_filter.allowed_ssids,
-                        entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
-                        discovery_filter,
-                    )
-                )
-        if new_entities:
-            async_add_entities(new_entities)
-
-    for site_coord in site_coordinators:
-        entry.async_on_unload(site_coord.async_add_listener(_async_discover_clients))
-    _async_discover_clients()
+    return restored
 
 
 class OmadaAutoClientTracker(BaseScannerEntity):
@@ -303,6 +382,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         allowed_ssids: Collection[str] | None = None,
         signal_attributes: bool = True,
         discovery_filter: AutoDiscoveryFilter | None = None,
+        entity_unique_id: str | None = None,
     ) -> None:
         """Use the existing site snapshots, never poll per client."""
         self._coordinators = site_coordinators
@@ -315,7 +395,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         )
         self._signal_attributes = signal_attributes
         self._last_seen: dt.datetime | None = None
-        self._unique_id = f"{DOMAIN}_{client_mac}"
+        self._unique_id = entity_unique_id or f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
         self._attr_name = client_mac
         # Keep the old device registry link even when this client was offline
