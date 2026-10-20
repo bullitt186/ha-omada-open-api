@@ -71,6 +71,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._enable_vpn_status = enable_vpn_status
         # Distinguish a successful empty client poll from a failed optional call.
         self._clients_fetch_ok = True
+        self._unsupported_vpn_types: set[str] = set()
 
         # Firmware info cache — checked less frequently than device data.
         self._firmware_info: dict[str, dict[str, Any]] = {}
@@ -933,28 +934,33 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         """
         vpn_status: dict[str, list[dict[str, Any]]] = {}
+        fetchers = {
+            "s2s": self.api_client.get_vpn_s2s_stats,
+            "server": self.api_client.get_vpn_server_stats,
+            "client": self.api_client.get_vpn_client_stats,
+        }
 
-        try:
-            vpn_status["s2s"] = await self.api_client.get_vpn_s2s_stats(self.site_id)
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch S2S VPN stats: %s", err)
-            vpn_status["s2s"] = []
-
-        try:
-            vpn_status["server"] = await self.api_client.get_vpn_server_stats(
-                self.site_id
-            )
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch VPN server stats: %s", err)
-            vpn_status["server"] = []
-
-        try:
-            vpn_status["client"] = await self.api_client.get_vpn_client_stats(
-                self.site_id
-            )
-        except OmadaApiError as err:
-            _LOGGER.warning("Failed to fetch VPN client stats: %s", err)
-            vpn_status["client"] = []
+        for vpn_type, fetch in fetchers.items():
+            try:
+                vpn_status[vpn_type] = await fetch(self.site_id)
+            except OmadaApiError as err:
+                vpn_status[vpn_type] = []
+                # HTTP 400 means the controller rejected every request for
+                # this VPN type. The API client retries it hourly; warn only
+                # once until it recovers. See GH #63.
+                if err.http_status != 400:
+                    _LOGGER.warning("Failed to fetch %s VPN stats: %s", vpn_type, err)
+                elif vpn_type not in self._unsupported_vpn_types:
+                    self._unsupported_vpn_types.add(vpn_type)
+                    _LOGGER.warning(
+                        "%s VPN stats are not supported by this controller; "
+                        "retrying hourly",
+                        vpn_type,
+                    )
+            else:
+                if vpn_type in self._unsupported_vpn_types:
+                    self._unsupported_vpn_types.discard(vpn_type)
+                    _LOGGER.info("%s VPN stats are available again", vpn_type)
 
         await self._fetch_vpn_peers(vpn_status)
 

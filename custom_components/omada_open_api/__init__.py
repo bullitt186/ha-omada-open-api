@@ -209,6 +209,25 @@ def _is_certificate_error(err: BaseException) -> bool:
     return False
 
 
+def _is_transient_connection_error(err: BaseException) -> bool:
+    """Detect temporary controller reachability failures wrapped in OmadaApiError.
+
+    Authentication, application errors and TLS verification errors must not
+    be retried as connectivity problems. ConfigEntryNotReady lets HA retry
+    startup with its normal backoff when a local controller is still starting.
+    """
+    if _is_certificate_error(err):
+        return False
+    current: BaseException | None = err
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (aiohttp.ClientConnectionError, TimeoutError, OSError)):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
     """Move preferences to options and enforce the safe polling floor.
 
@@ -411,6 +430,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             connector = aiohttp.TCPConnector(ssl=False)
             jar = aiohttp.CookieJar(unsafe=True)
             session = aiohttp.ClientSession(connector=connector, cookie_jar=jar)
+            # The entry owns this session. Unload callbacks also run when
+            # setup fails, so the session is never leaked.
+            entry.async_on_unload(session.close)
 
             async def _fusion_token_callback(*_args: str) -> None:
                 """No-op for Fusion — session is re-created from credentials."""
@@ -479,6 +501,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         _LOGGER.info("Successfully connected to Omada API, found %d sites", len(sites))
 
     except OmadaApiAuthError as err:
+        if _is_transient_connection_error(err):
+            raise ConfigEntryNotReady(
+                "Omada controller is temporarily unreachable. Home Assistant will retry."
+            ) from err
         _LOGGER.exception("Authentication failed during setup")
         raise ConfigEntryAuthFailed(
             "Authentication failed. Please re-authenticate."
@@ -492,6 +518,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 entry.data[CONF_API_URL],
             )
             raise ConfigEntryNotReady("TLS certificate verification failed.") from err
+        if _is_transient_connection_error(err):
+            raise ConfigEntryNotReady(
+                "Omada controller is temporarily unreachable. Home Assistant will retry."
+            ) from err
         raise
     except (TimeoutError, OSError) as err:
         raise ConfigEntryNotReady(
@@ -511,8 +541,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     )
     app_interval = entry.options.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
 
-    # Get all sites to find names for selected sites
-    all_sites = await api_client.get_sites()
+    # Reuse the sites already fetched during setup. A second request can fail
+    # when the controller is still starting, and is otherwise redundant.
+    all_sites = sites
     sites_by_id = {site["siteId"]: site for site in all_sites}
 
     for site_id in selected_site_ids:

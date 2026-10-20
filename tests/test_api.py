@@ -1,6 +1,7 @@
 """Tests for Omada Open API client token management."""
 
 import datetime as dt
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -2462,7 +2463,7 @@ async def test_get_vpn_s2s_stats_api_error(
 
 
 async def test_get_vpn_s2s_stats_falls_back_on_http_400(
-    hass: HomeAssistant, mock_config_entry
+    hass: HomeAssistant, mock_config_entry, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A bare Tomcat HTTP 400 also triggers the Fusion vpnType fallback.
 
@@ -2498,17 +2499,28 @@ async def test_get_vpn_s2s_stats_falls_back_on_http_400(
         "result": {"data": tunnels, "totalRows": 1},
     }
 
+    empty_response = AsyncMock()
+    empty_response.status = 200
+    empty_response.json.return_value = {
+        "errorCode": 0,
+        "result": {"data": [], "totalRows": 0},
+    }
+
     mock_get = mock_session.get
     mock_get.return_value.__aenter__.side_effect = [
         bad_request_response,
+        empty_response,
         fallback_response,
     ]
 
-    result = await api_client.get_vpn_s2s_stats("site_001")
+    with caplog.at_level(logging.DEBUG):
+        result = await api_client.get_vpn_s2s_stats("site_001")
 
     assert result == tunnels
     retry_params = mock_get.call_args[1]["params"]
     assert retry_params["filters.vpnType"] == 4
+    # The expected 400 is part of the fallback, so it must not log an error.
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
 # ---------------------------------------------------------------------------

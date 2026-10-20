@@ -23,10 +23,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
-    DeviceInfo,
-    EntityCategory,
-)
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -1908,7 +1905,9 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
             # For switches and other devices, use uplink device if available
             # and already registered.
             if uplink_mac:
-                via_device_id = resolve_via_device_id(coordinator.hass, uplink_mac)
+                via_device_id = resolve_via_device_id(
+                    coordinator.hass, uplink_mac, coordinator.config_entry
+                )
                 if via_device_id is not None:
                     di["via_device_id"] = via_device_id
             # No fallback - if no uplink, device is standalone
@@ -2139,7 +2138,9 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
         # otherwise fall back to the always-registered site device. See
         # GH #69.
         if parent_device_mac:
-            via_device_id = resolve_via_device_id(coordinator.hass, parent_device_mac)
+            via_device_id = resolve_via_device_id(
+                coordinator.hass, parent_device_mac, coordinator.config_entry
+            )
         else:
             via_device_id = coordinator.site_device_id
 

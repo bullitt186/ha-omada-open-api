@@ -63,6 +63,7 @@ LAN, so prefer one of these free alternatives when possible:
 2. VPN entities are created only for configured tunnels. The primary tunnel entity is a connectivity binary sensor named after the tunnel; peer/client telemetry is diagnostic and disabled by default.
 3. WAN speed-test entities require a gateway WAN port that exposes the speed-test endpoint. Use the **Run speed test** button and watch the **Speed test running** binary sensor while Omada performs the test.
 4. After adding or removing a VPN tunnel in Omada, wait for the next device polling interval or reload the integration.
+5. Some controllers require a VPN type filter on the VPN stats endpoints. The integration then queries each VPN type separately (site-to-site IPsec and WireGuard; server and client L2TP, PPTP, IPsec, OpenVPN, and WireGuard, as the controller accepts them). If the log shows `VPN stats are not supported by this controller; retrying hourly`, the controller rejected every request for that VPN type. The warning appears once, and the integration checks again every hour.
 
 ## Entities Showing "Unavailable"
 

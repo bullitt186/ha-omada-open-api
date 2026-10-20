@@ -4,6 +4,7 @@ import datetime as dt
 import logging
 import ssl
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import aiohttp
@@ -4001,6 +4002,49 @@ async def test_options_get_fusion_session_creates_and_caches(
         await session.close()
 
 
+async def test_options_flow_closes_fusion_session_when_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Ending the options flow closes the Fusion session it created."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    session = flow._get_fusion_session()
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert session.closed
+
+
+async def test_config_flow_closes_fusion_session_when_removed(
+    hass: HomeAssistant,
+) -> None:
+    """Ending the config flow closes the Fusion session it created."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    session = flow._get_fusion_session()
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert session.closed
+
+
+async def test_flow_removal_without_fusion_session_is_noop(
+    hass: HomeAssistant,
+) -> None:
+    """Flows that never created a Fusion session end without error."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+
+    flow.async_remove()
+    await hass.async_block_till_done()
+
+    assert flow._fusion_session is None
+
+
 async def test_options_ensure_fusion_auth_falls_back_without_runtime_data(
     hass: HomeAssistant,
 ) -> None:
@@ -4279,3 +4323,137 @@ async def test_options_site_entity_settings_step(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
+
+
+def _many_clients(count: int, *, active_from: int) -> list[dict[str, Any]]:
+    """Build clients; those from index active_from onwards are online."""
+    return [
+        {
+            "mac": f"AA-BB-CC-00-{i // 256:02X}-{i % 256:02X}",
+            "name": f"Client {i}",
+            "ip": f"10.0.{i // 256}.{i % 256}",
+            "active": i >= active_from,
+        }
+        for i in range(count)
+    ]
+
+
+async def _open_client_selection(
+    hass: HomeAssistant, selected: list[str], clients: list[dict[str, Any]]
+) -> tuple[MockConfigEntry, dict[str, Any]]:
+    """Open the options client-selection step with the given clients."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_API_URL: "https://test.example.com",
+            CONF_OMADA_ID: "opt_many_clients",
+            CONF_CLIENT_ID: "cid",
+            CONF_CLIENT_SECRET: "csecret",
+            CONF_ACCESS_TOKEN: "token",
+            CONF_REFRESH_TOKEN: "rtoken",
+            CONF_TOKEN_EXPIRES_AT: _future_token_expiry(),
+            CONF_SELECTED_SITES: ["site1"],
+        },
+        options={CONF_SELECTED_CLIENTS: selected},
+    )
+    entry.add_to_hass(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler._get_clients",
+        return_value=clients,
+    ):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "client_selection"}
+        )
+    return entry, result
+
+
+def _offered_macs(result: dict[str, Any]) -> list[str]:
+    """Return the MACs offered by the client-selection field."""
+    for key, selector in result["data_schema"].schema.items():
+        if key == CONF_SELECTED_CLIENTS:
+            return [o["value"] for o in selector.config["options"]]
+    raise AssertionError("client selection field missing")
+
+
+async def test_options_client_selection_offers_more_than_200_clients(
+    hass: HomeAssistant,
+) -> None:
+    """All known clients are offered, online clients first (GH #96)."""
+    clients = _many_clients(250, active_from=240)
+    _, result = await _open_client_selection(hass, [], clients)
+
+    offered = _offered_macs(result)
+    assert len(offered) == 250
+    assert offered[:10] == [c["mac"] for c in clients[240:]]
+
+
+async def test_options_client_selection_keeps_selected_clients_on_save(
+    hass: HomeAssistant,
+) -> None:
+    """Saving never drops selected clients, even unknown ones (GH #96)."""
+    clients = _many_clients(250, active_from=0)
+    gone = "AA-BB-CC-FF-FF-FF"
+    selected = [clients[5]["mac"], clients[220]["mac"], gone]
+    entry, result = await _open_client_selection(hass, selected, clients)
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_SELECTED_CLIENTS: [clients[5]["mac"], clients[220]["mac"], gone]},
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert set(entry.options[CONF_SELECTED_CLIENTS]) == set(selected)
+
+
+async def test_options_get_clients_fetches_every_page(hass: HomeAssistant) -> None:
+    """_get_clients follows totalRows across pages instead of stopping at 200."""
+    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    flow._api_url = "https://192.168.0.1"
+    flow._omada_id = "cid123"
+    flow._access_token = "token"
+
+    clients = _many_clients(250, active_from=0)
+    pages = [
+        {"errorCode": 0, "result": {"totalRows": 250, "data": clients[:200]}},
+        {"errorCode": 0, "result": {"totalRows": 250, "data": clients[200:]}},
+    ]
+    mock_response = MagicMock()
+    mock_response.status = 200
+    mock_response.json = AsyncMock(side_effect=pages)
+    mock_session = MagicMock()
+    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=mock_session,
+    ):
+        result = await flow._get_clients("site123")
+
+    assert result == clients
+    assert [c.kwargs["json"]["page"] for c in mock_session.post.call_args_list] == [
+        1,
+        2,
+    ]
+
+
+async def test_options_client_selection_matches_macs_across_separators(
+    hass: HomeAssistant,
+) -> None:
+    """A selection stored with colons matches the dash-formatted client list."""
+    clients = _many_clients(3, active_from=0)
+    stored = clients[1]["mac"].replace("-", ":")
+    _, result = await _open_client_selection(hass, [stored], clients)
+
+    assert _offered_macs(result) == [c["mac"] for c in clients]
+    for key in result["data_schema"].schema:
+        if key == CONF_SELECTED_CLIENTS:
+            assert key.description["suggested_value"] == [clients[1]["mac"]]

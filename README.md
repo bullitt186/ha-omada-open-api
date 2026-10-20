@@ -168,7 +168,7 @@ The following parameters are required during the initial setup flow:
 | **Client ID** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client ID from your Open API application. Generated when creating a new application in the controller. |
 | **Client Secret** | 3 – Credentials *(local/cloud)* | Yes (local/cloud) | OAuth2 Client Secret from your Open API application. Shown once when the application is created — copy and store it securely. |
 | **Sites** | 4 – Site selection | Yes | One or more Omada sites to monitor. Fusion gateways with a single site are auto-selected. All devices and clients under the selected sites become available as Home Assistant entities. |
-| **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. The optional SSID filter narrows the wireless-client list while always retaining wired clients. Can be modified later via Options. Limited to the first 200 clients in the UI. |
+| **Clients** | 5 – Client selection | No | Network clients to track for presence detection and per-client metrics. The optional SSID filter narrows the wireless-client list while always retaining wired clients. Can be modified later via Options. All known clients are listed, online clients first. |
 | **Applications** | 6 – Application selection | No | DPI-tracked applications for per-client traffic monitoring (upload/download sensors). Requires DPI enabled on the gateway. Can be modified later via Options. |
 
 **Network requirements:**
@@ -437,7 +437,7 @@ and per-client monitoring entities.
 | Parameter | Type | Description |
 |---|---|---|
 | **Filter by SSID** | Multi-select | Restricts the displayed wireless clients to selected SSIDs; wired clients always remain visible and clients hidden by the filter keep their existing selection. |
-| **Clients to Track** | Multi-select | Select clients to create entities for. The UI shows at most 200 clients. |
+| **Clients to Track** | Multi-select | Select clients to create entities for. All known clients are listed, online clients first. Selected clients the controller no longer lists stay selected and are shown by MAC address. |
 
 ### Application Selection
 

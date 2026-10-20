@@ -83,7 +83,7 @@
             },
             "clients": {
                 "title": "Select Clients to Track (Optional)",
-                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nThis is optional - you can skip this step by clicking Submit without selecting any clients. You can add more clients later via the integration options.",
                 "data": {
                     "selected_clients": "Clients to Track"
                 },
@@ -170,7 +170,7 @@
             },
             "client_selection": {
                 "title": "Modify Client Tracking",
-                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.\n\n⚠️ Showing first 200 clients only to prevent UI issues.",
+                "description": "Select which network clients you want to track as Home Assistant devices. Found {client_count} client(s).\n\nCurrently tracking {selected_count} client(s).\n\nYou can add or remove clients from this list. The integration will reload automatically after saving.",
                 "data": {
                     "ssid_filter": "Filter by SSID (optional)",
                     "selected_clients": "Clients to Track"

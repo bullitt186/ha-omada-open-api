@@ -74,6 +74,16 @@ CONF_PASSWORD = "password"
 
 # API constants
 DEFAULT_TIMEOUT = 30
+
+# Controllers that require filters.vpnType on the VPN stats endpoints accept
+# only these values per endpoint (measured on 6.3.0.45 and Fusion; see GH #67).
+VPN_STATS_TYPES: dict[str, tuple[int, ...]] = {
+    "s2s": (2, 4),
+    "server": (0, 1, 2, 3, 4, 5),
+    "client": (0, 1, 3, 4),
+}
+# A VPN stats request the controller rejected is retried after this delay.
+VPN_REJECTED_RETRY_SECONDS = 3600
 TOKEN_EXPIRY_BUFFER = 300  # Refresh token 5 minutes before expiry
 ACCESS_TOKEN_LIFETIME = 7200  # 2 hours in seconds
 REFRESH_TOKEN_LIFETIME = 1209600  # 14 days in seconds

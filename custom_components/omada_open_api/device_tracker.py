@@ -307,7 +307,9 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             client.get("ap_mac") if client.get("wireless") else client.get("switch_mac")
         ) or client.get("gateway_mac")
         parent_id = (
-            resolve_via_device_id(coord.hass, parent_mac) if parent_mac else None
+            resolve_via_device_id(coord.hass, parent_mac, coord.config_entry)
+            if parent_mac
+            else None
         )
         if parent_id is None:
             site = self._site_devices.get(coord.site_id)

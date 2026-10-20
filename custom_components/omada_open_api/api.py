@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
 
 from .auth import ClientCredentialsAuth, OmadaAuthStrategy
-from .const import DEFAULT_TIMEOUT
+from .const import DEFAULT_TIMEOUT, VPN_REJECTED_RETRY_SECONDS, VPN_STATS_TYPES
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -54,6 +55,8 @@ class OmadaApiClient:
         self._api_url = api_url.rstrip("/")
         self._omada_id = omada_id
         self._use_v1_clients = False
+        # (url, vpnType or None) -> monotonic time the controller rejected it.
+        self._vpn_rejected_at: dict[tuple[str, int | None], float] = {}
 
         if auth is not None:
             self._auth = auth
@@ -82,6 +85,7 @@ class OmadaApiClient:
         *,
         params: dict[str, Any] | None = None,
         json_data: dict[str, Any] | None = None,
+        expected_statuses: tuple[int, ...] = (),
     ) -> dict[str, Any]:
         """Make an authenticated API request with automatic token renewal.
 
@@ -136,8 +140,11 @@ class OmadaApiClient:
 
                     if response.status != 200:
                         response_text = await response.text()
-                        if response.status == 404:
-                            _LOGGER.debug("HTTP 404 (endpoint not supported): %s", url)
+                        # HTTP 404 means the endpoint is not supported.
+                        if response.status in (404, *expected_statuses):
+                            _LOGGER.debug(
+                                "HTTP %s (expected): %s", response.status, url
+                            )
                         else:
                             _LOGGER.error(
                                 "HTTP error %s: %s", response.status, response_text
@@ -1560,30 +1567,16 @@ class OmadaApiClient:
         self,
         url: str,
         filters: dict[str, Any] | None = None,
-        fusion_filter_fallback: bool = False,
+        expected_statuses: tuple[int, ...] = (),
     ) -> list[dict[str, Any]]:
         """Fetch every page from a VPN endpoint."""
         page = 1
         all_rows: list[dict[str, Any]] = []
         while True:
             params = {"page": page, "pageSize": 100, **(filters or {})}
-            try:
-                result = await self._authenticated_request("get", url, params=params)
-            except OmadaApiError as err:
-                # Some controllers reject the unfiltered call with an Omada
-                # errorCode -1001; others (e.g. 6.3.0.45) reject it with a
-                # bare Tomcat HTTP 400 that never reaches Omada's own error
-                # handling, so both must trigger the fallback. See GH #67.
-                if fusion_filter_fallback and (
-                    err.error_code == -1001 or err.http_status == 400
-                ):
-                    _LOGGER.debug(
-                        "VPN endpoint requires Fusion WireGuard filter; retrying"
-                    )
-                    return await self._get_paginated_vpn_rows(
-                        url, {"filters.vpnType": 4}
-                    )
-                raise
+            result = await self._authenticated_request(
+                "get", url, params=params, expected_statuses=expected_statuses
+            )
             payload = result.get("result", {})
             rows: list[dict[str, Any]] = payload.get("data", [])
             all_rows.extend(rows)
@@ -1591,6 +1584,51 @@ class OmadaApiClient:
             if len(all_rows) >= total_rows or len(rows) < 100:
                 return all_rows
             page += 1
+
+    async def _get_vpn_stats(self, url: str, vpn_kind: str) -> list[dict[str, Any]]:
+        """Fetch VPN stats, querying each vpnType if the controller needs one.
+
+        Some controllers reject the unfiltered call and require
+        filters.vpnType, either with errorCode -1001 or a bare Tomcat HTTP
+        400 (GH #67). Each type is then queried and the rows merged. A
+        rejected request is skipped until VPN_REJECTED_RETRY_SECONDS pass.
+
+        Raises:
+            OmadaApiError: With http_status 400 if every request is rejected,
+                or on any other request failure.
+
+        """
+        rows: list[dict[str, Any]] = []
+        accepted = False
+        for vpn_type in (None, *VPN_STATS_TYPES[vpn_kind]):
+            key = (url, vpn_type)
+            rejected_at = self._vpn_rejected_at.get(key)
+            if (
+                rejected_at is not None
+                and time.monotonic() - rejected_at < VPN_REJECTED_RETRY_SECONDS
+            ):
+                continue
+            filters = None if vpn_type is None else {"filters.vpnType": vpn_type}
+            try:
+                type_rows = await self._get_paginated_vpn_rows(
+                    url, filters, expected_statuses=(400,)
+                )
+            except OmadaApiError as err:
+                if err.error_code != -1001 and err.http_status != 400:
+                    raise
+                _LOGGER.debug("VPN stats request rejected (vpnType %s)", vpn_type)
+                self._vpn_rejected_at[key] = time.monotonic()
+                continue
+            self._vpn_rejected_at.pop(key, None)
+            if vpn_type is None:
+                return type_rows
+            rows.extend(type_rows)
+            accepted = True
+        if not accepted:
+            raise OmadaApiError(
+                "Controller rejected every VPN stats request", http_status=400
+            )
+        return rows
 
     async def get_vpn_s2s_stats(self, site_id: str) -> list[dict[str, Any]]:
         """Get site-to-site VPN tunnel status list.
@@ -1610,7 +1648,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/s2s"
         )
         _LOGGER.debug("Fetching S2S VPN stats for site %s", site_id)
-        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+        return await self._get_vpn_stats(url, "s2s")
 
     async def get_vpn_server_stats(self, site_id: str) -> list[dict[str, Any]]:
         """Get VPN server status list.
@@ -1630,7 +1668,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/server"
         )
         _LOGGER.debug("Fetching VPN server stats for site %s", site_id)
-        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+        return await self._get_vpn_stats(url, "server")
 
     async def get_vpn_client_stats(self, site_id: str) -> list[dict[str, Any]]:
         """Get VPN client status list.
@@ -1650,7 +1688,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/client"
         )
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
-        return await self._get_paginated_vpn_rows(url, fusion_filter_fallback=True)
+        return await self._get_vpn_stats(url, "client")
 
     async def get_vpn_s2s_peers(
         self, site_id: str, tunnel_id: str

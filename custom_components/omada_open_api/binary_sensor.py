@@ -5,16 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.binary_sensor import (
+from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined]
     BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
 from homeassistant.core import callback
-from homeassistant.helpers.entity import (  # type: ignore[attr-defined]
-    DeviceInfo,
-    EntityCategory,
-)
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN, ICON_POWER_SAVE, ICON_STATUS
 from .coordinator import (
@@ -424,7 +421,9 @@ class OmadaDeviceBinarySensor(
             # For switches and other devices, use uplink device if available
             # and already registered.
             if uplink_mac:
-                via_device_id = resolve_via_device_id(coordinator.hass, uplink_mac)
+                via_device_id = resolve_via_device_id(
+                    coordinator.hass, uplink_mac, coordinator.config_entry
+                )
                 if via_device_id is not None:
                     di["via_device_id"] = via_device_id
             # No fallback - if no uplink, device is standalone
