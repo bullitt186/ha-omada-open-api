@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
-from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
+from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF, POE_PORT_PATCH_FALLBACK_ERRORS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
@@ -298,13 +298,28 @@ class OmadaPoeSwitch(
         api = self.coordinator.api_client
 
         try:
-            # Profile override must be enabled before changing PoE mode.
-            await api.set_port_profile_override(
-                site_id, self._switch_mac, self._port_num, enable=True
-            )
-            await api.set_port_poe_mode(
-                site_id, self._switch_mac, self._port_num, poe_enabled=enabled
-            )
+            try:
+                # Profile override must be enabled before changing PoE mode.
+                await api.set_port_profile_override(
+                    site_id, self._switch_mac, self._port_num, enable=True
+                )
+                await api.set_port_poe_mode(
+                    site_id, self._switch_mac, self._port_num, poe_enabled=enabled
+                )
+            except OmadaApiError as err:
+                # Some controller and switch combinations reject these
+                # endpoints outright; patching the port object works there.
+                if err.error_code not in POE_PORT_PATCH_FALLBACK_ERRORS:
+                    raise
+                _LOGGER.debug(
+                    "PoE endpoints rejected %s port %d (%s), patching the port",
+                    self._switch_mac,
+                    self._port_num,
+                    err,
+                )
+                await api.set_port_poe_via_port_patch(
+                    site_id, self._switch_mac, self._port_num, poe_enabled=enabled
+                )
         except OmadaApiError as err:
             _LOGGER.debug(
                 "PoE control failed for %s port %d: %s",
