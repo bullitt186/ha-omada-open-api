@@ -674,10 +674,17 @@ async def test_led_switch_unique_id(hass: HomeAssistant) -> None:
 
 
 async def test_led_switch_name(hass: HomeAssistant) -> None:
-    """Test LED switch name includes site name."""
+    """The site device supplies the site name; the entity is just "LED"."""
     switch = _create_led_switch(hass)
     assert switch.translation_key == "led"
-    assert switch.translation_placeholders == {"site_name": TEST_SITE_NAME}
+    assert not switch.translation_placeholders
+
+
+async def test_led_switch_belongs_to_site_device(hass: HomeAssistant) -> None:
+    """The site LED switch is attached to the site device (GH #127)."""
+    switch = _create_led_switch(hass)
+    assert switch.device_info is not None
+    assert switch.device_info["identifiers"] == {(DOMAIN, f"site_{TEST_SITE_ID}")}
 
 
 async def test_led_switch_is_on_unknown_without_data(hass: HomeAssistant) -> None:
