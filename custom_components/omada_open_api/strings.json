@@ -132,6 +132,9 @@
                 "description": "Select which sites you want to monitor. Found {site_count} site(s).\n\nPreviously selected sites are pre-selected.",
                 "data": {
                     "selected_sites": "Sites to Monitor"
+                },
+                "data_description": {
+                    "selected_sites": "Omada sites whose devices and clients are added to Home Assistant"
                 }
             }
         },
@@ -176,7 +179,8 @@
                     "selected_clients": "Clients to Track"
                 },
                 "data_description": {
-                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown"
+                    "ssid_filter": "Select SSIDs to restrict the client list — wired clients always shown",
+                    "selected_clients": "Clients that get device tracker and client entities"
                 }
             },
             "application_selection": {
@@ -184,6 +188,9 @@
                 "description": "Select which applications you want to track for network traffic monitoring. Found {app_count} application(s).\n\nCurrently tracking {selected_count} application(s).\n\nFor each selected application, upload and download sensors will be created for each tracked client. Traffic data resets daily at midnight.\n\nThe integration will reload automatically after saving.",
                 "data": {
                     "selected_applications": "Applications to Track"
+                },
+                "data_description": {
+                    "selected_applications": "DPI applications whose per-client traffic is tracked (requires DPI on the gateway)"
                 }
             },
             "update_intervals": {
@@ -193,6 +200,11 @@
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",
                     "app_scan_interval": "Application traffic polling interval (seconds)"
+                },
+                "data_description": {
+                    "device_scan_interval": "How often device, PoE and site data is fetched",
+                    "client_scan_interval": "How often client data and presence are fetched",
+                    "app_scan_interval": "How often per-client application traffic is fetched"
                 }
             },
             "tracker_settings": {
@@ -231,6 +243,12 @@
                     "enable_device_client_count_sensors": "Client count sensors per device",
                     "enable_device_diagnostic_sensors": "Diagnostic sensors (CPU, memory, uptime, IP, firmware)",
                     "enable_device_radio_utilization_sensors": "Radio utilization sensors (TX/RX/interference per band)"
+                },
+                "data_description": {
+                    "enable_device_bandwidth_sensors": "Create daily download and upload total sensors per device",
+                    "enable_device_client_count_sensors": "Create sensors for the number of connected clients per device",
+                    "enable_device_diagnostic_sensors": "Create CPU, memory, uptime, IP and firmware sensors per device",
+                    "enable_device_radio_utilization_sensors": "Create TX, RX and interference utilization sensors per access point radio band"
                 }
             },
             "client_entity_settings": {
@@ -241,6 +259,12 @@
                     "enable_client_signal_sensors": "Signal sensors (RSSI, SNR, signal strength)",
                     "enable_client_block_switch": "Network access (block/unblock) switch",
                     "enable_client_reconnect_button": "Reconnect button"
+                },
+                "data_description": {
+                    "enable_client_bandwidth_sensors": "Create traffic total and activity rate sensors per tracked client",
+                    "enable_client_signal_sensors": "Create RSSI, SNR and signal strength sensors per wireless client",
+                    "enable_client_block_switch": "Create a switch per tracked client that blocks or allows its network access",
+                    "enable_client_reconnect_button": "Create a button per wireless client that forces it to reconnect"
                 }
             },
             "site_entity_settings": {
@@ -248,6 +272,9 @@
                 "description": "Enable or disable site-level entity categories.\n\nThreat heatmap sensors require the Omada threat-management API and may be unavailable on some controllers/firmware.\n\nAll settings default to enabled.",
                 "data": {
                     "enable_threat_heatmap_sensors": "Threat heatmap sensors (daily/weekly/monthly)"
+                },
+                "data_description": {
+                    "enable_threat_heatmap_sensors": "Create daily, weekly and monthly threat count sensors per site (polls the threat log)"
                 }
             },
             "gateway_entity_settings": {
@@ -256,7 +283,27 @@
                 "data": {
                     "enable_vpn_sensors": "VPN monitoring sensors (tunnels and peers)",
                     "enable_wan_speed_test": "WAN speed test (trigger button, results, and running status)"
+                },
+                "data_description": {
+                    "enable_vpn_sensors": "Create sensors for site-to-site tunnels, VPN servers, VPN clients and their peers",
+                    "enable_wan_speed_test": "Create the WAN speed test button, its result sensors and the running status"
                 }
+            }
+        }
+    },
+    "selector": {
+        "controller_type": {
+            "options": {
+                "local": "Self-hosted (local controller)",
+                "cloud": "Cloud-hosted (TP-Link cloud)",
+                "fusion": "Fusion gateway (built-in controller)"
+            }
+        },
+        "region": {
+            "options": {
+                "us": "United States",
+                "eu": "Europe",
+                "ap": "Asia Pacific (Singapore)"
             }
         }
     },
