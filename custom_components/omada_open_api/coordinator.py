@@ -231,6 +231,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "site_name": self.site_name,
                 "ap_radio_config": await self._fetch_ap_radio_config(devices),
                 "wlan_optimization": await self._fetch_wlan_optimization(),
+                "site_led_enabled": await self._fetch_site_led_enabled(),
             }
 
         except OmadaApiError as err:
@@ -1073,6 +1074,24 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 err,
             )
             return None
+
+    async def _fetch_site_led_enabled(self) -> bool | None:
+        """Fetch the site-wide LED setting.
+
+        Returns:
+            True or False for the LED setting, or None on failure.
+
+        """
+        try:
+            result = await self.api_client.get_led_setting(self.site_id)
+        except OmadaApiError as err:
+            _LOGGER.debug(
+                "Failed to fetch LED setting for site %s: %s",
+                self.site_name,
+                err,
+            )
+            return None
+        return bool(result.get("enable", False))
 
     async def _stamp_wired_ports_flags(
         self,
