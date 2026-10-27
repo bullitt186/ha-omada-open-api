@@ -206,7 +206,9 @@ class OmadaDeviceRebootButton(
             _LOGGER.info("Reboot command sent to device %s", self._device_mac)
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to reboot device {self._device_mac}"
+                translation_domain=DOMAIN,
+                translation_key="reboot_failed",
+                translation_placeholders={"mac": self._device_mac},
             ) from err
 
 
@@ -260,7 +262,9 @@ class OmadaClientReconnectButton(
             _LOGGER.info("Reconnect command sent to client %s", self._client_mac)
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to reconnect client {self._client_mac}"
+                translation_domain=DOMAIN,
+                translation_key="reconnect_failed",
+                translation_placeholders={"mac": self._client_mac},
             ) from err
 
 
@@ -301,8 +305,9 @@ class OmadaWlanOptimizationButton(
             )
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to start WLAN optimization for site "
-                f"{self.coordinator.site_name}"
+                translation_domain=DOMAIN,
+                translation_key="wlan_optimization_failed",
+                translation_placeholders={"site": self.coordinator.site_name},
             ) from err
 
 
@@ -338,7 +343,9 @@ class OmadaWanSpeedTestButton(
                 [self._port_uuid],
             )
         except OmadaApiError as err:
-            raise HomeAssistantError("Failed to start WAN speed test") from err
+            raise HomeAssistantError(
+                translation_domain=DOMAIN, translation_key="wan_speed_test_failed"
+            ) from err
         await self.coordinator.async_request_refresh()
 
 
@@ -395,5 +402,7 @@ class OmadaDeviceLocateButton(
             _LOGGER.info("Locate command sent to device %s", self._device_mac)
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to locate device {self._device_mac}"
+                translation_domain=DOMAIN,
+                translation_key="locate_failed",
+                translation_placeholders={"mac": self._device_mac},
             ) from err

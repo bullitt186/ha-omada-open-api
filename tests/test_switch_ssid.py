@@ -203,7 +203,7 @@ async def test_ssid_switch_turn_on_permission_error(hass: HomeAssistant) -> None
         side_effect=OmadaApiError("Permission denied", error_code=-1007)
     )
 
-    with pytest.raises(HomeAssistantError, match="Permission denied"):
+    with pytest.raises(HomeAssistantError, match="^ssid_permission_denied$"):
         await switch.async_turn_on()
 
     # State should not change on error
@@ -292,7 +292,7 @@ async def test_ssid_switch_turn_on_permission_error_1005(
         side_effect=OmadaApiError("Access denied", error_code=-1005)
     )
 
-    with pytest.raises(HomeAssistantError, match="Permission denied"):
+    with pytest.raises(HomeAssistantError, match="^ssid_permission_denied$"):
         await switch.async_turn_on()
 
 
@@ -311,7 +311,7 @@ async def test_ssid_switch_turn_off_permission_error_1005(
         side_effect=OmadaApiError("Access denied", error_code=-1005)
     )
 
-    with pytest.raises(HomeAssistantError, match="Permission denied"):
+    with pytest.raises(HomeAssistantError, match="^ssid_permission_denied$"):
         await switch.async_turn_off()
 
 

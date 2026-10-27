@@ -503,11 +503,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     except OmadaApiAuthError as err:
         if _is_transient_connection_error(err):
             raise ConfigEntryNotReady(
-                "Omada controller is temporarily unreachable. Home Assistant will retry."
+                translation_domain=DOMAIN, translation_key="controller_unreachable"
             ) from err
         _LOGGER.exception("Authentication failed during setup")
         raise ConfigEntryAuthFailed(
-            "Authentication failed. Please re-authenticate."
+            translation_domain=DOMAIN, translation_key="auth_failed"
         ) from err
     except OmadaApiError as err:
         if _is_certificate_error(err):
@@ -517,15 +517,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 "if this controller uses a self-signed certificate.",
                 entry.data[CONF_API_URL],
             )
-            raise ConfigEntryNotReady("TLS certificate verification failed.") from err
+            raise ConfigEntryNotReady(
+                translation_domain=DOMAIN,
+                translation_key="certificate_verification_failed",
+            ) from err
         if _is_transient_connection_error(err):
             raise ConfigEntryNotReady(
-                "Omada controller is temporarily unreachable. Home Assistant will retry."
+                translation_domain=DOMAIN, translation_key="controller_unreachable"
             ) from err
         raise
     except (TimeoutError, OSError) as err:
         raise ConfigEntryNotReady(
-            "Unable to connect to Omada API. Will retry."
+            translation_domain=DOMAIN, translation_key="cannot_connect"
         ) from err
 
     # Create coordinators for each selected site

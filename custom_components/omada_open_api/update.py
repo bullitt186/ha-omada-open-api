@@ -216,7 +216,9 @@ class OmadaDeviceUpdateEntity(
             )
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to start firmware upgrade for {self._device_mac}"
+                translation_domain=DOMAIN,
+                translation_key="firmware_upgrade_failed",
+                translation_placeholders={"mac": self._device_mac},
             ) from err
         # Immediately reflect the installing state in the UI.
         self._is_installing = True

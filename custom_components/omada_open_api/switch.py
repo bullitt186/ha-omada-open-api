@@ -328,14 +328,21 @@ class OmadaPoeSwitch(
             )
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
-                    f"Insufficient permissions to control PoE on "
-                    f"{self._switch_mac} port {self._port_num}. "
-                    f"Ensure the Open API application has "
-                    f"'Site Device Manager Modify' permission"
+                    translation_domain=DOMAIN,
+                    translation_key="poe_permission_denied",
+                    translation_placeholders={
+                        "mac": self._switch_mac,
+                        "port": str(self._port_num),
+                    },
                 ) from err
             raise HomeAssistantError(
-                f"Failed to set PoE {'on' if enabled else 'off'} "
-                f"for {self._switch_mac} port {self._port_num}: {err}"
+                translation_domain=DOMAIN,
+                translation_key="poe_failed",
+                translation_placeholders={
+                    "mac": self._switch_mac,
+                    "port": str(self._port_num),
+                    "error": str(err),
+                },
             ) from err
 
         # Refresh coordinator data to reflect the change.
@@ -407,7 +414,9 @@ class OmadaClientBlockSwitch(
             )
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to unblock client {self._client_mac}"
+                translation_domain=DOMAIN,
+                translation_key="client_unblock_failed",
+                translation_placeholders={"mac": self._client_mac},
             ) from err
         await self.coordinator.async_request_refresh()
 
@@ -419,7 +428,9 @@ class OmadaClientBlockSwitch(
             )
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to block client {self._client_mac}"
+                translation_domain=DOMAIN,
+                translation_key="client_block_failed",
+                translation_placeholders={"mac": self._client_mac},
             ) from err
         await self.coordinator.async_request_refresh()
 
@@ -471,8 +482,9 @@ class OmadaLedSwitch(
             )
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to {'enable' if enable else 'disable'} LED for site "
-                f"{self.coordinator.site_id}"
+                translation_domain=DOMAIN,
+                translation_key="site_led_failed",
+                translation_placeholders={"site": self.coordinator.site_name},
             ) from err
         self.coordinator.data["site_led_enabled"] = enable
         self.async_write_ha_state()
@@ -535,7 +547,9 @@ class OmadaApLedSwitch(
             self.async_write_ha_state()
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to enable LED for AP {self._ap_mac}"
+                translation_domain=DOMAIN,
+                translation_key="ap_led_enable_failed",
+                translation_placeholders={"mac": self._ap_mac},
             ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -552,7 +566,9 @@ class OmadaApLedSwitch(
             self.async_write_ha_state()
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to disable LED for AP {self._ap_mac}"
+                translation_domain=DOMAIN,
+                translation_key="ap_led_disable_failed",
+                translation_placeholders={"mac": self._ap_mac},
             ) from err
         self.async_write_ha_state()
 
@@ -686,11 +702,14 @@ class OmadaSsidSwitch(
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
-                    f"Permission denied when enabling SSID {self._ssid_name}. "
-                    f"API credentials may have viewer-only access."
+                    translation_domain=DOMAIN,
+                    translation_key="ssid_permission_denied",
+                    translation_placeholders={"ssid": self._ssid_name},
                 ) from err
             raise HomeAssistantError(
-                f"Failed to enable SSID {self._ssid_name}"
+                translation_domain=DOMAIN,
+                translation_key="ssid_enable_failed",
+                translation_placeholders={"ssid": self._ssid_name},
             ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -713,11 +732,14 @@ class OmadaSsidSwitch(
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
-                    f"Permission denied when disabling SSID {self._ssid_name}. "
-                    f"API credentials may have viewer-only access."
+                    translation_domain=DOMAIN,
+                    translation_key="ssid_permission_denied",
+                    translation_placeholders={"ssid": self._ssid_name},
                 ) from err
             raise HomeAssistantError(
-                f"Failed to disable SSID {self._ssid_name}"
+                translation_domain=DOMAIN,
+                translation_key="ssid_disable_failed",
+                translation_placeholders={"ssid": self._ssid_name},
             ) from err
 
 
@@ -807,12 +829,17 @@ class OmadaApSsidSwitch(
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
-                    f"Permission denied when enabling SSID {self._ssid_name} "
-                    f"on AP {self._ap_name}. "
-                    f"API credentials may have viewer-only access."
+                    translation_domain=DOMAIN,
+                    translation_key="ap_ssid_permission_denied",
+                    translation_placeholders={
+                        "ssid": self._ssid_name,
+                        "ap": self._ap_name,
+                    },
                 ) from err
             raise HomeAssistantError(
-                f"Failed to enable SSID {self._ssid_name} on AP {self._ap_name}"
+                translation_domain=DOMAIN,
+                translation_key="ap_ssid_enable_failed",
+                translation_placeholders={"ssid": self._ssid_name, "ap": self._ap_name},
             ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -830,12 +857,17 @@ class OmadaApSsidSwitch(
         except OmadaApiError as err:
             if err.error_code in (-1005, -1007):
                 raise HomeAssistantError(
-                    f"Permission denied when disabling SSID {self._ssid_name} "
-                    f"on AP {self._ap_name}. "
-                    f"API credentials may have viewer-only access."
+                    translation_domain=DOMAIN,
+                    translation_key="ap_ssid_permission_denied",
+                    translation_placeholders={
+                        "ssid": self._ssid_name,
+                        "ap": self._ap_name,
+                    },
                 ) from err
             raise HomeAssistantError(
-                f"Failed to disable SSID {self._ssid_name} on AP {self._ap_name}"
+                translation_domain=DOMAIN,
+                translation_key="ap_ssid_disable_failed",
+                translation_placeholders={"ssid": self._ssid_name, "ap": self._ap_name},
             ) from err
 
 
@@ -931,8 +963,12 @@ class OmadaApRadioSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to enable {_BAND_LABELS.get(self._band, self._band)} "
-                f"radio on AP {self._ap_mac}"
+                translation_domain=DOMAIN,
+                translation_key="radio_enable_failed",
+                translation_placeholders={
+                    "band": _BAND_LABELS.get(self._band, self._band),
+                    "mac": self._ap_mac,
+                },
             ) from err
 
     async def async_turn_off(self, **kwargs: Any) -> None:
@@ -947,6 +983,10 @@ class OmadaApRadioSwitch(
             await self.coordinator.async_request_refresh()
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to disable {_BAND_LABELS.get(self._band, self._band)} "
-                f"radio on AP {self._ap_mac}"
+                translation_domain=DOMAIN,
+                translation_key="radio_disable_failed",
+                translation_placeholders={
+                    "band": _BAND_LABELS.get(self._band, self._band),
+                    "mac": self._ap_mac,
+                },
             ) from err

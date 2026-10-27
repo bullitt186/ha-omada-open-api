@@ -213,7 +213,7 @@ async def test_ap_ssid_switch_turn_on_permission_error(
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    with pytest.raises(HomeAssistantError, match="Permission denied"):
+    with pytest.raises(HomeAssistantError, match="^ap_ssid_permission_denied$"):
         await switch.async_turn_on()
 
 
@@ -232,7 +232,7 @@ async def test_ap_ssid_switch_turn_off_permission_error(
         SAMPLE_AP_SSID_OVERRIDE,
     )
 
-    with pytest.raises(HomeAssistantError, match="Permission denied"):
+    with pytest.raises(HomeAssistantError, match="^ap_ssid_permission_denied$"):
         await switch.async_turn_off()
 
 
