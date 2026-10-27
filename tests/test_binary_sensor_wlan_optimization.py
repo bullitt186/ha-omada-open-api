@@ -217,6 +217,7 @@ def _build_minimal_mock_api() -> MagicMock:
     mock_api.get_vpn_server_stats = AsyncMock(return_value=[])
     mock_api.get_vpn_client_stats = AsyncMock(return_value=[])
     mock_api.get_firmware_info = AsyncMock(return_value={})
+    mock_api.get_led_setting = AsyncMock(return_value={"enable": True})
     mock_api.get_switch_port_details = AsyncMock(return_value=[])
     return mock_api
 
