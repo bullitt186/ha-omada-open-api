@@ -286,16 +286,16 @@ async def _setup_auto_client_trackers(
         nonlocal cleanup_pending
         visible = _visible_auto_clients(site_coordinators, discovery_filter)
         new_entities: list[OmadaAutoClientTracker] = []
-        for mac in visible:
+        for mac, client in visible.items():
             record = manager.records.get(mac)
             if record is not None:
-                manager.mark_seen(mac, record["entity_unique_id"])
+                manager.mark_seen(mac, record["entity_unique_id"], client=client)
                 continue
             if not discovery_enabled or mac in selected_macs or mac in discovered_macs:
                 continue
             client_mac = "-".join(mac[index : index + 2] for index in range(0, 12, 2))
             unique_id = f"{DOMAIN}_{client_mac}"
-            manager.mark_seen(mac, unique_id)
+            manager.mark_seen(mac, unique_id, client=client)
             discovered_macs.add(mac)
             new_entities.append(
                 OmadaAutoClientTracker(
@@ -359,6 +359,7 @@ def _restore_auto_client_trackers(
                 entry.options.get(CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES, True),
                 discovery_filter,
                 record["entity_unique_id"],
+                record.get("client"),
             )
         )
     return restored
@@ -385,6 +386,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         signal_attributes: bool = True,
         discovery_filter: AutoDiscoveryFilter | None = None,
         entity_unique_id: str | None = None,
+        last_client: Mapping[str, Any] | None = None,
     ) -> None:
         """Use the existing site snapshots, never poll per client."""
         self._coordinators = site_coordinators
@@ -399,7 +401,13 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         self._last_seen: dt.datetime | None = None
         self._unique_id = entity_unique_id or f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
-        self._attr_name = client_mac
+        # The last known client data keeps name, SSID and band while offline.
+        self._last_client: dict[str, Any] = dict(last_client or {})
+        self._attr_name = (
+            self._last_client.get("name")
+            or self._last_client.get("host_name")
+            or client_mac
+        )
         # Keep the old device registry link even when this client was offline
         # during HA startup and has no live API data yet.
         first_site = site_coordinators[0] if site_coordinators else None
@@ -407,7 +415,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         self._client_device_info: DeviceInfo | None = (
             build_client_device_info(
                 client_mac,
-                {},
+                self._last_client,
                 first_site.api_client.api_url,
                 site_device.id if site_device else None,
             )
@@ -451,6 +459,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             return
         coord, client = found
         self._last_seen = dt.datetime.now(dt.UTC)
+        self._last_client = client
         self._attr_name = (
             client.get("name") or client.get("host_name") or self._client_mac
         )
@@ -536,13 +545,13 @@ class OmadaAutoClientTracker(BaseScannerEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Expose only fields the Omada API actually reported."""
         found = self._current_client()
-        if not found:
-            return {}
-        client = found[1]
+        # Offline: keep the last known SSID and band, but no live radio data.
+        client = found[1] if found else self._last_client
         attrs: dict[str, Any] = {}
-        for source, target in (("ssid", "ssid"), ("channel", "channel")):
-            if client.get(source) is not None:
-                attrs[target] = client[source]
+        if client.get("ssid") is not None:
+            attrs["ssid"] = client["ssid"]
+        if found and client.get("channel") is not None:
+            attrs["channel"] = client["channel"]
         if client.get("wireless") is not None:
             attrs["connection_type"] = "wireless" if client["wireless"] else "wired"
         if client.get("wireless"):
@@ -552,7 +561,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             )
             if band:
                 attrs["band"] = band
-            if self._signal_attributes:
+            if found and self._signal_attributes:
                 # Snapshot values are per-device, not per-SSID: roaming
                 # updates this existing tracker's attributes in place.
                 for key, attr in (

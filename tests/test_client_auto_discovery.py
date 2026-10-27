@@ -563,7 +563,7 @@ async def test_registry_restore_ignores_invalid_selected_and_duplicate_ids(
 async def test_disconnected_grace_and_missing_host_details(
     hass: HomeAssistant,
 ) -> None:
-    """Preserve short disconnect grace and clear stale network attributes."""
+    """Preserve short disconnect grace; keep only last-known connection data."""
     import datetime as dt
 
     site = _site(hass, "a", [_client(MAC_A, "Tablet", None)])
@@ -575,7 +575,7 @@ async def test_disconnected_grace_and_missing_host_details(
     assert tracker.is_connected
     assert tracker.ip_address is None
     assert tracker.hostname is None
-    assert tracker.extra_state_attributes == {}
+    assert tracker.extra_state_attributes == {"connection_type": "wired"}
     tracker._last_seen = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=3)
     assert not tracker.is_connected
 
@@ -715,3 +715,65 @@ async def test_daily_cleanup_timer_runs_on_the_event_loop(
 
     assert len(captured) == 1
     assert is_callback(captured[0])
+
+
+async def test_restored_offline_tracker_keeps_last_known_name_and_ssid(
+    hass: HomeAssistant,
+) -> None:
+    """Offline after restart must not fall back to the MAC as name (#111)."""
+    site = _site(hass, "a", [])
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.auto_discovery.Store.async_load",
+        return_value={
+            "1122334455AA": {
+                "entity_unique_id": f"{DOMAIN}_{MAC_A}",
+                "last_seen": "2026-01-01T00:00:00+00:00",
+                "client": {
+                    "name": "OPPO-K12x-5G",
+                    "ssid": "Home",
+                    "wireless": True,
+                    "radio_id": 1,
+                },
+            }
+        },
+    ):
+        await async_setup_entry(
+            hass,
+            _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+            added.extend,
+        )
+
+    restored = added[0]
+    assert restored.is_connected is False
+    assert restored.name == "OPPO-K12x-5G"
+    assert restored.device_info["name"] == "OPPO-K12x-5G"
+    assert restored.extra_state_attributes["ssid"] == "Home"
+    assert restored.extra_state_attributes["band"] == "5 GHz"
+
+
+async def test_tracker_keeps_last_ssid_but_not_signal_when_offline(
+    hass: HomeAssistant,
+) -> None:
+    """Going offline keeps the last SSID/band and drops live signal values."""
+    client = _client(MAC_A, "Phone")
+    client["rssi"] = -50
+    site = _site(hass, "a", [client])
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.auto_discovery.Store.async_delay_save"
+    ):
+        await async_setup_entry(
+            hass,
+            _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+            added.extend,
+        )
+    tracker = added[0]
+    site.data = {"devices": {}, "all_clients": []}
+
+    attrs = tracker.extra_state_attributes
+    assert tracker.is_connected is False
+    assert tracker.name == "Phone"
+    assert attrs["ssid"] == "Home"
+    assert attrs["band"] == "6 GHz"
+    assert "rssi_dbm" not in attrs

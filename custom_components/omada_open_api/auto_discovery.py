@@ -6,7 +6,7 @@ from copy import deepcopy
 import datetime as dt
 import logging
 import re
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.storage import Store
@@ -23,6 +23,17 @@ _LOGGER = logging.getLogger(__name__)
 _STORE_VERSION = 1
 _SAVE_DELAY_SECONDS = 60
 _MAC_PATTERN = re.compile(r"[0-9A-F]{12}")
+# Client fields kept so offline trackers keep their name, SSID and band.
+_SNAPSHOT_KEYS = (
+    "name",
+    "host_name",
+    "ssid",
+    "wireless",
+    "radio_id",
+    "vendor",
+    "device_type",
+    "os_name",
+)
 
 
 class AutoClientRecord(TypedDict):
@@ -30,6 +41,7 @@ class AutoClientRecord(TypedDict):
 
     entity_unique_id: str
     last_seen: str
+    client: NotRequired[dict[str, Any]]
 
 
 type AutoClientStoreData = dict[str, AutoClientRecord]
@@ -77,13 +89,24 @@ class AutoClientManager:
         mac: str,
         entity_unique_id: str,
         now: dt.datetime | None = None,
+        *,
+        client: Mapping[str, Any] | None = None,
     ) -> None:
-        """Record a successful sighting, updating at most once per day."""
+        """Record a successful sighting, updating at most once per day.
+
+        A changed client snapshot is saved immediately, without moving
+        last_seen, so the last known name survives a restart.
+        """
         canonical = normalize_client_mac(mac)
         if canonical in self._selected_macs or not _MAC_PATTERN.fullmatch(canonical):
             return
         seen_at = now or dt.datetime.now(dt.UTC)
         previous = self._records.get(canonical)
+        snapshot = (
+            {key: client[key] for key in _SNAPSHOT_KEYS if client.get(key) is not None}
+            if client
+            else None
+        )
         if previous is not None:
             previous_seen = _parse_utc(previous["last_seen"])
             if (
@@ -91,11 +114,18 @@ class AutoClientManager:
                 and previous_seen is not None
                 and seen_at < previous_seen + dt.timedelta(days=1)
             ):
+                if snapshot and snapshot != previous.get("client"):
+                    previous["client"] = snapshot
+                    self._schedule_save()
                 return
-        self._records[canonical] = {
+        record: AutoClientRecord = {
             "entity_unique_id": entity_unique_id,
             "last_seen": seen_at.isoformat(),
         }
+        kept = snapshot or (previous.get("client") if previous else None)
+        if kept:
+            record["client"] = kept
+        self._records[canonical] = record
         self._schedule_save()
 
     async def async_cleanup(
@@ -173,6 +203,8 @@ class AutoClientManager:
                 "entity_unique_id": unique_id,
                 "last_seen": last_seen,
             }
+            if isinstance(client := raw_record.get("client"), dict):
+                records[mac]["client"] = client
         return records
 
 
