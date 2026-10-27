@@ -86,6 +86,7 @@ def _create_switch(
     api_client = MagicMock()
     api_client.set_port_profile_override = AsyncMock()
     api_client.set_port_poe_mode = AsyncMock()
+    api_client.set_port_poe_via_port_patch = AsyncMock()
 
     coordinator = OmadaSiteCoordinator(
         hass=hass,
@@ -331,6 +332,107 @@ async def test_turn_off_poe_permissions_error_1005(hass: HomeAssistant) -> None:
     # Profile override was called; PoE mode failed with permissions.
     api.set_port_profile_override.assert_awaited_once()
     api.set_port_poe_mode.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Port-object PATCH fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_turn_off_falls_back_to_port_patch(hass: HomeAssistant) -> None:
+    """Test -1001 from profile override falls back to the port PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once_with(
+        TEST_SITE_ID, "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_turn_on_falls_back_when_poe_mode_rejected(hass: HomeAssistant) -> None:
+    """Test -1001 from the poe-mode endpoint falls back to the port PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_poe_mode.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_on()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once_with(
+        TEST_SITE_ID, "AA-BB-CC-DD-EE-02", 1, poe_enabled=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_turn_off_falls_back_when_override_reported_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """Test -39737 falls back to the PATCH, which also enables the override."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_poe_mode.side_effect = OmadaApiError(
+        "Profile override setting is disabled", error_code=-39737
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_permission_error_does_not_fall_back(hass: HomeAssistant) -> None:
+    """Test a permissions error is reported instead of retried as a PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "No permission", error_code=-1007
+    )
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+    ):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failing_fallback_raises(hass: HomeAssistant) -> None:
+    """Test a failing PATCH fallback surfaces as a HomeAssistantError."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+    api.set_port_poe_via_port_patch.side_effect = OmadaApiError("General error")
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Failed to set PoE"),
+    ):
+        await switch.async_turn_off()
 
 
 @pytest.mark.asyncio

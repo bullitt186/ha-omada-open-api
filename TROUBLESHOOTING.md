@@ -74,6 +74,27 @@ LAN, so prefer one of these free alternatives when possible:
 
 Transient API failures raise `UpdateFailed`, which triggers Home Assistant's automatic back-off and retry — a brief "Unavailable" during a controller hiccup is expected and should self-resolve.
 
+## PoE Switching Fails With `-1001`
+
+Some controller and switch combinations reject the Open API's dedicated PoE
+endpoints. Both `multi-ports/poe-mode` and `multi-ports/profile-override`
+answer `-1001 Invalid request parameters`, while other write calls with the
+same credentials succeed. This has been seen on Software Controller 6.2.14.11
+with a JetStream SG2428LP and on Agile Series (ES) switches.
+
+The integration detects this and sets PoE by patching the port object
+instead, so the PoE switch entities work without any configuration change.
+The fallback sends only the PoE mode plus the port's own profile and
+operation mode, both read back from the controller, so it cannot overwrite a
+port's VLAN, speed or profile settings.
+
+If PoE switching still fails, the error code tells you where to look:
+
+- `-1005` or `-1007` — the API application lacks *Site Device Manager Modify*
+- `-39737` — the controller reports profile override as disabled and the
+  fallback could not enable it; enable **Profile Overrides** for that port in
+  the Omada UI
+
 ## Token Errors
 
 Token refresh is fully automatic: OAuth2 tokens refresh 5 minutes before expiry, and an expired or rejected refresh token (including `-1001 Invalid request parameters`) triggers full re-authentication via client credentials. If you see persistent token errors in logs, authentication itself has failed (raising `ConfigEntryAuthFailed`) — use the **Reauthenticate** flow to obtain fresh credentials.

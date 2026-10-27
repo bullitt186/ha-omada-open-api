@@ -50,7 +50,7 @@ repos:
         files: ^custom_components/
         additional_dependencies:
           - types-requests
-          - homeassistant==2026.10.1
+          - homeassistant==2026.10.2
 
   - repo: local
     hooks:
