@@ -696,9 +696,6 @@
         "config_entry_not_found": {
             "message": "Config entry {config_entry_id} not found or is not an Omada integration."
         },
-        "no_runtime_data": {
-            "message": "No runtime data available for config entry {config_entry_id}."
-        },
         "reboot_failed": {
             "message": "Failed to reboot device {mac}."
         },
@@ -773,6 +770,12 @@
         },
         "cannot_connect": {
             "message": "Unable to connect to the Omada controller. Home Assistant will retry."
+        },
+        "no_loaded_entry": {
+            "message": "No loaded Omada integration found. Set up the integration or pass a config_entry_id."
+        },
+        "config_entry_not_loaded": {
+            "message": "Config entry {config_entry_id} is not loaded. Check the integration's status and try again."
         }
     },
     "issues": {
@@ -783,6 +786,18 @@
         "dpi_no_gateway": {
             "title": "Application traffic tracking requires a gateway",
             "description": "You have selected applications for DPI-based traffic tracking, but no Omada gateway was found on any configured site. Deep Packet Inspection (DPI) requires an Omada gateway in the network. Add a gateway to your Omada network or remove the application tracking selection in the integration options."
+        }
+    },
+    "services": {
+        "debug_ssid_switches": {
+            "name": "Debug SSID switches",
+            "description": "Writes diagnostic information about SSID switch creation to the Home Assistant log.",
+            "fields": {
+                "config_entry_id": {
+                    "name": "Config entry ID",
+                    "description": "Omada config entry to inspect. If omitted, the first loaded Omada integration is used."
+                }
+            }
         }
     }
 }

@@ -36,6 +36,34 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+class PartialFailureLog:
+    """Warn once per failing non-critical fetch, then log at debug level.
+
+    Coordinators keep their data when an optional endpoint fails, so the
+    failure would otherwise be logged on every poll (quality scale:
+    log-when-unavailable). Recovery is logged once at info level.
+    """
+
+    def __init__(self, site_name: str) -> None:
+        """Initialize the log for one site."""
+        self._site_name = site_name
+        self._failing: set[str] = set()
+
+    def failed(self, key: str, msg: str, *args: object) -> None:
+        """Log a failed fetch: warning the first time, debug afterwards."""
+        if key in self._failing:
+            _LOGGER.debug(msg, *args)
+            return
+        self._failing.add(key)
+        _LOGGER.warning(msg, *args)
+
+    def ok(self, key: str) -> None:
+        """Mark a fetch as working; log once if it had been failing."""
+        if key in self._failing:
+            self._failing.discard(key)
+            _LOGGER.info("Fetching %s for site %s works again", key, self._site_name)
+
+
 class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Coordinator to manage fetching Omada data for a site."""
 
@@ -68,6 +96,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api_client = api_client
         self.site_id = site_id
         self.site_name = site_name
+        self._partial_log = PartialFailureLog(site_name)
         self._enable_vpn_status = enable_vpn_status
         # Distinguish a successful empty client poll from a failed optional call.
         self._clients_fetch_ok = True
@@ -156,6 +185,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             poe_ports: dict[str, dict[str, Any]] = {}
             try:
                 poe_data = await self.api_client.get_switch_ports_poe(self.site_id)
+                self._partial_log.ok("PoE info")
                 for port_info in poe_data:
                     # Only include ports that support PoE on switches that support PoE
                     if (
@@ -185,7 +215,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.site_name,
                 )
             except OmadaApiError as err:
-                _LOGGER.warning(
+                self._partial_log.failed(
+                    "PoE info",
                     "Failed to fetch PoE info for site %s: %s",
                     self.site_name,
                     err,
@@ -385,6 +416,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 result = await self.api_client.get_clients(
                     self.site_id, page=page, page_size=1000
                 )
+                self._partial_log.ok("clients")
                 clients_page = result.get("data", [])
                 for client in clients_page:
                     if not client.get("active", False):
@@ -429,7 +461,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Preserve unknown/unavailable instead of incorrectly reporting
             # every active client as away when only this endpoint fails.
             self._clients_fetch_ok = False
-            _LOGGER.warning(
+            self._partial_log.failed(
+                "clients",
                 "Failed to fetch clients for site %s: %s",
                 self.site_name,
                 err,
@@ -489,6 +522,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             uplink_info_list = await self.api_client.get_device_uplink_info(
                 self.site_id, device_macs
             )
+            self._partial_log.ok("uplink info")
 
             for uplink_info in uplink_info_list:
                 device_mac = uplink_info.get(
@@ -507,7 +541,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     devices[device_mac]["duplex"] = uplink_info.get("duplex")
 
         except OmadaApiError as err:
-            _LOGGER.warning(
+            self._partial_log.failed(
+                "uplink info",
                 "Failed to fetch uplink info for site %s: %s",
                 self.site_name,
                 err,
@@ -529,6 +564,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             client_stats = await self.api_client.get_device_client_stats(
                 self.site_id, ap_macs
             )
+            self._partial_log.ok("per-band client stats")
             for stat in client_stats:
                 mac = stat.get("mac")
                 if mac and mac in devices:
@@ -542,7 +578,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # AP has confirmed wireless radio — stamp the flag.
                     devices[mac]["has_wireless_radio"] = True
         except OmadaApiError as err:
-            _LOGGER.warning(
+            self._partial_log.failed(
+                "per-band client stats",
                 "Failed to fetch per-band client stats for site %s: %s",
                 self.site_name,
                 err,
@@ -585,6 +622,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for ap_mac in ap_macs:
             try:
                 radio_data = await self.api_client.get_ap_radios(self.site_id, ap_mac)
+                self._partial_log.ok(f"radio info for AP {ap_mac}")
                 cached_values: dict[str, Any] = {}
                 for band_key, suffix in band_map.items():
                     band = radio_data.get(band_key)
@@ -603,7 +641,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     devices[ap_mac].update(cached_values)
 
             except OmadaApiError as err:
-                _LOGGER.warning(
+                self._partial_log.failed(
+                    f"radio info for AP {ap_mac}",
                     "Failed to fetch radio info for AP %s in site %s: %s",
                     ap_mac,
                     self.site_name,
@@ -772,8 +811,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             # Use comprehensive method to get ALL SSIDs from all WLAN groups
             ssids = await self.api_client.get_site_ssids_comprehensive(self.site_id)
+            self._partial_log.ok("SSIDs")
         except OmadaApiError as err:
-            _LOGGER.warning(
+            self._partial_log.failed(
+                "SSIDs",
                 "Failed to fetch SSIDs for site %s: %s (error_code: %s)",
                 self.site_name,
                 err,
@@ -826,6 +867,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     overrides = await self.api_client.get_ap_ssid_overrides(
                         self.site_id, mac
                     )
+                    self._partial_log.ok(f"SSID overrides for AP {mac}")
                     ap_overrides[mac] = overrides
                     _LOGGER.debug(
                         "Fetched SSID overrides for AP %s (%s): %d SSIDs",
@@ -834,7 +876,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         len(overrides.get("ssidOverrides", [])),
                     )
                 except OmadaApiError as err:
-                    _LOGGER.warning(
+                    self._partial_log.failed(
+                        f"SSID overrides for AP {mac}",
                         "Failed to fetch SSID overrides for AP %s: %s (error_code: %s)",
                         device.get("name", mac),
                         err,
@@ -859,6 +902,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         poe_budget: dict[str, dict[str, Any]] = {}
         try:
             poe_usage = await self.api_client.get_poe_usage(self.site_id)
+            self._partial_log.ok("PoE usage")
             for switch_info in poe_usage:
                 switch_mac = switch_info.get("mac", "")
                 if switch_mac:
@@ -876,7 +920,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.site_name,
             )
         except OmadaApiError as err:
-            _LOGGER.warning(
+            self._partial_log.failed(
+                "PoE usage",
                 "Failed to fetch PoE usage for site %s: %s",
                 self.site_name,
                 err,
@@ -910,6 +955,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ports = await self.api_client.get_gateway_wan_status(
                     self.site_id, gateway_mac
                 )
+                self._partial_log.ok(f"WAN status for gateway {gateway_mac}")
                 wan_status[gateway_mac] = ports
                 _LOGGER.debug(
                     "Fetched %d WAN port(s) for gateway %s",
@@ -917,7 +963,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     gateway_mac,
                 )
             except OmadaApiError as err:
-                _LOGGER.warning(
+                self._partial_log.failed(
+                    f"WAN status for gateway {gateway_mac}",
                     "Failed to fetch WAN status for gateway %s: %s",
                     gateway_mac,
                     err,
@@ -944,13 +991,19 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for vpn_type, fetch in fetchers.items():
             try:
                 vpn_status[vpn_type] = await fetch(self.site_id)
+                self._partial_log.ok(f"{vpn_type} VPN stats")
             except OmadaApiError as err:
                 vpn_status[vpn_type] = []
                 # HTTP 400 means the controller rejected every request for
                 # this VPN type. The API client retries it hourly; warn only
                 # once until it recovers. See GH #63.
                 if err.http_status != 400:
-                    _LOGGER.warning("Failed to fetch %s VPN stats: %s", vpn_type, err)
+                    self._partial_log.failed(
+                        f"{vpn_type} VPN stats",
+                        "Failed to fetch %s VPN stats: %s",
+                        vpn_type,
+                        err,
+                    )
                 elif vpn_type not in self._unsupported_vpn_types:
                     self._unsupported_vpn_types.add(vpn_type)
                     _LOGGER.warning(
@@ -986,8 +1039,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 tunnel["peers"] = await self.api_client.get_vpn_s2s_peers(
                     self.site_id, tunnel_id
                 )
+                self._partial_log.ok(f"peers for S2S tunnel {tunnel_id}")
             except OmadaApiError as err:
-                _LOGGER.warning(
+                self._partial_log.failed(
+                    f"peers for S2S tunnel {tunnel_id}",
                     "Failed to fetch peers for S2S tunnel %s: %s",
                     tunnel_id,
                     err,
@@ -999,8 +1054,10 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 server["peers"] = await self.api_client.get_vpn_server_clients(
                     self.site_id, tunnel_id
                 )
+                self._partial_log.ok(f"clients for VPN server {tunnel_id}")
             except OmadaApiError as err:
-                _LOGGER.warning(
+                self._partial_log.failed(
+                    f"clients for VPN server {tunnel_id}",
                     "Failed to fetch clients for VPN server %s: %s",
                     tunnel_id,
                     err,
@@ -1305,6 +1362,7 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
         self.api_client = api_client
         self.site_id = site_id
         self.site_name = site_name
+        self._partial_log = PartialFailureLog(site_name)
         self.selected_client_macs = selected_client_macs
         self.selected_app_ids = selected_app_ids
         self._last_reset: dt.datetime | None = None
@@ -1364,6 +1422,7 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                         start_timestamp,
                         end_timestamp,
                     )
+                    self._partial_log.ok(f"app traffic for client {client_mac}")
 
                     # Process and filter to only selected apps
                     client_apps: dict[str, Any] = {}
@@ -1386,7 +1445,8 @@ class OmadaAppTrafficCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]
                         client_app_data[client_mac] = client_apps
 
                 except OmadaApiError as err:
-                    _LOGGER.warning(
+                    self._partial_log.failed(
+                        f"app traffic for client {client_mac}",
                         "Failed to fetch app traffic for client %s: %s",
                         client_mac,
                         err,

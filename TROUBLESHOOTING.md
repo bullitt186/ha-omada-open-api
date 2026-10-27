@@ -123,7 +123,9 @@ The integration may create repair notifications under **Settings → Repairs**:
 Dumps SSID switch entity diagnostics for a config entry to the HA log — useful when entities aren't created as expected.
 
 ```yaml
-service: omada_open_api.debug_ssid_switches
+action: omada_open_api.debug_ssid_switches
 data:
-  config_entry_id: "your_config_entry_id_here"  # from the entity registry
+  config_entry_id: "your_config_entry_id_here"
 ```
+
+`config_entry_id` is optional; without it, the first loaded Omada integration is used.

@@ -27,6 +27,7 @@
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Entities](#entities)
+- [Actions](#actions)
 - [Automation Examples](#automation-examples)
 - [Use Cases](#use-cases)
 - [Options](#options)
@@ -300,6 +301,18 @@ One set of four per selected site. State is the raw threat count for a rolling w
 
 ---
 
+## Actions
+
+### `omada_open_api.debug_ssid_switches`
+
+Writes SSID switch diagnostics (write access, SSIDs per site, created SSID switch entities) to the Home Assistant log. Use it when SSID switches are missing.
+
+| Field | Required | Description |
+|---|---|---|
+| `config_entry_id` | No | Omada config entry to inspect. If omitted, the first loaded Omada integration is used. |
+
+The action fails with a clear error if the entry does not exist or is not loaded. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#debug-services) for how to read the output.
+
 ## Automation Examples
 
 ### Alert When an AP Goes Offline
@@ -460,6 +473,7 @@ and per-client monitoring entities.
 
 | Parameter | Default | Description |
 |---|---:|---|
+| **Client disconnect timeout** | 0 min | Accepts 0–60 minutes. Keeps a tracked client `home` for a grace period after it disappears, avoiding false away events during brief Wi-Fi disconnects. `0` marks it away immediately. |
 | **Automatically discover client presence trackers** | Off | Creates one presence-only tracker for each matching active client. |
 | **Remove absent auto-discovered trackers after** | 30 days | Accepts 0–3650 days; `0` keeps registry entries indefinitely. |
 | **Wireless networks** | All | Limits wireless discovery to selected SSIDs. |
@@ -487,12 +501,6 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | **Device polling interval** | 60 s | 30 – 3600 s | How often infrastructure device data (APs, switches, gateways) is refreshed. Affects status, CPU, memory, uptime, PoE, and firmware sensors. |
 | **Client polling interval** | 30 s | 30 – 3600 s | How often client data is refreshed. Affects device trackers, RSSI, SNR, traffic, and activity rate sensors. |
 | **Application traffic polling interval** | 300 s | 30 – 3600 s | How often per-client application traffic data is refreshed. Higher values recommended since DPI data updates less frequently on the controller. |
-
-### Device Tracker Settings
-
-| Parameter | Default | Range | Description |
-|---|---|---|---|
-| **Client disconnect timeout** | 0 min | 0 – 60 min | Keeps a tracked client `home` for a grace period after it disappears, avoiding false away events during brief Wi-Fi disconnects. Zero marks it away immediately. |
 
 ### Device Entity Settings
 
