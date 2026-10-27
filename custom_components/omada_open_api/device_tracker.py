@@ -328,12 +328,14 @@ async def _setup_auto_client_trackers(
     for site_coord in site_coordinators:
         entry.async_on_unload(site_coord.async_add_listener(_async_discover_clients))
     _async_discover_clients()
+
+    # A plain lambda would run in the executor; cleanup must stay on the loop.
+    @callback
+    def _async_daily_cleanup(_now: dt.datetime) -> None:
+        _async_discover_clients(force_cleanup=True)
+
     entry.async_on_unload(
-        async_track_time_interval(
-            hass,
-            lambda _now: _async_discover_clients(force_cleanup=True),
-            dt.timedelta(days=1),
-        )
+        async_track_time_interval(hass, _async_daily_cleanup, dt.timedelta(days=1))
     )
 
 

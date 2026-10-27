@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from homeassistant.components.device_tracker import SourceType
+from homeassistant.core import is_callback
 
 from custom_components.omada_open_api.const import (
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
@@ -691,3 +692,26 @@ async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
     )
     assert len(added) == 1
     assert "rssi_dbm" not in added[0].extra_state_attributes
+
+
+async def test_daily_cleanup_timer_runs_on_the_event_loop(
+    hass: HomeAssistant,
+) -> None:
+    """The daily cleanup callback must be a @callback, not an executor job."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone")])
+    captured: list = []
+
+    def _capture(_hass, action, _interval):
+        captured.append(action)
+        return lambda: None
+
+    with patch(
+        "custom_components.omada_open_api.device_tracker.async_track_time_interval",
+        side_effect=_capture,
+    ):
+        await async_setup_entry(
+            hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}), [].extend
+        )
+
+    assert len(captured) == 1
+    assert is_callback(captured[0])
