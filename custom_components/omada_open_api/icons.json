@@ -267,6 +267,15 @@
             },
             "vpn_client_connected_since": {
                 "default": "mdi:clock-start"
+            },
+            "threat_heatmap_daily": {
+                "default": "mdi:map-marker-radius"
+            },
+            "threat_heatmap_weekly": {
+                "default": "mdi:map-marker-radius"
+            },
+            "threat_heatmap_monthly": {
+                "default": "mdi:map-marker-radius"
             }
         },
         "binary_sensor": {
@@ -363,6 +372,9 @@
             },
             "locate": {
                 "default": "mdi:crosshairs-gps"
+            },
+            "wan_speed_test": {
+                "default": "mdi:speedometer"
             }
         }
     }
