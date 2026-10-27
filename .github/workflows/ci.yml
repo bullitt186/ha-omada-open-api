@@ -123,6 +123,9 @@ jobs:
             -n auto \
             -v
 
+      - name: Per-module coverage
+        run: bash scripts/check_module_coverage.sh
+
   validate:
     name: HACS & hassfest
     runs-on: ubuntu-latest
