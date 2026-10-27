@@ -10,6 +10,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.omada_open_api.const import (
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_OMADA_ID,
@@ -186,6 +187,28 @@ async def test_diagnostics_redacts_fusion_credentials(hass: HomeAssistant) -> No
 
     assert result["entry_data"][CONF_USERNAME] == "**REDACTED**"
     assert result["entry_data"][CONF_PASSWORD] == "**REDACTED**"
+
+
+async def test_diagnostics_redacts_client_macs_in_options(
+    hass: HomeAssistant,
+) -> None:
+    """Client MAC lists in the options are redacted; other options stay."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={},
+        options={
+            CONF_SELECTED_CLIENTS: ["AA-BB-CC-DD-EE-01"],
+            CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS: ["AA-BB-CC-DD-EE-02"],
+            CONF_SELECTED_APPLICATIONS: [42],
+        },
+    )
+    entry.add_to_hass(hass)
+
+    options = (await async_get_config_entry_diagnostics(hass, entry))["entry_options"]
+
+    assert options[CONF_SELECTED_CLIENTS] == "**REDACTED**"
+    assert options[CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS] == "**REDACTED**"
+    assert options[CONF_SELECTED_APPLICATIONS] == [42]
 
 
 async def test_diagnostics_coordinator_summary(hass: HomeAssistant) -> None:

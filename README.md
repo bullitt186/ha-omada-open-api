@@ -473,6 +473,7 @@ and per-client monitoring entities.
 
 | Parameter | Default | Description |
 |---|---:|---|
+| **Client disconnect timeout** | 0 min | Accepts 0–60 minutes. Keeps a tracked client `home` for a grace period after it disappears, avoiding false away events during brief Wi-Fi disconnects. `0` marks it away immediately. |
 | **Automatically discover client presence trackers** | Off | Creates one presence-only tracker for each matching active client. |
 | **Remove absent auto-discovered trackers after** | 30 days | Accepts 0–3650 days; `0` keeps registry entries indefinitely. |
 | **Wireless networks** | All | Limits wireless discovery to selected SSIDs. |
@@ -500,12 +501,6 @@ Configure how frequently each data type is polled from the Omada controller. Low
 | **Device polling interval** | 60 s | 30 – 3600 s | How often infrastructure device data (APs, switches, gateways) is refreshed. Affects status, CPU, memory, uptime, PoE, and firmware sensors. |
 | **Client polling interval** | 30 s | 30 – 3600 s | How often client data is refreshed. Affects device trackers, RSSI, SNR, traffic, and activity rate sensors. |
 | **Application traffic polling interval** | 300 s | 30 – 3600 s | How often per-client application traffic data is refreshed. Higher values recommended since DPI data updates less frequently on the controller. |
-
-### Device Tracker Settings
-
-| Parameter | Default | Range | Description |
-|---|---|---|---|
-| **Client disconnect timeout** | 0 min | 0 – 60 min | Keeps a tracked client `home` for a grace period after it disappears, avoiding false away events during brief Wi-Fi disconnects. Zero marks it away immediately. |
 
 ### Device Entity Settings
 
