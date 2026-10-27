@@ -4003,8 +4003,11 @@ async def test_options_get_fusion_session_creates_and_caches(
     session = flow._get_fusion_session()
     try:
         assert flow._get_fusion_session() is session
+        # Created via async_create_clientsession: HA user agent, unsafe jar.
+        assert session.headers["User-Agent"].startswith("HomeAssistant/")
+        assert session.cookie_jar._unsafe
     finally:
-        await session.close()
+        session.detach()
 
 
 async def test_options_flow_closes_fusion_session_when_removed(

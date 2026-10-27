@@ -20,7 +20,10 @@ from homeassistant.helpers import (
     entity_registry as er,
     issue_registry as ir,
 )
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import (
+    async_create_clientsession,
+    async_get_clientsession,
+)
 
 from .api import OmadaApiAuthError, OmadaApiClient, OmadaApiError
 from .auth import WebSessionAuth
@@ -426,13 +429,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             # Fusion Gateway: web-session authentication
             # Fusion controllers are accessed by IP — aiohttp's default safe
             # cookie jar refuses to store cookies for IP-based URLs, so we
-            # create a session with unsafe=True.
-            connector = aiohttp.TCPConnector(ssl=False)
-            jar = aiohttp.CookieJar(unsafe=True)
-            session = aiohttp.ClientSession(connector=connector, cookie_jar=jar)
-            # The entry owns this session. Unload callbacks also run when
-            # setup fails, so the session is never leaked.
-            entry.async_on_unload(session.close)
+            # create a session with unsafe=True. Home Assistant registers the
+            # cleanup on entry unload (also when setup fails) and on shutdown.
+            session = async_create_clientsession(
+                hass, verify_ssl=False, cookie_jar=aiohttp.CookieJar(unsafe=True)
+            )
 
             async def _fusion_token_callback(*_args: str) -> None:
                 """No-op for Fusion — session is re-created from credentials."""
