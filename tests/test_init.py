@@ -1237,27 +1237,6 @@ async def test_debug_ssid_service_missing_entry(hass: HomeAssistant) -> None:
         )
 
 
-async def test_debug_ssid_service_no_runtime_data(hass: HomeAssistant) -> None:
-    """Test debug service when runtime data is missing raises error."""
-    entry = _build_entry(hass)
-    patcher, _ = _patch_api_client()
-
-    with patcher:
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-    # Remove runtime data to simulate edge case
-    entry.runtime_data = None  # type: ignore[assignment]
-
-    with pytest.raises(ServiceValidationError):
-        await hass.services.async_call(
-            DOMAIN,
-            "debug_ssid_switches",
-            {"config_entry_id": entry.entry_id},
-            blocking=True,
-        )
-
-
 async def test_debug_ssid_service_with_ssids(hass: HomeAssistant) -> None:
     """Test debug service logs SSID information."""
     entry = _build_entry(hass)

@@ -1,4 +1,4 @@
-"""Tests for diagnostic service."""
+"""Tests for the debug_ssid_switches service."""
 
 from __future__ import annotations
 
@@ -6,119 +6,75 @@ import logging
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.exceptions import ServiceValidationError
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.omada_open_api import async_setup
 from custom_components.omada_open_api.const import DOMAIN
+from custom_components.omada_open_api.types import OmadaRuntimeData
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
-    import pytest
 
-_LOGGER = logging.getLogger(__name__)
+SERVICE = "debug_ssid_switches"
 
 
-async def test_debug_ssid_switches_service(hass: HomeAssistant) -> None:
-    """Test the debug_ssid_switches service."""
-    # Create a mock config entry
-    mock_entry = MagicMock()
-    mock_entry.entry_id = "test_entry_123"
-    mock_entry.title = "Test Omada"
-    mock_entry.domain = DOMAIN
-
-    # Create mock runtime data
-    mock_coordinator = MagicMock()
-    mock_coordinator.data = {
-        "ssids": [
-            {
-                "id": "ssid_001",
-                "wlanId": "wlan_001",
-                "name": "TestWiFi",
-                "broadcast": True,
-            }
-        ],
-    }
-
-    mock_entry.runtime_data = MagicMock()
-    mock_entry.runtime_data.coordinators = {"site_001": mock_coordinator}
-    mock_entry.runtime_data.has_write_access = True
-    mock_entry.runtime_data.site_devices = {"site_site_001": MagicMock()}
-
-    # Mock config_entries.async_get_entry
-    hass.config_entries.async_get_entry = MagicMock(return_value=mock_entry)
-
-    # Register the service (simulating what happens in async_setup_entry)
-    async def debug_ssid_switches_service(call):
-        """Mock service handler."""
-        # This would normally be registered by async_setup_entry
-
-    hass.services.async_register(
-        DOMAIN, "debug_ssid_switches", debug_ssid_switches_service
+def _entry(hass: HomeAssistant, state: ConfigEntryState) -> MockConfigEntry:
+    """Add an Omada entry in the given state."""
+    entry = MockConfigEntry(domain=DOMAIN, title="Omada", data={})
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, state)
+    coordinator = MagicMock()
+    coordinator.data = {"ssids": [{"id": "s1", "wlanId": "w1", "name": "Home"}]}
+    entry.runtime_data = MagicMock(
+        spec=OmadaRuntimeData,
+        coordinators={"site": coordinator},
+        has_write_access=True,
+        site_devices={},
     )
-
-    # Call the service
-    await hass.services.async_call(
-        DOMAIN,
-        "debug_ssid_switches",
-        {"config_entry_id": "test_entry_123"},
-        blocking=True,
-    )
-
-    # Verify service was registered
-    assert hass.services.has_service(DOMAIN, "debug_ssid_switches")
+    return entry
 
 
-async def test_debug_ssid_switches_service_default_entry(hass: HomeAssistant) -> None:
-    """Test debug service uses first entry when no ID provided."""
-    mock_entry = MagicMock()
-    mock_entry.entry_id = "default_entry"
-    mock_entry.title = "Default Omada"
-    mock_entry.domain = DOMAIN
-    mock_entry.runtime_data = MagicMock()
-    mock_entry.runtime_data.coordinators = {}
-    mock_entry.runtime_data.has_write_access = False
-    mock_entry.runtime_data.site_devices = {}
-
-    hass.config_entries.async_get_entry = MagicMock(return_value=mock_entry)
-
-    async def debug_ssid_switches_service(call):
-        """Mock service handler."""
-
-    hass.services.async_register(
-        DOMAIN, "debug_ssid_switches", debug_ssid_switches_service
-    )
-
-    # Call service without config_entry_id
-    await hass.services.async_call(
-        DOMAIN,
-        "debug_ssid_switches",
-        {},
-        blocking=True,
-    )
-
-    assert hass.services.has_service(DOMAIN, "debug_ssid_switches")
+async def _call(hass: HomeAssistant, data: dict[str, str]) -> None:
+    await async_setup(hass, {})
+    await hass.services.async_call(DOMAIN, SERVICE, data, blocking=True)
 
 
-async def test_debug_ssid_switches_service_invalid_entry(
+async def test_without_entry_id_uses_first_loaded_entry(
     hass: HomeAssistant, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Test debug service with invalid config entry."""
-    hass.config_entries.async_get_entry = MagicMock(return_value=None)
+    """Without config_entry_id the first loaded Omada entry is used."""
+    caplog.set_level(logging.INFO)
+    _entry(hass, ConfigEntryState.NOT_LOADED)
+    loaded = _entry(hass, ConfigEntryState.LOADED)
 
-    async def debug_ssid_switches_service(call):
-        """Mock service handler that simulates error logging."""
-        config_entry_id = call.data.get("config_entry_id", "test_id")
-        if not hass.config_entries.async_get_entry(config_entry_id):
-            # Simulate the error logging
-            _LOGGER.error("Config entry %s not found", config_entry_id)
+    await _call(hass, {})
 
-    hass.services.async_register(
-        DOMAIN, "debug_ssid_switches", debug_ssid_switches_service
-    )
+    assert f"Config Entry: Omada ({loaded.entry_id})" in caplog.text
+    assert "Total SSIDs across all sites: 1" in caplog.text
 
-    await hass.services.async_call(
-        DOMAIN,
-        "debug_ssid_switches",
-        {"config_entry_id": "nonexistent"},
-        blocking=True,
-    )
 
-    # Service should still be registered even with invalid entry
-    assert hass.services.has_service(DOMAIN, "debug_ssid_switches")
+@pytest.mark.parametrize(
+    ("state", "data_fn", "key"),
+    [
+        (None, lambda e: {}, "no_loaded_entry"),
+        (None, lambda e: {"config_entry_id": "missing"}, "config_entry_not_found"),
+        (
+            ConfigEntryState.SETUP_RETRY,
+            lambda e: {"config_entry_id": e.entry_id},
+            "config_entry_not_loaded",
+        ),
+    ],
+)
+async def test_invalid_target_raises(
+    hass: HomeAssistant, state: ConfigEntryState | None, data_fn, key: str
+) -> None:
+    """Unusable targets raise a translated ServiceValidationError."""
+    entry = _entry(hass, state) if state else None
+
+    with pytest.raises(ServiceValidationError) as exc_info:
+        await _call(hass, data_fn(entry))
+
+    assert exc_info.value.translation_key == key
