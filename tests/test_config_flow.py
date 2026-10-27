@@ -40,6 +40,8 @@ from custom_components.omada_open_api.const import (
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
+    CONF_ENABLE_VPN_SENSORS,
+    CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
@@ -4326,6 +4328,31 @@ async def test_options_site_entity_settings_step(hass: HomeAssistant) -> None:
     )
     assert result["type"] == FlowResultType.CREATE_ENTRY
     assert entry.options[CONF_ENABLE_THREAT_HEATMAP_SENSORS] is False
+
+
+async def test_options_gateway_entity_settings_step(hass: HomeAssistant) -> None:
+    """Options flow gateway_entity_settings step saves both toggles."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "gateway_entity_settings"}
+    )
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "gateway_entity_settings"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_ENABLE_VPN_SENSORS: False, CONF_ENABLE_WAN_SPEED_TEST: True},
+    )
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options[CONF_ENABLE_VPN_SENSORS] is False
+    assert entry.options[CONF_ENABLE_WAN_SPEED_TEST] is True
 
 
 def _many_clients(count: int, *, active_from: int) -> list[dict[str, Any]]:
