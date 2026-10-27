@@ -232,7 +232,7 @@ async def test_setup_transport_refusal_defers_to_home_assistant_retry(
         get_sites=AsyncMock(side_effect=error),
     )
 
-    with patcher, pytest.raises(ConfigEntryNotReady, match="^controller_unreachable$"):
+    with patcher, pytest.raises(ConfigEntryNotReady, match=r"^controller_unreachable$"):
         await async_setup_entry(hass, entry)
 
     mock_client.get_sites.assert_awaited_once()
@@ -249,7 +249,7 @@ async def test_setup_login_transport_failure_defers_to_retry(
         get_sites=AsyncMock(side_effect=error),
     )
 
-    with patcher, pytest.raises(ConfigEntryNotReady, match="^controller_unreachable$"):
+    with patcher, pytest.raises(ConfigEntryNotReady, match=r"^controller_unreachable$"):
         await async_setup_entry(hass, entry)
 
     mock_client.get_sites.assert_awaited_once()
