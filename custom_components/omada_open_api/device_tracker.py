@@ -8,13 +8,13 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.device_tracker import (  # type: ignore[attr-defined]
+from homeassistant.components.device_tracker.const import SourceType
+from homeassistant.components.device_tracker.entity import (
     BaseScannerEntity,
     ScannerEntity,
-    SourceType,
 )
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
 from .auto_discovery import AutoClientManager

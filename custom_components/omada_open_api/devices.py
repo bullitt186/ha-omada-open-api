@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers.entity import DeviceInfo  # type: ignore[attr-defined]
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import DOMAIN
 

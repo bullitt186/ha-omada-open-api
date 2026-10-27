@@ -659,11 +659,14 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(self._omada_id)
             self._abort_if_unique_id_configured()
 
+            # The cloud or local step sets the URL; restart if it is missing.
+            if self._api_url is None:
+                return await self.async_step_user()
             # Validate credentials by obtaining access token
             try:
                 _LOGGER.debug("Attempting to get access token from %s", self._api_url)
                 token_data = await self._get_access_token(
-                    self._api_url,  # type: ignore[arg-type]
+                    self._api_url,
                     self._omada_id,
                     self._client_id,
                     self._client_secret,
@@ -713,9 +716,9 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
         description_placeholders = {}
-        if self._controller_type == CONTROLLER_TYPE_CLOUD:
+        if self._controller_type == CONTROLLER_TYPE_CLOUD and self._region:
             description_placeholders["controller_info"] = (
-                f"Region: {REGIONS[self._region]['name']}"  # type: ignore[index]
+                f"Region: {REGIONS[self._region]['name']}"
             )
         else:
             description_placeholders["controller_info"] = f"URL: {self._api_url}"

@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.binary_sensor import (  # type: ignore[attr-defined]
-    BinarySensorDeviceClass,
+from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
     BinarySensorEntityDescription,
 )
+from homeassistant.components.binary_sensor.const import BinarySensorDeviceClass
+from homeassistant.const import EntityCategory
 from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN
 from .coordinator import (

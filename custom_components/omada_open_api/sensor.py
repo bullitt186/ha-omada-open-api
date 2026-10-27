@@ -15,6 +15,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    EntityCategory,
     UnitOfDataRate,
     UnitOfInformation,
     UnitOfPower,
@@ -23,7 +24,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -108,6 +109,9 @@ if TYPE_CHECKING:
 
     from .types import OmadaConfigEntry
 
+    # SensorEntity.native_value also accepts datetimes (timestamp sensors).
+    type SensorValue = StateType | dt.datetime
+
 
 def _auto_scale_bytes(
     bytes_value: float | None,
@@ -152,7 +156,7 @@ def _ceil_to_30s(ts: dt.datetime) -> dt.datetime:
 class OmadaSensorEntityDescription(SensorEntityDescription):
     """Describes Omada sensor entity."""
 
-    value_fn: Callable[[dict[str, Any]], StateType]
+    value_fn: Callable[[dict[str, Any]], SensorValue]
     available_fn: Callable[[dict[str, Any]], bool] = lambda device: True
     applicable_types: tuple[str, ...] | None = None
     attrs_fn: Callable[[dict[str, Any]], dict[str, Any] | None] | None = None
@@ -228,8 +232,8 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="uptime",
         name="Uptime",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda device: (  # type: ignore[arg-type]
-            (  # type: ignore[return-value]
+        value_fn=lambda device: (
+            (
                 dt_util.utcnow().replace(microsecond=0)
                 - dt.timedelta(seconds=device["uptime"])
             )
@@ -741,8 +745,8 @@ CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         translation_key="client_uptime",
         name="Uptime",
         device_class=SensorDeviceClass.TIMESTAMP,
-        value_fn=lambda client: (  # type: ignore[arg-type]
-            (  # type: ignore[return-value]
+        value_fn=lambda client: (
+            (
                 dt_util.utcnow().replace(microsecond=0)
                 - dt.timedelta(seconds=client["uptime"])
             )
@@ -1004,7 +1008,7 @@ VPN_PEER_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_vpn_peer_connected_since,  # type: ignore[arg-type]
+        value_fn=_vpn_peer_connected_since,
         available_fn=lambda peer: bool(peer.get("loginTime")),
     ),
 )
@@ -1062,7 +1066,7 @@ VPN_CLIENT_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=_vpn_peer_connected_since,  # type: ignore[arg-type]
+        value_fn=_vpn_peer_connected_since,
         available_fn=lambda tunnel: bool(tunnel.get("loginTime")),
     ),
 )
@@ -1860,7 +1864,7 @@ class OmadaDeviceSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         self._attr_device_info = di
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         device_data = self.coordinator.data.get("devices", {}).get(self._device_mac)
         if device_data is None:
@@ -1914,7 +1918,7 @@ class OmadaDeviceUptimeSensor(OmadaDeviceSensor):
         self._last_uptime_seconds: int | None = None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return a stable boot timestamp, suppressing minor jitter."""
         device_data = self.coordinator.data.get("devices", {}).get(self._device_mac)
         if device_data is None:
@@ -1932,7 +1936,7 @@ class OmadaDeviceUptimeSensor(OmadaDeviceSensor):
 
         if last_ts is None:
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # Reboot detection: device uptime dropped significantly.
         if (
@@ -1940,15 +1944,15 @@ class OmadaDeviceUptimeSensor(OmadaDeviceSensor):
             and uptime_seconds < last_up - _UPTIME_REBOOT_THRESHOLD_SECONDS
         ):
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # Hysteresis: suppress updates smaller than the configured threshold.
         if abs((candidate - last_ts).total_seconds()) >= _UPTIME_MIN_DELTA_SECONDS:
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # No significant change: return the cached value.
-        return last_ts  # type: ignore[return-value]
+        return last_ts
 
 
 class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
@@ -1971,7 +1975,7 @@ class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         )
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         return self.entity_description.value_fn(self.coordinator.data)
 
@@ -2016,7 +2020,7 @@ class OmadaThreatHeatmapSensor(
         )
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the raw threat row count for the window."""
         return self.coordinator.data.get("total_rows")
 
@@ -2101,7 +2105,7 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
             )
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         client_data = self.coordinator.data.get(self._client_mac)
         if client_data is None:
@@ -2145,7 +2149,7 @@ class OmadaClientUptimeSensor(OmadaClientSensor):
         self._last_uptime_seconds: int | None = None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return a stable boot timestamp, suppressing minor jitter."""
         client_data = self.coordinator.data.get(self._client_mac)
         if client_data is None:
@@ -2163,7 +2167,7 @@ class OmadaClientUptimeSensor(OmadaClientSensor):
 
         if last_ts is None:
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # Reconnect detection: client uptime dropped significantly.
         if (
@@ -2171,15 +2175,15 @@ class OmadaClientUptimeSensor(OmadaClientSensor):
             and uptime_seconds < last_up - _UPTIME_REBOOT_THRESHOLD_SECONDS
         ):
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # Hysteresis: suppress updates smaller than the configured threshold.
         if abs((candidate - last_ts).total_seconds()) >= _UPTIME_MIN_DELTA_SECONDS:
             self._last_published_boot_ts = candidate
-            return candidate  # type: ignore[return-value]
+            return candidate
 
         # No significant change: return the cached value.
-        return last_ts  # type: ignore[return-value]
+        return last_ts
 
 
 class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
@@ -2212,7 +2216,7 @@ class OmadaPoeBudgetSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         )
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         budget_data = self.coordinator.data.get("poe_budget", {}).get(self._switch_mac)
         if budget_data is None:
@@ -2474,14 +2478,14 @@ class OmadaWanSpeedTestSensor(OmadaEntity[OmadaWanSpeedTestCoordinator], SensorE
         return None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the metric from the latest port result."""
         result = self._result()
         if result is None:
             return None
         value = result.get(self._data_key)
         if self._data_key == "time" and value is not None:
-            return dt.datetime.fromtimestamp(value, tz=dt.UTC)  # type: ignore[return-value]
+            return dt.datetime.fromtimestamp(value, tz=dt.UTC)
         return value
 
     @property
@@ -2539,7 +2543,7 @@ class OmadaWanSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         return None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         port_data = self._get_port_data()
         if port_data is None:
@@ -2606,7 +2610,7 @@ class OmadaVpnSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         return None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         tunnel_data = self._get_tunnel_data()
         if tunnel_data is None:
@@ -2680,7 +2684,7 @@ class OmadaVpnPeerSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         return None
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         peer_data = self._get_peer_data()
         if peer_data is None:
@@ -2728,7 +2732,7 @@ class OmadaDeviceTrafficSensor(OmadaEntity[OmadaDeviceStatsCoordinator], SensorE
         )
 
     @property
-    def native_value(self) -> StateType:
+    def native_value(self) -> SensorValue:
         """Return the state of the sensor."""
         device_data = self.coordinator.data.get(self._device_mac)
         if device_data is None:
