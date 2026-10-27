@@ -15,7 +15,10 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_VERIFY_SSL
 from homeassistant.core import callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import (
+    async_create_clientsession,
+    async_get_clientsession,
+)
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -554,18 +557,21 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         on the cookie jar to persist session cookies.
         """
         if self._fusion_session is None:
-            connector = aiohttp.TCPConnector(ssl=False)
-            jar = aiohttp.CookieJar(unsafe=True)
-            self._fusion_session = aiohttp.ClientSession(
-                connector=connector, cookie_jar=jar
+            self._fusion_session = async_create_clientsession(
+                self.hass,
+                verify_ssl=False,
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
             )
         return self._fusion_session
 
     @callback
     def async_remove(self) -> None:
-        """Close the flow's own Fusion session when the flow ends."""
+        """Release the flow's own Fusion session when the flow ends.
+
+        Sessions from async_create_clientsession must be detached, not closed.
+        """
         if self._fusion_session is not None:
-            self.hass.async_create_task(self._fusion_session.close())
+            self._fusion_session.detach()
 
     async def _get_omada_cid(self, api_url: str) -> str:
         """Auto-detect Omada controller ID from /api/info endpoint."""
@@ -1609,18 +1615,21 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         on the cookie jar to persist session cookies.
         """
         if self._fusion_session is None:
-            connector = aiohttp.TCPConnector(ssl=False)
-            jar = aiohttp.CookieJar(unsafe=True)
-            self._fusion_session = aiohttp.ClientSession(
-                connector=connector, cookie_jar=jar
+            self._fusion_session = async_create_clientsession(
+                self.hass,
+                verify_ssl=False,
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
             )
         return self._fusion_session
 
     @callback
     def async_remove(self) -> None:
-        """Close the flow's own Fusion session when the flow ends."""
+        """Release the flow's own Fusion session when the flow ends.
+
+        Sessions from async_create_clientsession must be detached, not closed.
+        """
         if self._fusion_session is not None:
-            self.hass.async_create_task(self._fusion_session.close())
+            self._fusion_session.detach()
 
     async def _fusion_login(self) -> str:
         """Log in to a Fusion gateway using stored credentials, return CSRF token.
