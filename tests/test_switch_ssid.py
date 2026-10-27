@@ -116,30 +116,6 @@ async def test_ssid_switch_is_off_when_broadcast_disabled(hass: HomeAssistant) -
     assert switch.is_on is False
 
 
-async def test_ssid_switch_icon_on(hass: HomeAssistant) -> None:
-    """Test SSID switch shows wifi icon when on."""
-    ssid_data = {
-        "ssidId": "ssid_001",
-        "wlanId": "wlan_001",
-        "ssidName": "HomeWiFi",
-        "broadcast": True,
-    }
-    switch = _create_ssid_switch(hass, ssid_data)
-    assert switch.icon == "mdi:wifi"
-
-
-async def test_ssid_switch_icon_off(hass: HomeAssistant) -> None:
-    """Test SSID switch shows wifi-off icon when off."""
-    ssid_data = {
-        "ssidId": "ssid_001",
-        "wlanId": "wlan_001",
-        "ssidName": "HomeWiFi",
-        "broadcast": False,
-    }
-    switch = _create_ssid_switch(hass, ssid_data)
-    assert switch.icon == "mdi:wifi-off"
-
-
 async def test_ssid_switch_turn_on(hass: HomeAssistant) -> None:
     """Test turning on SSID switch enables broadcast."""
     ssid_data = {

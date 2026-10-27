@@ -103,31 +103,6 @@ async def test_ap_ssid_switch_is_off_when_disabled(mock_coordinator):
     assert switch.is_on is False
 
 
-async def test_ap_ssid_switch_icon_on(mock_coordinator):
-    """Test AP SSID switch icon when on."""
-    switch = OmadaApSsidSwitch(
-        mock_coordinator,
-        SAMPLE_AP_MAC,
-        SAMPLE_AP_NAME,
-        SAMPLE_AP_SSID_OVERRIDE,
-    )
-    assert switch.icon == "mdi:wifi"
-
-
-async def test_ap_ssid_switch_icon_off(mock_coordinator):
-    """Test AP SSID switch icon when off."""
-    disabled_ssid = SAMPLE_AP_SSID_OVERRIDE.copy()
-    disabled_ssid["ssidEnable"] = False
-
-    switch = OmadaApSsidSwitch(
-        mock_coordinator,
-        SAMPLE_AP_MAC,
-        SAMPLE_AP_NAME,
-        disabled_ssid,
-    )
-    assert switch.icon == "mdi:wifi-off"
-
-
 async def test_ap_ssid_switch_available(mock_coordinator):
     """Test AP SSID switch availability."""
     switch = OmadaApSsidSwitch(

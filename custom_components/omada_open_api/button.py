@@ -160,7 +160,6 @@ class OmadaDeviceRebootButton(
     """Button entity to reboot an Omada device (AP, switch, gateway)."""
 
     _attr_device_class = ButtonDeviceClass.RESTART
-    _attr_icon = "mdi:restart"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -217,7 +216,6 @@ class OmadaClientReconnectButton(
 ):
     """Button entity to reconnect a wireless client."""
 
-    _attr_icon = "mdi:wifi-refresh"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -272,7 +270,6 @@ class OmadaWlanOptimizationButton(
 ):
     """Button entity to trigger WLAN optimization for a site."""
 
-    _attr_icon = "mdi:wifi-cog"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -315,8 +312,6 @@ class OmadaWanSpeedTestButton(
 ):
     """Button to run a speed test for one gateway WAN port."""
 
-    _attr_icon = "mdi:speedometer"
-
     def __init__(
         self,
         coordinator: OmadaWanSpeedTestCoordinator,
@@ -353,7 +348,6 @@ class OmadaDeviceLocateButton(
 ):
     """Button entity to trigger the locate function on a device."""
 
-    _attr_icon = "mdi:crosshairs-gps"
     _attr_device_class = ButtonDeviceClass.IDENTIFY
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
