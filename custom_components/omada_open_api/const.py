@@ -26,6 +26,8 @@ CONF_AUTO_DISCOVERY_RETENTION_DAYS = "auto_discovery_retention_days"
 CONF_AUTO_DISCOVERY_SSIDS = "auto_discovery_ssids"
 CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES = "auto_discovery_signal_attributes"
 DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS = 30
+# Randomized (locally administered) MACs rotate and create duplicate trackers.
+DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS = True
 CONF_SELECTED_APPLICATIONS = "selected_applications"
 CONF_SSID_FILTER = "ssid_filter"
 CONF_DISCONNECT_TIMEOUT = "disconnect_timeout"

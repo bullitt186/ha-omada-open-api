@@ -32,6 +32,7 @@ from .const import (
     CONF_AUTO_DISCOVERY_SSIDS,
     CONF_DISCONNECT_TIMEOUT,
     CONF_SELECTED_CLIENTS,
+    DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
     DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
     DOMAIN,
 )
@@ -120,7 +121,10 @@ def _auto_discovery_filter(options: Mapping[str, Any]) -> AutoDiscoveryFilter:
         allowed_ssids=_string_option_values(options.get(CONF_AUTO_DISCOVERY_SSIDS, [])),
         include_wired=options.get(CONF_AUTO_DISCOVERY_INCLUDE_WIRED, True),
         exclude_guests=options.get(CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS, True),
-        exclude_local_macs=options.get(CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False),
+        exclude_local_macs=options.get(
+            CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+            DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+        ),
         require_name=options.get(CONF_AUTO_DISCOVERY_REQUIRE_NAME, False),
         excluded_macs=excluded_macs,
     )

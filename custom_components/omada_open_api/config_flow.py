@@ -73,6 +73,7 @@ from .const import (
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DEFAULT_APP_SCAN_INTERVAL,
+    DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
     DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
@@ -1785,7 +1786,8 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                         CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS, True
                     ),
                     CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS: user_input.get(
-                        CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False
+                        CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+                        DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
                     ),
                     CONF_AUTO_DISCOVERY_REQUIRE_NAME: user_input.get(
                         CONF_AUTO_DISCOVERY_REQUIRE_NAME, False
@@ -1844,7 +1846,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 ): bool,
                 vol.Required(
                     CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
-                    default=opts.get(CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS, False),
+                    default=opts.get(
+                        CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+                        DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
+                    ),
                 ): bool,
                 vol.Required(
                     CONF_AUTO_DISCOVERY_REQUIRE_NAME,

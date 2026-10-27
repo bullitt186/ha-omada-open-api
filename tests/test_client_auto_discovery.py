@@ -200,7 +200,7 @@ async def test_ssid_filter_and_cross_site_duplicates(hass: HomeAssistant) -> Non
 
 
 async def test_auto_discovery_safe_filter_defaults(hass: HomeAssistant) -> None:
-    """Defaults include wired/private clients but exclude guest clients."""
+    """Defaults include wired clients but exclude guests and private MACs."""
     guest = _client(MAC_A, "Guest phone")
     guest["guest"] = True
     wired = _client(MAC_B, "Printer", None)
@@ -214,10 +214,7 @@ async def test_auto_discovery_safe_filter_defaults(hass: HomeAssistant) -> None:
         added.extend,
     )
 
-    assert {entity.unique_id for entity in added} == {
-        f"{DOMAIN}_{MAC_B}",
-        f"{DOMAIN}_12-22-33-44-55-CC",
-    }
+    assert {entity.unique_id for entity in added} == {f"{DOMAIN}_{MAC_B}"}
 
 
 async def test_auto_discovery_applies_all_optional_filters(

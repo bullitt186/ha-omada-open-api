@@ -408,12 +408,17 @@ extra API requests. Review the filters before enabling it on a large network.
   creates a second tracker for an already-selected client.
 - You can select exact SSID names to limit wireless discovery; an empty
   selection permits every SSID. Wired clients are controlled separately and
-  are included by default. Guest clients are excluded by default. Additional
-  options can exclude locally administered (private/randomized) MAC addresses,
-  unnamed clients, and specific MAC addresses. A private MAC can change over
-  time, so the same physical device may otherwise create multiple trackers.
+  are included by default. Guest clients and locally administered
+  (private/randomized) MAC addresses are excluded by default: a private MAC
+  can change over time, so the same physical device would otherwise create
+  multiple trackers. Additional options can exclude unnamed clients and
+  specific MAC addresses.
 - Changing the client name or moving between sites preserves the entity ID.
   Existing custom names and automation references stay in the registry.
+- Each tracker exposes `mac`, plus `ip` and `host_name` while online. An
+  offline tracker keeps its last known name, SSID, band, and connection type,
+  also across Home Assistant restarts; live values such as channel and
+  signal are shown only while the client is online.
 - Missing clients become **away** (after the configured disconnect grace
   period). After 30 days by default, the integration removes an absent
   auto-created tracker from the entity registry. The retention period is
@@ -460,7 +465,7 @@ and per-client monitoring entities.
 | **Wireless networks** | All | Limits wireless discovery to selected SSIDs. |
 | **Include wired clients** | On | Allows clients without a wireless connection. |
 | **Exclude guest clients** | On | Prevents temporary guest-network clients from creating trackers. |
-| **Exclude private/randomized MAC addresses** | Off | Skips locally administered MAC addresses, which may rotate. |
+| **Exclude private/randomized MAC addresses** | On | Skips locally administered MAC addresses, which may rotate. |
 | **Require a client name** | Off | Skips clients for which the controller reports neither a name nor hostname. |
 | **Excluded clients** | None | Explicit MAC-address denylist for automatic discovery. |
 | **Include Wi-Fi signal attributes** | On | Adds reported RSSI, SNR, and signal-strength values as attributes, not extra entities. |
