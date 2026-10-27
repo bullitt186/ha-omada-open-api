@@ -86,7 +86,8 @@ changes.
 
 ## CodeGraph
 
-This repository is indexed with CodeGraph. Before using `rg`, `find`, or
+This repository uses CodeGraph. The index lives in `.codegraph/` (ignored by
+Git); if it is missing, run `codegraph init .` once. Before using `rg`, `find`, or
 opening multiple files to understand cross-file behavior, use the
 `codegraph_explore` MCP tool when it is available. It returns relevant symbols,
 their current source, and call paths.
