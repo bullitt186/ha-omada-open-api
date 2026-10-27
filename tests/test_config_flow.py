@@ -4490,3 +4490,17 @@ async def test_options_client_selection_matches_macs_across_separators(
     for key in result["data_schema"].schema:
         if key == CONF_SELECTED_CLIENTS:
             assert key.description["suggested_value"] == [clients[1]["mac"]]
+
+
+async def test_credentials_without_api_url_restarts_flow(hass: HomeAssistant) -> None:
+    """Credentials submitted before a controller URL is known restart the flow."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    flow.context = {"source": "user"}
+
+    result = await flow.async_step_credentials(
+        {CONF_OMADA_ID: "omada", CONF_CLIENT_ID: "id", CONF_CLIENT_SECRET: "secret"}
+    )
+
+    assert result["type"] == FlowResultType.FORM
+    assert result["step_id"] == "user"

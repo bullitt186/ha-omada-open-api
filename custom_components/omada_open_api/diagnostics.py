@@ -76,12 +76,12 @@ async def async_get_config_entry_diagnostics(
 
     client_coordinators_summary: list[dict[str, Any]] = []
     if rd is not None:
-        for coordinator in rd.client_coordinators:  # type: ignore[assignment]
-            data = coordinator.data or {}
+        for client_coord in rd.client_coordinators:
+            data = client_coord.data or {}
             client_coordinators_summary.append(
                 {
-                    "site_name": getattr(coordinator, "site_name", "unknown"),
-                    "last_update_success": coordinator.last_update_success,
+                    "site_name": getattr(client_coord, "site_name", "unknown"),
+                    "last_update_success": client_coord.last_update_success,
                     "client_count": len(data),
                     "active_clients": sum(
                         1 for c in data.values() if c.get("active", False)
@@ -94,24 +94,24 @@ async def async_get_config_entry_diagnostics(
 
     app_coordinators_summary: list[dict[str, Any]] = []
     if rd is not None:
-        for coordinator in rd.app_traffic_coordinators:  # type: ignore[assignment]
-            data = coordinator.data or {}
+        for app_coord in rd.app_traffic_coordinators:
+            data = app_coord.data or {}
             app_coordinators_summary.append(
                 {
-                    "site_name": getattr(coordinator, "site_name", "unknown"),
-                    "last_update_success": coordinator.last_update_success,
+                    "site_name": getattr(app_coord, "site_name", "unknown"),
+                    "last_update_success": app_coord.last_update_success,
                     "tracked_clients": len(data),
                 }
             )
 
     device_stats_summary: list[dict[str, Any]] = []
     if rd is not None:
-        for coordinator in rd.device_stats_coordinators:  # type: ignore[assignment]
-            data = coordinator.data or {}
+        for stats_coord in rd.device_stats_coordinators:
+            data = stats_coord.data or {}
             device_stats_summary.append(
                 {
-                    "site_name": getattr(coordinator, "site_name", "unknown"),
-                    "last_update_success": coordinator.last_update_success,
+                    "site_name": getattr(stats_coord, "site_name", "unknown"),
+                    "last_update_success": stats_coord.last_update_success,
                     "tracked_devices": len(data),
                 }
             )

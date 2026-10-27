@@ -10,10 +10,10 @@ from homeassistant.components.update import (
     UpdateEntity,
     UpdateEntityFeature,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity import EntityCategory  # type: ignore[attr-defined]
 from homeassistant.util import dt as dt_util
 
 from .api import OmadaApiError
