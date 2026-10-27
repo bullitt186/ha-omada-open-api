@@ -473,3 +473,27 @@ class TestWebSessionAuth:
 
         # Only one login should have happened (lock prevents duplicates)
         assert call_count == 1
+
+
+async def test_client_credentials_exposes_tokens_and_authenticates() -> None:
+    """Token properties mirror the constructor; authenticate fetches new tokens."""
+    expires = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    auth = ClientCredentialsAuth(
+        session=MagicMock(spec=aiohttp.ClientSession),
+        token_update_callback=AsyncMock(),
+        api_url=TEST_API_URL,
+        omada_id=TEST_OMADA_ID,
+        client_id=TEST_CLIENT_ID,
+        client_secret=TEST_CLIENT_SECRET,
+        access_token="test_token",
+        refresh_token="test_refresh",
+        token_expires_at=expires,
+    )
+
+    assert auth.access_token == "test_token"
+    assert auth.refresh_token == "test_refresh"
+    assert auth.token_expires_at == expires
+
+    auth._get_fresh_tokens = AsyncMock()  # type: ignore[method-assign]
+    await auth.authenticate()
+    auth._get_fresh_tokens.assert_awaited_once()

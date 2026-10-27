@@ -21,9 +21,11 @@ from custom_components.omada_open_api.coordinator import (
 )
 from custom_components.omada_open_api.switch import (
     OmadaApLedSwitch,
+    OmadaApSsidSwitch,
     OmadaClientBlockSwitch,
     OmadaLedSwitch,
     OmadaPoeSwitch,
+    OmadaSsidSwitch,
     async_setup_entry,
 )
 
@@ -933,3 +935,73 @@ async def test_setup_entry_led_probe_denied_still_creates_poe(
     assert any(isinstance(e, OmadaPoeSwitch) for e in added_entities)
     assert not any(isinstance(e, OmadaLedSwitch) for e in added_entities)
     entry.async_on_unload.call_args.args[0]()
+
+
+# ---------------------------------------------------------------------------
+# Dynamic SSID and per-AP SSID switch discovery
+# ---------------------------------------------------------------------------
+
+AP_MAC = "AA-BB-CC-DD-EE-01"
+
+
+def _ssid_setup_entry(
+    hass: HomeAssistant, *, site_known: bool
+) -> tuple[MagicMock, OmadaSiteCoordinator]:
+    """Build an entry whose site coordinator reports SSIDs and AP overrides."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=MagicMock(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    coordinator.data = {
+        "devices": {AP_MAC: {"type": "ap", "mac": AP_MAC, "name": "Office AP"}},
+        "poe_ports": {},
+        "ssids": [
+            {"ssidId": "s1", "wlanId": "w1", "ssidName": "Home"},
+            {"ssidId": "s2", "ssidName": "No WLAN"},
+        ],
+        "ap_ssid_overrides": {
+            AP_MAC: {
+                "ssidOverrides": [
+                    {"ssidEntryId": 1, "ssidName": "Home", "ssidEnable": True},
+                    {"ssidName": "No entry id"},
+                ]
+            }
+        },
+        "site_id": TEST_SITE_ID,
+        "site_name": TEST_SITE_NAME,
+    }
+    entry = MagicMock()
+    entry.runtime_data = MagicMock()
+    entry.runtime_data.coordinators = {TEST_SITE_ID: coordinator}
+    entry.runtime_data.client_coordinators = []
+    entry.runtime_data.site_devices = {TEST_SITE_ID: object()} if site_known else {}
+    entry.runtime_data.has_write_access = False
+    return entry, coordinator
+
+
+async def test_setup_entry_creates_ssid_switches_once(hass: HomeAssistant) -> None:
+    """Valid SSIDs and AP overrides get one switch each, also across updates."""
+    entry, _coordinator = _ssid_setup_entry(hass, site_known=True)
+    added: list = []
+
+    await async_setup_entry(hass, entry, added.extend)
+    # A coordinator update must not add the same switches again.
+    entry.async_on_unload.call_args_list[0].args[0]()
+
+    assert len([e for e in added if isinstance(e, OmadaSsidSwitch)]) == 1
+    assert len([e for e in added if isinstance(e, OmadaApSsidSwitch)]) == 1
+
+
+async def test_setup_entry_skips_ssids_without_site_device(
+    hass: HomeAssistant,
+) -> None:
+    """Site SSID switches wait until the site device exists."""
+    entry, _coordinator = _ssid_setup_entry(hass, site_known=False)
+    added: list = []
+
+    await async_setup_entry(hass, entry, added.extend)
+
+    assert not any(isinstance(e, OmadaSsidSwitch) for e in added)
+    assert any(isinstance(e, OmadaApSsidSwitch) for e in added)

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
 
+from custom_components.omada_open_api.config_flow import OmadaConfigFlow
 from custom_components.omada_open_api.const import (
     AUTH_MODE_WEB_SESSION,
     CONF_API_URL,
@@ -20,6 +21,8 @@ from custom_components.omada_open_api.const import (
     CONTROLLER_TYPE_FUSION,
     DOMAIN,
 )
+
+from .conftest import TEST_API_URL
 
 
 @pytest.fixture
@@ -288,3 +291,25 @@ async def test_fusion_entry_data_shape(
     assert "client_id" not in result["data"]
     assert "client_secret" not in result["data"]
     assert "access_token" not in result["data"]
+
+
+@pytest.mark.parametrize(
+    ("status", "payload"),
+    [
+        (500, {}),
+        (200, {"errorCode": -1, "msg": "denied"}),
+    ],
+)
+async def test_get_sites_fusion_returns_empty_on_error(
+    hass: HomeAssistant, status: int, payload: dict
+) -> None:
+    """HTTP errors and controller error codes yield no Fusion sites."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+    response = MagicMock(status=status)
+    response.json = AsyncMock(return_value=payload)
+    session = MagicMock()
+    session.get.return_value.__aenter__.return_value = response
+
+    with patch.object(flow, "_get_fusion_session", return_value=session):
+        assert await flow._get_sites_fusion(TEST_API_URL, "cid", "csrf") == []
