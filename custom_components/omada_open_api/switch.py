@@ -452,10 +452,11 @@ class OmadaLedSwitch(
         """Initialize the LED switch."""
         super().__init__(coordinator)
         self._attr_translation_key = "led"
-        self._attr_translation_placeholders = {
-            "site_name": coordinator.site_name,
-        }
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_led"
+        # Attach to the site device so the switch shows on its page (GH #127).
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
+        )
 
     @property
     def is_on(self) -> bool | None:

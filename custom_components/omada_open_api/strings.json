@@ -642,7 +642,7 @@
                 "name": "Network access"
             },
             "led": {
-                "name": "{site_name} LED"
+                "name": "LED"
             },
             "ap_led": {
                 "name": "{ap_name} LED"
