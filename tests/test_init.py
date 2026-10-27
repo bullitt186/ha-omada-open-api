@@ -310,7 +310,7 @@ def _fusion_entry(hass: HomeAssistant) -> MockConfigEntry:
 
 
 def _track_sessions() -> tuple[Any, list[aiohttp.ClientSession]]:
-    """Patch the integration's ClientSession and record created sessions."""
+    """Record sessions Home Assistant's aiohttp helper creates for the entry."""
     real_session_cls = aiohttp.ClientSession
     sessions: list[aiohttp.ClientSession] = []
 
@@ -320,7 +320,8 @@ def _track_sessions() -> tuple[Any, list[aiohttp.ClientSession]]:
         return session
 
     patcher = patch(
-        "custom_components.omada_open_api.aiohttp.ClientSession", side_effect=_create
+        "homeassistant.helpers.aiohttp_client.aiohttp.ClientSession",
+        side_effect=_create,
     )
     return patcher, sessions
 
@@ -337,6 +338,9 @@ async def test_fusion_session_closed_on_unload(hass: HomeAssistant) -> None:
         assert entry.state is ConfigEntryState.LOADED
         assert len(sessions) == 1
         assert not sessions[0].closed
+        # Created via async_create_clientsession: HA user agent, unsafe jar.
+        assert sessions[0].headers["User-Agent"].startswith("HomeAssistant/")
+        assert sessions[0].cookie_jar._unsafe
 
         await hass.config_entries.async_unload(entry.entry_id)
         await hass.async_block_till_done()
