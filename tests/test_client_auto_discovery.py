@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 from homeassistant.components.device_tracker import SourceType
+from homeassistant.core import is_callback
 
 from custom_components.omada_open_api.const import (
     CONF_AUTO_DISCOVER_CLIENT_TRACKERS,
@@ -199,7 +200,7 @@ async def test_ssid_filter_and_cross_site_duplicates(hass: HomeAssistant) -> Non
 
 
 async def test_auto_discovery_safe_filter_defaults(hass: HomeAssistant) -> None:
-    """Defaults include wired/private clients but exclude guest clients."""
+    """Defaults include wired clients but exclude guests and private MACs."""
     guest = _client(MAC_A, "Guest phone")
     guest["guest"] = True
     wired = _client(MAC_B, "Printer", None)
@@ -213,10 +214,7 @@ async def test_auto_discovery_safe_filter_defaults(hass: HomeAssistant) -> None:
         added.extend,
     )
 
-    assert {entity.unique_id for entity in added} == {
-        f"{DOMAIN}_{MAC_B}",
-        f"{DOMAIN}_12-22-33-44-55-CC",
-    }
+    assert {entity.unique_id for entity in added} == {f"{DOMAIN}_{MAC_B}"}
 
 
 async def test_auto_discovery_applies_all_optional_filters(
@@ -562,7 +560,7 @@ async def test_registry_restore_ignores_invalid_selected_and_duplicate_ids(
 async def test_disconnected_grace_and_missing_host_details(
     hass: HomeAssistant,
 ) -> None:
-    """Preserve short disconnect grace and clear stale network attributes."""
+    """Preserve short disconnect grace; keep only last-known connection data."""
     import datetime as dt
 
     site = _site(hass, "a", [_client(MAC_A, "Tablet", None)])
@@ -574,7 +572,10 @@ async def test_disconnected_grace_and_missing_host_details(
     assert tracker.is_connected
     assert tracker.ip_address is None
     assert tracker.hostname is None
-    assert tracker.extra_state_attributes == {}
+    assert tracker.extra_state_attributes == {
+        "mac": "11:22:33:44:55:aa",
+        "connection_type": "wired",
+    }
     tracker._last_seen = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=3)
     assert not tracker.is_connected
 
@@ -691,3 +692,104 @@ async def test_signal_attributes_toggle_defaults_on_and_can_be_disabled(
     )
     assert len(added) == 1
     assert "rssi_dbm" not in added[0].extra_state_attributes
+
+
+async def test_daily_cleanup_timer_runs_on_the_event_loop(
+    hass: HomeAssistant,
+) -> None:
+    """The daily cleanup callback must be a @callback, not an executor job."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone")])
+    captured: list = []
+
+    def _capture(_hass, action, _interval):
+        captured.append(action)
+        return lambda: None
+
+    with patch(
+        "custom_components.omada_open_api.device_tracker.async_track_time_interval",
+        side_effect=_capture,
+    ):
+        await async_setup_entry(
+            hass, _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}), [].extend
+        )
+
+    assert len(captured) == 1
+    assert is_callback(captured[0])
+
+
+async def test_restored_offline_tracker_keeps_last_known_name_and_ssid(
+    hass: HomeAssistant,
+) -> None:
+    """Offline after restart must not fall back to the MAC as name (#111)."""
+    site = _site(hass, "a", [])
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.auto_discovery.Store.async_load",
+        return_value={
+            "1122334455AA": {
+                "entity_unique_id": f"{DOMAIN}_{MAC_A}",
+                "last_seen": "2026-01-01T00:00:00+00:00",
+                "client": {
+                    "name": "OPPO-K12x-5G",
+                    "ssid": "Home",
+                    "wireless": True,
+                    "radio_id": 1,
+                },
+            }
+        },
+    ):
+        await async_setup_entry(
+            hass,
+            _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+            added.extend,
+        )
+
+    restored = added[0]
+    assert restored.is_connected is False
+    assert restored.name == "OPPO-K12x-5G"
+    assert restored.device_info["name"] == "OPPO-K12x-5G"
+    assert restored.extra_state_attributes["ssid"] == "Home"
+    assert restored.extra_state_attributes["band"] == "5 GHz"
+
+
+async def test_tracker_keeps_last_ssid_but_not_signal_when_offline(
+    hass: HomeAssistant,
+) -> None:
+    """Going offline keeps the last SSID/band and drops live signal values."""
+    client = _client(MAC_A, "Phone")
+    client["rssi"] = -50
+    site = _site(hass, "a", [client])
+    added: list = []
+    with patch(
+        "custom_components.omada_open_api.auto_discovery.Store.async_delay_save"
+    ):
+        await async_setup_entry(
+            hass,
+            _entry([site], {CONF_AUTO_DISCOVER_CLIENT_TRACKERS: True}),
+            added.extend,
+        )
+    tracker = added[0]
+    site.data = {"devices": {}, "all_clients": []}
+
+    attrs = tracker.extra_state_attributes
+    assert tracker.is_connected is False
+    assert tracker.name == "Phone"
+    assert attrs["ssid"] == "Home"
+    assert attrs["band"] == "6 GHz"
+    assert "rssi_dbm" not in attrs
+
+
+async def test_auto_tracker_exposes_mac_ip_and_host_name(hass: HomeAssistant) -> None:
+    """Auto trackers expose the same mac/ip/host_name attributes as selected ones."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+
+    attrs = tracker.extra_state_attributes
+    assert attrs["mac"] == "11:22:33:44:55:aa"
+    assert attrs["ip"] == "192.0.2.11"
+    assert attrs["host_name"] == "laptop.local"
+
+    site.data["all_clients"] = []
+    offline = tracker.extra_state_attributes
+    assert offline["mac"] == "11:22:33:44:55:aa"
+    assert "ip" not in offline

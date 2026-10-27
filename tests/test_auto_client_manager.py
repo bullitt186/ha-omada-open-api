@@ -139,3 +139,40 @@ async def test_selected_client_immediately_leaves_auto_management(
 
     assert manager.records == {}
     store.async_delay_save.assert_called_once()
+
+
+async def test_last_known_client_snapshot_is_persisted(hass: HomeAssistant) -> None:
+    """Name, SSID and band survive restarts; changes are saved within a day."""
+    manager, store = await _manager(hass, None)
+    seen = dt.datetime(2026, 1, 1, 8, tzinfo=dt.UTC)
+    client = {"name": "Phone", "ssid": "Home", "radio_id": 1, "rssi": -50}
+
+    manager.mark_seen(MAC_A, UNIQUE_A, seen, client=client)
+    assert manager.records[MAC_A]["client"] == {
+        "name": "Phone",
+        "ssid": "Home",
+        "radio_id": 1,
+    }
+
+    manager.mark_seen(MAC_A, UNIQUE_A, seen, client=client)
+    assert store.async_delay_save.call_count == 1
+
+    manager.mark_seen(MAC_A, UNIQUE_A, seen, client={**client, "ssid": "Work"})
+    assert manager.records[MAC_A]["client"]["ssid"] == "Work"
+    assert manager.records[MAC_A]["last_seen"] == seen.isoformat()
+    assert store.async_delay_save.call_count == 2
+
+
+async def test_stored_client_snapshot_is_loaded(hass: HomeAssistant) -> None:
+    """A stored snapshot is kept when records are validated on load."""
+    manager, _store = await _manager(
+        hass,
+        {
+            MAC_A: {
+                "entity_unique_id": UNIQUE_A,
+                "last_seen": "2026-01-01T00:00:00+00:00",
+                "client": {"name": "Phone"},
+            }
+        },
+    )
+    assert manager.records[MAC_A]["client"] == {"name": "Phone"}

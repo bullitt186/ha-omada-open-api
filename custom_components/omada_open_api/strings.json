@@ -217,7 +217,7 @@
                     "auto_discovery_ssids": "Optional exact SSID names. A blank selection includes every wireless SSID.",
                     "auto_discovery_include_wired": "When disabled, only wireless clients matching the SSID selection are discovered.",
                     "auto_discovery_exclude_guests": "Prevents temporary guest-network clients from creating registry entries.",
-                    "auto_discovery_exclude_local_macs": "Locally administered MACs often represent private Wi-Fi addresses. Leave disabled if those devices are useful for presence detection.",
+                    "auto_discovery_exclude_local_macs": "Locally administered MACs often represent private Wi-Fi addresses, which rotate and create duplicate trackers. Disable only if those devices are useful for presence detection.",
                     "auto_discovery_require_name": "Skip clients for which Omada reports only a MAC address and no name or hostname.",
                     "auto_discovery_excluded_clients": "Explicitly excluded MAC addresses remain ignored if they reconnect.",
                     "auto_discovery_signal_attributes": "Enabled by default. Shows controller-reported RSSI (dBm), SNR (dB) and signal level (%) as attributes of each existing tracker. SSID changes update the same device; no separate signal sensor entities are created."

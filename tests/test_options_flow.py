@@ -301,7 +301,7 @@ async def test_auto_discovery_is_off_by_default_and_saves_choice(
     assert defaults[CONF_AUTO_DISCOVERY_RETENTION_DAYS] == 30
     assert defaults[CONF_AUTO_DISCOVERY_INCLUDE_WIRED] is True
     assert defaults[CONF_AUTO_DISCOVERY_EXCLUDE_GUESTS] is True
-    assert defaults[CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS] is False
+    assert defaults[CONF_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS] is True
     assert defaults[CONF_AUTO_DISCOVERY_REQUIRE_NAME] is False
     assert defaults[CONF_AUTO_DISCOVERY_SIGNAL_ATTRIBUTES] is True
 
