@@ -651,6 +651,81 @@
         },
         "no_runtime_data": {
             "message": "No runtime data available for config entry {config_entry_id}."
+        },
+        "reboot_failed": {
+            "message": "Failed to reboot device {mac}."
+        },
+        "reconnect_failed": {
+            "message": "Failed to reconnect client {mac}."
+        },
+        "wlan_optimization_failed": {
+            "message": "Failed to start WLAN optimization for site {site}."
+        },
+        "wan_speed_test_failed": {
+            "message": "Failed to start the WAN speed test."
+        },
+        "locate_failed": {
+            "message": "Failed to locate device {mac}."
+        },
+        "poe_permission_denied": {
+            "message": "Insufficient permissions to control PoE on {mac} port {port}. Ensure the Open API application has the 'Site Device Manager Modify' permission."
+        },
+        "poe_failed": {
+            "message": "Failed to set PoE for {mac} port {port}: {error}"
+        },
+        "client_unblock_failed": {
+            "message": "Failed to unblock client {mac}."
+        },
+        "client_block_failed": {
+            "message": "Failed to block client {mac}."
+        },
+        "site_led_failed": {
+            "message": "Failed to change the LED setting for site {site}."
+        },
+        "ap_led_enable_failed": {
+            "message": "Failed to enable the LED of AP {mac}."
+        },
+        "ap_led_disable_failed": {
+            "message": "Failed to disable the LED of AP {mac}."
+        },
+        "ssid_permission_denied": {
+            "message": "Permission denied when changing SSID {ssid}. The API credentials may have viewer-only access."
+        },
+        "ssid_enable_failed": {
+            "message": "Failed to enable SSID {ssid}."
+        },
+        "ssid_disable_failed": {
+            "message": "Failed to disable SSID {ssid}."
+        },
+        "ap_ssid_permission_denied": {
+            "message": "Permission denied when changing SSID {ssid} on AP {ap}. The API credentials may have viewer-only access."
+        },
+        "ap_ssid_enable_failed": {
+            "message": "Failed to enable SSID {ssid} on AP {ap}."
+        },
+        "ap_ssid_disable_failed": {
+            "message": "Failed to disable SSID {ssid} on AP {ap}."
+        },
+        "radio_enable_failed": {
+            "message": "Failed to enable the {band} radio on AP {mac}."
+        },
+        "radio_disable_failed": {
+            "message": "Failed to disable the {band} radio on AP {mac}."
+        },
+        "firmware_upgrade_failed": {
+            "message": "Failed to start the firmware upgrade for {mac}."
+        },
+        "controller_unreachable": {
+            "message": "The Omada controller is temporarily unreachable. Home Assistant will retry."
+        },
+        "auth_failed": {
+            "message": "Authentication with the Omada controller failed. Please re-authenticate."
+        },
+        "certificate_verification_failed": {
+            "message": "TLS certificate verification failed. Disable 'Verify TLS certificate' in the reconfigure settings if this controller uses a self-signed certificate."
+        },
+        "cannot_connect": {
+            "message": "Unable to connect to the Omada controller. Home Assistant will retry."
         }
     },
     "issues": {

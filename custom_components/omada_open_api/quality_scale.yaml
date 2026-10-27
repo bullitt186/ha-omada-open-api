@@ -11,9 +11,17 @@ rules:
   config-flow-test-coverage: done
   dependency-transparency: done
   docs-actions: done
+  docs-conditions:
+    status: exempt
+    comment: >
+      The integration does not provide custom conditions.
   docs-high-level-description: done
   docs-installation-instructions: done
   docs-removal-instructions: done
+  docs-triggers:
+    status: exempt
+    comment: >
+      The integration does not provide custom triggers.
   entity-event-setup: done
   entity-unique-id: done
   has-entity-name: done
@@ -40,12 +48,14 @@ rules:
   discovery:
     status: exempt
     comment: >
-      Cloud-based API integration with no local network discovery mechanism.
-      Users must configure via OAuth2 client credentials.
+      Omada controllers (cloud, self-hosted) and Fusion gateways announce
+      neither mDNS, SSDP nor Zeroconf, and the TP-Link cloud endpoint is not
+      on the local network. Users configure the controller URL and OAuth2
+      client credentials or Fusion web credentials manually.
   discovery-update-info:
     status: exempt
     comment: >
-      No discovery mechanism exists for this cloud-based API integration.
+      No discovery mechanism exists (see discovery).
   docs-data-update: done
   docs-examples: done
   docs-known-limitations: done
