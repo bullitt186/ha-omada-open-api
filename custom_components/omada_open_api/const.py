@@ -202,3 +202,9 @@ ICON_WIFI_COG = "mdi:wifi-cog"
 ICON_THREAT_HEATMAP = "mdi:map-marker-radius"
 ICON_VPN = "mdi:vpn"
 ICON_VPN_DISCONNECTED = "mdi:vpn-off"
+
+# Controller errors that mean the dedicated PoE endpoints are unusable for a
+# port, and PoE has to be set by patching the port object instead.
+# -1: general error, -1001: invalid request parameters,
+# -39737: profile override reported as disabled.
+POE_PORT_PATCH_FALLBACK_ERRORS = (-1, -1001, -39737)

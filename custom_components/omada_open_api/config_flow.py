@@ -227,18 +227,84 @@ async def _fetch_all_clients(
             timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
         ) as response:
             _LOGGER.debug("Clients endpoint response status: %s", response.status)
+            if response.status == 404 and page == 1:
+                # Controllers without the v2 endpoint (e.g. software
+                # controller 5.15) still list clients via the v1 GET.
+                return await _fetch_all_clients_v1(
+                    session,
+                    url.replace("/openapi/v2/", "/openapi/v1/", 1),
+                    headers,
+                    site_id,
+                )
             if response.status != 200:
                 response_text = await response.text()
                 _LOGGER.error(
                     "Clients API error %s: %s", response.status, response_text
                 )
-                if response.status == 404:
-                    _LOGGER.warning(
-                        "Clients endpoint not supported for site %s; "
-                        "skipping client selection",
-                        site_id,
-                    )
-                    return []
+                response.raise_for_status()
+
+            result = await response.json(content_type=None)
+
+            if result.get("errorCode") != 0:
+                error_msg = result.get("msg", "Unknown error")
+                raise InvalidAuthError(f"API error: {error_msg}")
+
+            page_data: list[dict[str, Any]] = result["result"]["data"]
+            all_clients.extend(page_data)
+            total_rows = result["result"].get("totalRows", 0)
+            if len(all_clients) >= total_rows or len(page_data) < page_size:
+                return all_clients
+            page += 1
+
+
+async def _fetch_all_clients_v1(
+    session: aiohttp.ClientSession,
+    url: str,
+    headers: dict[str, str],
+    site_id: str,
+) -> list[dict[str, Any]]:
+    """Fetch the clients of a site via the v1 GET endpoint.
+
+    Used when the controller has no v2 clients endpoint. The v1 endpoint
+    has no scope filter and lists online clients only.
+
+    Args:
+        session: HTTP session to use for the requests
+        url: v1 clients endpoint URL of the site
+        headers: Authenticated API headers
+        site_id: Site ID, used for logging
+
+    Returns:
+        List of client dictionaries, or an empty list if the controller
+        has no clients endpoint at all
+
+    Raises:
+        aiohttp.ClientError: If connection fails
+
+    """
+    page = 1
+    page_size = 200
+    all_clients: list[dict[str, Any]] = []
+
+    while True:
+        async with session.get(
+            url,
+            headers=headers,
+            params={"page": page, "pageSize": page_size},
+            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
+        ) as response:
+            if response.status == 404:
+                _LOGGER.warning(
+                    "Clients endpoint not supported for site %s; "
+                    "skipping client selection",
+                    site_id,
+                )
+                return []
+            if response.status != 200:
+                response_text = await response.text()
+                _LOGGER.error(
+                    "Clients API error %s: %s", response.status, response_text
+                )
                 response.raise_for_status()
 
             result = await response.json(content_type=None)

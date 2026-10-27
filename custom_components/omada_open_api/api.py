@@ -264,8 +264,9 @@ class OmadaApiClient:
     ) -> dict[str, Any]:
         """Get clients for a site.
 
-        Tries the v2 POST endpoint first. On error -1600 (unsupported on
-        Fusion firmware), falls back to the v1 GET endpoint permanently.
+        Tries the v2 POST endpoint first. If the controller does not have it
+        (errorCode -1600 on Fusion firmware, HTTP 404 on software controllers
+        such as 5.15), falls back to the v1 GET endpoint permanently.
 
         Args:
             site_id: Site ID to get clients for
@@ -293,7 +294,7 @@ class OmadaApiClient:
             result = await self._authenticated_request("post", url, json_data=body)
             return result["result"]  # type: ignore[no-any-return]
         except OmadaApiError as err:
-            if err.error_code == -1600:
+            if err.error_code == -1600 or err.http_status == 404:
                 _LOGGER.info("v2 clients endpoint unsupported, falling back to v1 GET")
                 self._use_v1_clients = True
                 return await self._get_clients_v1(site_id, page, page_size)
@@ -547,6 +548,85 @@ class OmadaApiClient:
             "put",
             url,
             json_data={"portList": [port], "poeMode": poe_mode},
+        )
+
+    async def set_port_poe_via_port_patch(
+        self,
+        site_id: str,
+        switch_mac: str,
+        port: int,
+        *,
+        poe_enabled: bool,
+    ) -> None:
+        """Set PoE for a switch port by patching the port object.
+
+        Fallback for controllers that reject the multi-ports and single-port
+        poe-mode and profile-override endpoints with -1001. Observed on
+        Software Controller 6.2.14.11 with a JetStream SG2428LP v1.0 and, per
+        issue #81, on Agile Series switches. The port PATCH takes the profile
+        override and the PoE mode in a single call.
+
+        The controller merges this PATCH: a port field the body does not carry
+        keeps its current value, verified against every field the Open API
+        exposes for a port. The body therefore carries only the PoE mode plus
+        the two fields the controller rejects the request without, profileId
+        and operation, and both are read back from the controller instead of
+        being reconstructed. VLAN, speed, duplex and the remaining port
+        settings are never sent.
+
+        Args:
+            site_id: Site ID the switch belongs to
+            switch_mac: MAC address of the switch (AA-BB-CC-DD-EE-FF format)
+            port: Port number
+            poe_enabled: True for PoE on, False for off
+
+        Raises:
+            OmadaApiError: If the request fails or the port cannot be read
+
+        """
+        base = (
+            f"{self._api_url}/openapi/v1/{self._omada_id}"
+            f"/sites/{site_id}/switches/{switch_mac}"
+        )
+        detail = await self._authenticated_request("get", base)
+        ports = detail.get("result", {}).get("portList", [])
+        port_data = next((p for p in ports if p.get("port") == port), None)
+        if port_data is None or not port_data.get("profileId"):
+            raise OmadaApiError(
+                f"Port {port} profile not readable on switch {switch_mac}"
+            )
+
+        # The PATCH is rejected without an operation mode, and the switch
+        # detail does not carry it; the PoE port list does.
+        poe_rows = await self.get_switch_ports_poe(site_id)
+        operation = next(
+            (
+                row.get("operation")
+                for row in poe_rows
+                if row.get("switchMac") == switch_mac and row.get("port") == port
+            ),
+            None,
+        )
+        if not operation:
+            raise OmadaApiError(
+                f"Port {port} operation mode not readable on switch {switch_mac}"
+            )
+
+        _LOGGER.debug(
+            "Patching port object for %s port %d, PoE %s",
+            switch_mac,
+            port,
+            "on" if poe_enabled else "off",
+        )
+        await self._authenticated_request(
+            "patch",
+            f"{base}/ports/{port}",
+            json_data={
+                "profileId": port_data["profileId"],
+                "profileOverrideEnable": True,
+                "operation": operation,
+                "poe": 1 if poe_enabled else 0,
+            },
         )
 
     async def reboot_device(self, site_id: str, device_mac: str) -> None:
