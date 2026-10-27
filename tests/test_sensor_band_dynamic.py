@@ -91,6 +91,7 @@ def _patch_api_client(**overrides) -> tuple:
     mock.get_vpn_client_stats = AsyncMock(return_value=[])
     mock.get_device_stats = AsyncMock(return_value=[])
     mock.get_firmware_info = AsyncMock(return_value={})
+    mock.get_led_setting = AsyncMock(return_value={"enable": True})
     mock.start_online_upgrade = AsyncMock(return_value={})
     mock.get_ap_radios = AsyncMock(return_value={})
     mock.get_switch_port_details = AsyncMock(return_value=[])
