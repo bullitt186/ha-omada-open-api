@@ -8,6 +8,7 @@ import ssl
 from typing import TYPE_CHECKING, Any
 
 import aiohttp
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_VERIFY_SSL, Platform
 from homeassistant.exceptions import (
     ConfigEntryAuthFailed,
@@ -106,26 +107,28 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
         """Service to dump SSID switch diagnostic information."""
         config_entry_id = call.data.get("config_entry_id")
         if not config_entry_id:
-            _LOGGER.error("config_entry_id must be provided to the service call")
-            return
+            # Documented fallback: use the first loaded Omada entry.
+            loaded = hass.config_entries.async_loaded_entries(DOMAIN)
+            if not loaded:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="no_loaded_entry",
+                )
+            config_entry_id = loaded[0].entry_id
         target_entry = hass.config_entries.async_get_entry(config_entry_id)
         if not target_entry or target_entry.domain != DOMAIN:
-            _LOGGER.error(
-                "Config entry %s not found or not an Omada integration",
-                config_entry_id,
-            )
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
                 translation_key="config_entry_not_found",
                 translation_placeholders={"config_entry_id": config_entry_id},
             )
-        runtime_data = getattr(target_entry, "runtime_data", None)
-        if not runtime_data or not isinstance(runtime_data, OmadaRuntimeData):
+        if target_entry.state is not ConfigEntryState.LOADED:
             raise ServiceValidationError(
                 translation_domain=DOMAIN,
-                translation_key="no_runtime_data",
+                translation_key="config_entry_not_loaded",
                 translation_placeholders={"config_entry_id": config_entry_id},
             )
+        runtime_data: OmadaRuntimeData = target_entry.runtime_data
         coordinators = runtime_data.coordinators
         has_write_access = runtime_data.has_write_access
         site_devices = runtime_data.site_devices

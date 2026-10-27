@@ -27,6 +27,7 @@
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Entities](#entities)
+- [Actions](#actions)
 - [Automation Examples](#automation-examples)
 - [Use Cases](#use-cases)
 - [Options](#options)
@@ -299,6 +300,18 @@ reset daily at midnight.
 One set of four per selected site. State is the raw threat count for a rolling window (relative to "now", never calendar-aligned). Attributes carry `source`, `site_id`, `site_name`, `window`, `window_start`/`window_end`, `total_rows`, `fetched_rows`, `skipped_rows`, `max`, and a `points` array (`lat`, `lon`, `country`, `value`, sample IPs, top signatures/activities, severities) — the shape [`ha-world-heatmap-card`](https://github.com/bullitt186/ha-world-heatmap-card) consumes. Disable under **Options → Site Entity Settings**; unsupported controllers just leave the sensors `unavailable`.
 
 ---
+
+## Actions
+
+### `omada_open_api.debug_ssid_switches`
+
+Writes SSID switch diagnostics (write access, SSIDs per site, created SSID switch entities) to the Home Assistant log. Use it when SSID switches are missing.
+
+| Field | Required | Description |
+|---|---|---|
+| `config_entry_id` | No | Omada config entry to inspect. If omitted, the first loaded Omada integration is used. |
+
+The action fails with a clear error if the entry does not exist or is not loaded. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#debug-services) for how to read the output.
 
 ## Automation Examples
 
