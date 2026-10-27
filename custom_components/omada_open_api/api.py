@@ -264,8 +264,9 @@ class OmadaApiClient:
     ) -> dict[str, Any]:
         """Get clients for a site.
 
-        Tries the v2 POST endpoint first. On error -1600 (unsupported on
-        Fusion firmware), falls back to the v1 GET endpoint permanently.
+        Tries the v2 POST endpoint first. If the controller does not have it
+        (errorCode -1600 on Fusion firmware, HTTP 404 on software controllers
+        such as 5.15), falls back to the v1 GET endpoint permanently.
 
         Args:
             site_id: Site ID to get clients for
@@ -293,7 +294,7 @@ class OmadaApiClient:
             result = await self._authenticated_request("post", url, json_data=body)
             return result["result"]  # type: ignore[no-any-return]
         except OmadaApiError as err:
-            if err.error_code == -1600:
+            if err.error_code == -1600 or err.http_status == 404:
                 _LOGGER.info("v2 clients endpoint unsupported, falling back to v1 GET")
                 self._use_v1_clients = True
                 return await self._get_clients_v1(site_id, page, page_size)
