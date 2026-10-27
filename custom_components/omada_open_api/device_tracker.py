@@ -547,7 +547,12 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         found = self._current_client()
         # Offline: keep the last known SSID and band, but no live radio data.
         client = found[1] if found else self._last_client
-        attrs: dict[str, Any] = {}
+        # BaseScannerEntity, unlike ScannerEntity, adds no mac/ip/host_name.
+        attrs: dict[str, Any] = {"mac": self._attr_mac_address}
+        if found:
+            for key in ("ip", "host_name"):
+                if client.get(key):
+                    attrs[key] = client[key]
         if client.get("ssid") is not None:
             attrs["ssid"] = client["ssid"]
         if found and client.get("channel") is not None:

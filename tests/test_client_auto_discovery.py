@@ -575,7 +575,10 @@ async def test_disconnected_grace_and_missing_host_details(
     assert tracker.is_connected
     assert tracker.ip_address is None
     assert tracker.hostname is None
-    assert tracker.extra_state_attributes == {"connection_type": "wired"}
+    assert tracker.extra_state_attributes == {
+        "mac": "11:22:33:44:55:aa",
+        "connection_type": "wired",
+    }
     tracker._last_seen = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=3)
     assert not tracker.is_connected
 
@@ -777,3 +780,19 @@ async def test_tracker_keeps_last_ssid_but_not_signal_when_offline(
     assert attrs["ssid"] == "Home"
     assert attrs["band"] == "6 GHz"
     assert "rssi_dbm" not in attrs
+
+
+async def test_auto_tracker_exposes_mac_ip_and_host_name(hass: HomeAssistant) -> None:
+    """Auto trackers expose the same mac/ip/host_name attributes as selected ones."""
+    site = _site(hass, "a", [_client(MAC_A, "Phone")])
+    tracker = OmadaAutoClientTracker([site], MAC_A, {})
+
+    attrs = tracker.extra_state_attributes
+    assert attrs["mac"] == "11:22:33:44:55:aa"
+    assert attrs["ip"] == "192.0.2.11"
+    assert attrs["host_name"] == "laptop.local"
+
+    site.data["all_clients"] = []
+    offline = tracker.extra_state_attributes
+    assert offline["mac"] == "11:22:33:44:55:aa"
+    assert "ip" not in offline
