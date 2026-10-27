@@ -85,9 +85,7 @@ async def test_fetch_all_clients_falls_back_to_v1_on_http_404() -> None:
     clients = [{"mac": "AA"}, {"mac": "BB"}]
     session = _session(
         _response(404),
-        _response(
-            200, {"errorCode": 0, "result": {"totalRows": 2, "data": clients}}
-        ),
+        _response(200, {"errorCode": 0, "result": {"totalRows": 2, "data": clients}}),
     )
 
     result = await _fetch_all_clients(session, V2_URL, {}, "site-id")
