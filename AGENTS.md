@@ -37,7 +37,9 @@ in `requirements_dev.txt`; keep the declared Python compatibility aligned with
   translations, diagnostics, and quality-scale contract.
 - `tests/` — pytest suite for API, coordinators, config flow, and entity
   platforms.
-- `scripts/check_coverage.sh` — pre-commit coverage gate.
+- `scripts/check_coverage.sh` — pre-commit coverage gate (total baseline).
+- `scripts/check_module_coverage.sh` — per-module minimum (95%, Platinum
+  `test-coverage`); run by the pre-commit gate and CI.
 - `scripts/deploy.sh` — deploys only to the local devcontainer Home Assistant.
 - `.devcontainer/` — VS Code and Docker Compose development environments.
 - `.github/workflows/` — CI and tag-triggered release workflows.

@@ -22,6 +22,9 @@ output=$($PYTEST_CMD tests/ -x -q \
     exit 1
 }
 
+# Every module must meet the per-module minimum as well.
+bash scripts/check_module_coverage.sh
+
 # Extract "TOTAL ... NN%" from the coverage summary line.
 current=$(echo "$output" | grep '^TOTAL' | awk '{print $NF}' | tr -d '%')
 
