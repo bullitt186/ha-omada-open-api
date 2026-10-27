@@ -308,7 +308,7 @@ async def test_turn_on_poe_permissions_error(hass: HomeAssistant) -> None:
 
     with (
         patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
-        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+        pytest.raises(HomeAssistantError, match=r"^poe_permission_denied$"),
     ):
         await switch.async_turn_on()
 
@@ -327,7 +327,7 @@ async def test_turn_off_poe_permissions_error_1005(hass: HomeAssistant) -> None:
 
     with (
         patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
-        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+        pytest.raises(HomeAssistantError, match=r"^poe_permission_denied$"),
     ):
         await switch.async_turn_off()
 
@@ -411,7 +411,7 @@ async def test_permission_error_does_not_fall_back(hass: HomeAssistant) -> None:
 
     with (
         patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
-        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+        pytest.raises(HomeAssistantError, match=r"^poe_permission_denied$"),
     ):
         await switch.async_turn_off()
 
@@ -432,7 +432,7 @@ async def test_failing_fallback_raises(hass: HomeAssistant) -> None:
 
     with (
         patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
-        pytest.raises(HomeAssistantError, match="Failed to set PoE"),
+        pytest.raises(HomeAssistantError, match=r"^poe_failed$"),
     ):
         await switch.async_turn_off()
 
