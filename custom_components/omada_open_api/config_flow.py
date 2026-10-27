@@ -384,12 +384,16 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             {
                 vol.Required(
                     CONF_CONTROLLER_TYPE, default=CONTROLLER_TYPE_LOCAL
-                ): vol.In(
-                    {
-                        CONTROLLER_TYPE_LOCAL: "Self-Hosted (Local Controller)",
-                        CONTROLLER_TYPE_CLOUD: "Cloud-Hosted (TP-Link Cloud)",
-                        CONTROLLER_TYPE_FUSION: "Fusion Gateway (Built-in Controller)",
-                    }
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[
+                            CONTROLLER_TYPE_LOCAL,
+                            CONTROLLER_TYPE_CLOUD,
+                            CONTROLLER_TYPE_FUSION,
+                        ],
+                        translation_key="controller_type",
+                        mode=SelectSelectorMode.LIST,
+                    )
                 ),
             }
         )
@@ -417,8 +421,12 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         # Create schema for region selection
         data_schema = vol.Schema(
             {
-                vol.Required(CONF_REGION): vol.In(
-                    {key: value["name"] for key, value in REGIONS.items()}
+                vol.Required(CONF_REGION): SelectSelector(
+                    SelectSelectorConfig(
+                        options=list(REGIONS),
+                        translation_key="region",
+                        mode=SelectSelectorMode.LIST,
+                    )
                 ),
             }
         )
@@ -1362,16 +1370,23 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_CONTROLLER_TYPE,
                     default=controller_type,
-                ): vol.In(
-                    {
-                        CONTROLLER_TYPE_CLOUD: "Cloud",
-                        CONTROLLER_TYPE_LOCAL: "Local",
-                    }
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[CONTROLLER_TYPE_CLOUD, CONTROLLER_TYPE_LOCAL],
+                        translation_key="controller_type",
+                        mode=SelectSelectorMode.LIST,
+                    )
                 ),
                 vol.Optional(
                     CONF_REGION,
                     default=entry.data.get(CONF_REGION, "us"),
-                ): vol.In({key: info["name"] for key, info in REGIONS.items()}),
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=list(REGIONS),
+                        translation_key="region",
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
                 vol.Optional(
                     CONF_API_URL,
                     default=entry.data.get(CONF_API_URL, "") if not is_cloud else "",

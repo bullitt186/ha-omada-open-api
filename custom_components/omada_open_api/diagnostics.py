@@ -8,10 +8,12 @@ from homeassistant.components.diagnostics import async_redact_data
 
 from .const import (
     CONF_ACCESS_TOKEN,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_PASSWORD,
     CONF_REFRESH_TOKEN,
+    CONF_SELECTED_CLIENTS,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
 )
@@ -23,12 +25,20 @@ if TYPE_CHECKING:
 
 TO_REDACT = [
     CONF_ACCESS_TOKEN,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
     CONF_REFRESH_TOKEN,
+    CONF_SELECTED_CLIENTS,
     CONF_CLIENT_ID,
     CONF_CLIENT_SECRET,
     CONF_USERNAME,
     CONF_PASSWORD,
     CONF_TOKEN_EXPIRES_AT,
+]
+
+# Option lists that hold client MAC addresses.
+TO_REDACT_OPTIONS = [
+    CONF_SELECTED_CLIENTS,
+    CONF_AUTO_DISCOVERY_EXCLUDED_CLIENTS,
 ]
 
 # Redact sensitive fields in device/client data.
@@ -108,7 +118,7 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry_data": async_redact_data(dict(entry.data), TO_REDACT),
-        "entry_options": dict(entry.options),
+        "entry_options": async_redact_data(dict(entry.options), TO_REDACT_OPTIONS),
         "has_write_access": rd.has_write_access if rd is not None else False,
         "site_coordinators": coordinators_summary,
         "client_coordinators": client_coordinators_summary,
