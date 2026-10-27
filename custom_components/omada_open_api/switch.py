@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
-from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF, POE_PORT_PATCH_FALLBACK_ERRORS
+from .const import DOMAIN, POE_PORT_PATCH_FALLBACK_ERRORS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
@@ -205,7 +205,6 @@ class OmadaPoeSwitch(
     """Switch entity to control PoE on a switch port."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
-    _attr_icon = "mdi:ethernet"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -354,7 +353,6 @@ class OmadaClientBlockSwitch(
     """
 
     _attr_device_class = SwitchDeviceClass.SWITCH
-    _attr_icon = "mdi:account-lock"
 
     def __init__(
         self,
@@ -432,7 +430,6 @@ class OmadaLedSwitch(
 ):
     """Switch entity to control site-wide LED setting."""
 
-    _attr_icon = "mdi:led-on"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -487,7 +484,6 @@ class OmadaApLedSwitch(
 ):
     """Switch entity to control an individual AP LED setting."""
 
-    _attr_icon = "mdi:led-on"
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
@@ -615,11 +611,6 @@ class OmadaSsidSwitch(
         return DeviceInfo(
             identifiers={(DOMAIN, self._site_device_id)},
         )
-
-    @property
-    def icon(self) -> str:
-        """Return icon based on current state."""
-        return ICON_WIFI if self._enabled else ICON_WIFI_OFF
 
     @property
     def is_on(self) -> bool:
@@ -782,11 +773,6 @@ class OmadaApSsidSwitch(
     def is_on(self) -> bool:
         """Return True if SSID is enabled on this AP."""
         return self._enabled
-
-    @property
-    def icon(self) -> str:
-        """Return icon based on state."""
-        return ICON_WIFI if self._enabled else ICON_WIFI_OFF
 
     @property
     def available(self) -> bool:

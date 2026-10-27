@@ -96,12 +96,11 @@ def test_app_traffic_sensor_init() -> None:
     assert sensor._attr_unique_id == "11-22-33-44-55-AA_100_download_app_traffic"
     assert sensor._attr_translation_key == "app_download"
     assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}
-    assert sensor._attr_icon == "mdi:download-network"
     assert sensor._attr_device_info["identifiers"] == {(DOMAIN, "11-22-33-44-55-AA")}
 
 
-def test_app_traffic_sensor_upload_icon() -> None:
-    """Test that upload metric type sets upload icon."""
+def test_app_traffic_sensor_upload() -> None:
+    """Test that upload metric type sets upload translation key."""
     coordinator = _make_coordinator()
     sensor = OmadaClientAppTrafficSensor(
         coordinator=coordinator,
@@ -111,7 +110,6 @@ def test_app_traffic_sensor_upload_icon() -> None:
         metric_type="upload",
     )
 
-    assert sensor._attr_icon == "mdi:upload-network"
     assert sensor._attr_translation_key == "app_upload"
     assert sensor._attr_translation_placeholders == {"app_name": "YouTube"}
 

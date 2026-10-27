@@ -13,7 +13,7 @@ from homeassistant.components.binary_sensor import (  # type: ignore[attr-define
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
-from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN, ICON_POWER_SAVE, ICON_STATUS
+from .const import CONF_ENABLE_VPN_SENSORS, DOMAIN
 from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
@@ -50,7 +50,6 @@ DEVICE_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         translation_key="status",
         name="Status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        icon=ICON_STATUS,
         value_fn=lambda device: device.get("status") == 1,
     ),
 )
@@ -60,7 +59,6 @@ CLIENT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         key="power_save",
         translation_key="power_save",
         name="Power Save",
-        icon=ICON_POWER_SAVE,
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda client: client.get("power_save", False),
         available_fn=lambda client: client.get("wireless", False),

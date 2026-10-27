@@ -177,34 +177,6 @@ WAN_SPEED_MAP: dict[int, int] = {
     5: 10000,
 }
 
-# Device icons
-ICON_ACCESS_POINT = "mdi:access-point"
-ICON_GATEWAY = "mdi:router-network"
-ICON_SWITCH = "mdi:switch"
-ICON_CLIENTS = "mdi:account-multiple"
-ICON_UPTIME = "mdi:clock-outline"
-ICON_CPU = "mdi:cpu-64-bit"
-ICON_MEMORY = "mdi:memory"
-ICON_FIRMWARE = "mdi:chip"
-ICON_STATUS = "mdi:check-network"
-ICON_LINK = "mdi:ethernet"
-ICON_TAG = "mdi:tag"
-ICON_DEVICE_TYPE = "mdi:devices"
-ICON_SERIAL = "mdi:barcode"
-ICON_POE = "mdi:flash"
-ICON_DOWNLOAD = "mdi:download-network"
-ICON_UPLOAD = "mdi:upload-network"
-ICON_SIGNAL = "mdi:signal"
-ICON_POWER_SAVE = "mdi:leaf"
-ICON_IP = "mdi:ip-network"
-ICON_TEMPERATURE = "mdi:thermometer"
-ICON_WIFI = "mdi:wifi"
-ICON_WIFI_OFF = "mdi:wifi-off"
-ICON_WIFI_COG = "mdi:wifi-cog"
-ICON_THREAT_HEATMAP = "mdi:map-marker-radius"
-ICON_VPN = "mdi:vpn"
-ICON_VPN_DISCONNECTED = "mdi:vpn-off"
-
 # Controller errors that mean the dedicated PoE endpoints are unusable for a
 # port, and PoE has to be set by patching the port object instead.
 # -1: general error, -1001: invalid request parameters,
