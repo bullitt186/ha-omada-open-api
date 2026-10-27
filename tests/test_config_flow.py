@@ -2916,13 +2916,16 @@ async def test_options_clients_http_404_returns_empty_selection(
         await hass.async_block_till_done()
 
     _register_clients_endpoint(aioclient_mock, status=404)
+    aioclient_mock.get(
+        _CLIENTS_URL.replace("/openapi/v2/", "/openapi/v1/", 1), status=404
+    )
     result = await hass.config_entries.options.async_init(entry.entry_id)
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {"next_step_id": "client_selection"},
     )
 
-    # Unsupported endpoint should degrade gracefully to no selection.
+    # Without v2 and v1 clients endpoints, the flow skips client selection.
     assert result["type"] == FlowResultType.CREATE_ENTRY
 
 

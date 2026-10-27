@@ -86,6 +86,7 @@ def _create_switch(
     api_client = MagicMock()
     api_client.set_port_profile_override = AsyncMock()
     api_client.set_port_poe_mode = AsyncMock()
+    api_client.set_port_poe_via_port_patch = AsyncMock()
 
     coordinator = OmadaSiteCoordinator(
         hass=hass,
@@ -333,6 +334,107 @@ async def test_turn_off_poe_permissions_error_1005(hass: HomeAssistant) -> None:
     api.set_port_poe_mode.assert_awaited_once()
 
 
+# ---------------------------------------------------------------------------
+# Port-object PATCH fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_turn_off_falls_back_to_port_patch(hass: HomeAssistant) -> None:
+    """Test -1001 from profile override falls back to the port PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once_with(
+        TEST_SITE_ID, "AA-BB-CC-DD-EE-02", 1, poe_enabled=False
+    )
+
+
+@pytest.mark.asyncio
+async def test_turn_on_falls_back_when_poe_mode_rejected(hass: HomeAssistant) -> None:
+    """Test -1001 from the poe-mode endpoint falls back to the port PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_poe_mode.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_on()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once_with(
+        TEST_SITE_ID, "AA-BB-CC-DD-EE-02", 1, poe_enabled=True
+    )
+
+
+@pytest.mark.asyncio
+async def test_turn_off_falls_back_when_override_reported_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """Test -39737 falls back to the PATCH, which also enables the override."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_poe_mode.side_effect = OmadaApiError(
+        "Profile override setting is disabled", error_code=-39737
+    )
+
+    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_permission_error_does_not_fall_back(hass: HomeAssistant) -> None:
+    """Test a permissions error is reported instead of retried as a PATCH."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "No permission", error_code=-1007
+    )
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Insufficient permissions"),
+    ):
+        await switch.async_turn_off()
+
+    api.set_port_poe_via_port_patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_failing_fallback_raises(hass: HomeAssistant) -> None:
+    """Test a failing PATCH fallback surfaces as a HomeAssistantError."""
+    switch = _create_switch(
+        hass, "AA-BB-CC-DD-EE-02_1", {"AA-BB-CC-DD-EE-02_1": SAMPLE_PORT_ENABLED}
+    )
+    api = switch.coordinator.api_client
+    api.set_port_profile_override.side_effect = OmadaApiError(
+        "Invalid request parameters", error_code=-1001
+    )
+    api.set_port_poe_via_port_patch.side_effect = OmadaApiError("General error")
+
+    with (
+        patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()),
+        pytest.raises(HomeAssistantError, match="Failed to set PoE"),
+    ):
+        await switch.async_turn_off()
+
+
 @pytest.mark.asyncio
 async def test_turn_on_refreshes_coordinator(hass: HomeAssistant) -> None:
     """Test that successful turn_on triggers coordinator refresh."""
@@ -541,13 +643,10 @@ async def test_block_switch_device_info(hass: HomeAssistant) -> None:
 # ===========================================================================
 
 
-def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
-    """Create an OmadaLedSwitch entity.
-
-    Patches async_request_refresh to a no-op AsyncMock so that calls to
-    async_update() do not leave a lingering debounce timer in the event
-    loop (which would fail the HA test harness's verify_cleanup fixture).
-    """
+def _create_led_switch(
+    hass: HomeAssistant, site_led_enabled: bool | None = None
+) -> OmadaLedSwitch:
+    """Create an OmadaLedSwitch backed by coordinator data."""
     coordinator = OmadaSiteCoordinator(
         hass=hass,
         api_client=MagicMock(),
@@ -560,14 +659,9 @@ def _create_led_switch(hass: HomeAssistant) -> OmadaLedSwitch:
         "poe_ports": {},
         "site_id": TEST_SITE_ID,
         "site_name": TEST_SITE_NAME,
+        "site_led_enabled": site_led_enabled,
     }
-    coordinator.api_client.get_led_setting = AsyncMock(return_value={"enable": True})
     coordinator.api_client.set_led_setting = AsyncMock(return_value={})
-    # Prevent the coordinator from scheduling a debounced background refresh
-    # when async_update() is called — the underlying api_client is a bare
-    # MagicMock (not fully async-mocked) so a refresh attempt would raise
-    # TypeError and leave an unresolved debounce timer in the event loop.
-    coordinator.async_request_refresh = AsyncMock()  # type: ignore[method-assign]
     return OmadaLedSwitch(coordinator)
 
 
@@ -584,18 +678,19 @@ async def test_led_switch_name(hass: HomeAssistant) -> None:
     assert switch.translation_placeholders == {"site_name": TEST_SITE_NAME}
 
 
-async def test_led_switch_is_on_initial(hass: HomeAssistant) -> None:
-    """Test LED switch is_on is None before first update."""
+async def test_led_switch_is_on_unknown_without_data(hass: HomeAssistant) -> None:
+    """Test LED switch is_on is None when the setting could not be read."""
     switch = _create_led_switch(hass)
     assert switch.is_on is None
 
 
-async def test_led_switch_is_on_after_update(hass: HomeAssistant) -> None:
-    """Test LED switch is_on reflects API after update."""
-    switch = _create_led_switch(hass)
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
-        await switch.async_update()
-    assert switch.is_on is True
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_led_switch_is_on_from_coordinator(
+    hass: HomeAssistant, enabled: bool
+) -> None:
+    """Test LED switch reflects the site LED setting from coordinator data."""
+    switch = _create_led_switch(hass, site_led_enabled=enabled)
+    assert switch.is_on is enabled
 
 
 async def test_led_switch_available(hass: HomeAssistant) -> None:
@@ -613,7 +708,7 @@ async def test_led_switch_unavailable(hass: HomeAssistant) -> None:
 
 async def test_led_switch_turn_on(hass: HomeAssistant) -> None:
     """Test turning LED switch ON calls set_led_setting(enable=True)."""
-    switch = _create_led_switch(hass)
+    switch = _create_led_switch(hass, site_led_enabled=False)
     switch.hass = hass
     with patch.object(switch, "async_write_ha_state"):
         await switch.async_turn_on()
@@ -625,7 +720,7 @@ async def test_led_switch_turn_on(hass: HomeAssistant) -> None:
 
 async def test_led_switch_turn_off(hass: HomeAssistant) -> None:
     """Test turning LED switch OFF calls set_led_setting(enable=False)."""
-    switch = _create_led_switch(hass)
+    switch = _create_led_switch(hass, site_led_enabled=True)
     switch.hass = hass
     with patch.object(switch, "async_write_ha_state"):
         await switch.async_turn_off()
@@ -641,7 +736,7 @@ async def test_led_switch_turn_on_api_error(hass: HomeAssistant) -> None:
     switch.coordinator.api_client.set_led_setting.side_effect = OmadaApiError("fail")
     with pytest.raises(HomeAssistantError):
         await switch.async_turn_on()
-    assert switch.is_on is None  # Stays None since never successfully fetched.
+    assert switch.is_on is None
 
 
 async def test_led_switch_turn_off_api_error(hass: HomeAssistant) -> None:
@@ -653,13 +748,33 @@ async def test_led_switch_turn_off_api_error(hass: HomeAssistant) -> None:
     assert switch.is_on is None
 
 
-async def test_led_switch_update_api_error(hass: HomeAssistant) -> None:
-    """Test LED switch handles update error gracefully."""
-    switch = _create_led_switch(hass)
-    switch.coordinator.api_client.get_led_setting.side_effect = OmadaApiError("fail")
-    with patch.object(switch.coordinator, "async_request_refresh", new=AsyncMock()):
-        await switch.async_update()
-    assert switch.is_on is None
+@pytest.mark.parametrize(
+    ("side_effect", "expected"),
+    [
+        ({"enable": False}, False),
+        ({"enable": True}, True),
+        (OmadaApiError("fail"), None),
+    ],
+)
+async def test_site_coordinator_fetches_site_led(
+    hass: HomeAssistant, mock_api_client: MagicMock, side_effect: Any, expected: Any
+) -> None:
+    """Test the site coordinator stores the site LED setting (issue #113)."""
+    if isinstance(side_effect, Exception):
+        mock_api_client.get_led_setting = AsyncMock(side_effect=side_effect)
+    else:
+        mock_api_client.get_led_setting = AsyncMock(return_value=side_effect)
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    data = await coordinator._async_update_data()
+
+    assert data["site_led_enabled"] is expected
+    mock_api_client.get_led_setting.assert_called_once_with(TEST_SITE_ID)
 
 
 def _create_ap_led_switch(hass: HomeAssistant) -> OmadaApLedSwitch:

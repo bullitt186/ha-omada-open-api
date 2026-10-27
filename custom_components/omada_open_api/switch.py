@@ -11,7 +11,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory  # type: ignore[attr-defined]
 
 from .api import OmadaApiError
-from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF
+from .const import DOMAIN, ICON_WIFI, ICON_WIFI_OFF, POE_PORT_PATCH_FALLBACK_ERRORS
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
@@ -298,13 +298,28 @@ class OmadaPoeSwitch(
         api = self.coordinator.api_client
 
         try:
-            # Profile override must be enabled before changing PoE mode.
-            await api.set_port_profile_override(
-                site_id, self._switch_mac, self._port_num, enable=True
-            )
-            await api.set_port_poe_mode(
-                site_id, self._switch_mac, self._port_num, poe_enabled=enabled
-            )
+            try:
+                # Profile override must be enabled before changing PoE mode.
+                await api.set_port_profile_override(
+                    site_id, self._switch_mac, self._port_num, enable=True
+                )
+                await api.set_port_poe_mode(
+                    site_id, self._switch_mac, self._port_num, poe_enabled=enabled
+                )
+            except OmadaApiError as err:
+                # Some controller and switch combinations reject these
+                # endpoints outright; patching the port object works there.
+                if err.error_code not in POE_PORT_PATCH_FALLBACK_ERRORS:
+                    raise
+                _LOGGER.debug(
+                    "PoE endpoints rejected %s port %d (%s), patching the port",
+                    self._switch_mac,
+                    self._port_num,
+                    err,
+                )
+                await api.set_port_poe_via_port_patch(
+                    site_id, self._switch_mac, self._port_num, poe_enabled=enabled
+                )
         except OmadaApiError as err:
             _LOGGER.debug(
                 "PoE control failed for %s port %d: %s",
@@ -431,56 +446,39 @@ class OmadaLedSwitch(
             "site_name": coordinator.site_name,
         }
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_led"
-        self._led_enabled: bool | None = None
 
     @property
     def is_on(self) -> bool | None:
         """Return True if LED is enabled."""
-        return self._led_enabled
+        enabled: bool | None = self.coordinator.data.get("site_led_enabled")
+        return enabled
 
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         return bool(self.coordinator.last_update_success)
 
-    async def async_update(self) -> None:
-        """Fetch current LED state from the API."""
-        await super().async_update()
-        try:
-            result = await self.coordinator.api_client.get_led_setting(
-                self.coordinator.site_id
-            )
-            self._led_enabled = result.get("enable", False)
-        except OmadaApiError:
-            _LOGGER.debug(
-                "Could not fetch LED setting for site %s",
-                self.coordinator.site_id,
-            )
-
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable LEDs."""
-        try:
-            await self.coordinator.api_client.set_led_setting(
-                self.coordinator.site_id, enable=True
-            )
-            self._led_enabled = True
-        except OmadaApiError as err:
-            raise HomeAssistantError(
-                f"Failed to enable LED for site {self.coordinator.site_id}"
-            ) from err
-        self.async_write_ha_state()
+        await self._set_led(enable=True)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Disable LEDs."""
+        await self._set_led(enable=False)
+
+    async def _set_led(self, *, enable: bool) -> None:
+        """Write the site LED setting and reflect it in coordinator data."""
         try:
             await self.coordinator.api_client.set_led_setting(
-                self.coordinator.site_id, enable=False
+                self.coordinator.site_id, enable=enable
             )
-            self._led_enabled = False
         except OmadaApiError as err:
             raise HomeAssistantError(
-                f"Failed to disable LED for site {self.coordinator.site_id}"
+                f"Failed to {'enable' if enable else 'disable'} LED for site "
+                f"{self.coordinator.site_id}"
             ) from err
+        self.coordinator.data["site_led_enabled"] = enable
+        self.async_write_ha_state()
 
 
 class OmadaApLedSwitch(
