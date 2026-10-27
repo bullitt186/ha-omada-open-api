@@ -81,8 +81,8 @@ async def test_user_step_shows_fusion_option(hass: HomeAssistant) -> None:
     schema = result["data_schema"]
     schema_dict = dict(schema.schema)
     controller_type_key = next(iter(schema_dict))
-    validators = schema_dict[controller_type_key]
-    assert CONTROLLER_TYPE_FUSION in validators.container
+    selector = schema_dict[controller_type_key]
+    assert CONTROLLER_TYPE_FUSION in selector.config["options"]
 
 
 async def test_fusion_step_renders_form(hass: HomeAssistant) -> None:
