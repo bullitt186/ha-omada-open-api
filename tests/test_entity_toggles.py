@@ -407,3 +407,53 @@ async def test_threat_heatmap_sensors_skipped_when_disabled(
         is None
     )
     assert entry.runtime_data.threat_heatmap_coordinators == []
+
+
+async def test_client_signal_sensors_skipped_when_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """RSSI, SNR and signal strength sensors are not created when disabled.
+
+    Regression test for the #111 beta report: CONF_ENABLE_CLIENT_SIGNAL_SENSORS
+    was saved by the options flow but never read by the sensor platform.
+    """
+    client_mac = "11-22-33-44-55-AC"
+    entry = _build_entry(
+        hass,
+        {
+            CONF_ENABLE_CLIENT_SIGNAL_SENSORS: False,
+            CONF_SELECTED_CLIENTS: [client_mac],
+        },
+        "test_toggle_client_signal",
+    )
+    mock = _build_mock_api([])
+    mock.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "mac": client_mac,
+                    "name": "Phone",
+                    "active": True,
+                    "wireless": True,
+                    "rssi": -60,
+                    "snr": 30,
+                    "signalLevel": 80,
+                }
+            ],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    for key in ("rssi", "snr", "signal_strength"):
+        assert reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_{key}") is None
+    # Bandwidth sensors are governed by their own option and stay.
+    assert (
+        reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_downloaded")
+        is not None
+    )

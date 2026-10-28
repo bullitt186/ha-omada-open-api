@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 from homeassistant.components.device_tracker import SourceType
 
 from custom_components.omada_open_api.clients import process_client
+from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
@@ -168,31 +169,45 @@ async def test_unique_id(hass: HomeAssistant) -> None:
 
 
 async def test_name_from_client_name(hass: HomeAssistant) -> None:
-    """Test entity name comes from client name."""
+    """The client device carries the Omada name; the entity inherits it (#111)."""
     data = process_client(SAMPLE_CLIENT_WIRELESS)
     tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
-    assert tracker.name == "Phone"
+    assert tracker.name is None
+    assert tracker.device_info is not None
+    assert tracker.device_info["name"] == "Phone"
+    assert tracker.device_info["identifiers"] == {(DOMAIN, WIRELESS_MAC)}
 
 
 async def test_name_fallback_to_hostname(hass: HomeAssistant) -> None:
-    """Test entity name falls back to hostname when name absent."""
+    """The device name falls back to the hostname when the name is absent."""
     raw = dict(SAMPLE_CLIENT_WIRELESS)
     raw["name"] = None
     data = process_client(raw)
     tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
-    assert tracker.name == "phone-host"
+    assert tracker.device_info is not None
+    assert tracker.device_info["name"] == "phone-host"
 
 
 async def test_name_fallback_to_mac(hass: HomeAssistant) -> None:
-    """Test entity name falls back to MAC when name and hostname absent."""
+    """The device name falls back to "Unknown" without name and hostname."""
     raw = dict(SAMPLE_CLIENT_WIRELESS)
     raw["name"] = None
     raw["hostName"] = None
     data = process_client(raw)
     tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
     # process_client returns "Unknown" when both name and hostName are None.
-    # device_tracker uses that as the name.
-    assert tracker.name == "Unknown"
+    assert tracker.device_info is not None
+    assert tracker.device_info["name"] == "Unknown"
+
+
+async def test_tracker_keeps_mac_ip_hostname_attributes(hass: HomeAssistant) -> None:
+    """mac, ip and host_name stay available as state attributes."""
+    data = process_client(SAMPLE_CLIENT_WIRELESS)
+    tracker = _create_tracker(hass, WIRELESS_MAC, {WIRELESS_MAC: data})
+    attrs = tracker.extra_state_attributes
+    assert attrs["mac"] == "11:22:33:44:55:aa"
+    assert attrs["ip"] == data["ip"]
+    assert attrs["host_name"] == "phone-host"
 
 
 # ---------------------------------------------------------------------------
@@ -456,7 +471,8 @@ async def test_device_tracker_name(hass: HomeAssistant) -> None:
     """Test entity name comes from device name."""
     data = _connected_device(SAMPLE_DEVICE_AP)
     tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
-    assert tracker.name == "Office AP"
+    # The device already shows "Office AP"; a name here would double it (#111).
+    assert tracker.name is None
 
 
 # ---------------------------------------------------------------------------
@@ -503,27 +519,6 @@ async def test_device_tracker_attrs_missing(hass: HomeAssistant) -> None:
 # ---------------------------------------------------------------------------
 # device_info
 # ---------------------------------------------------------------------------
-
-
-async def test_device_tracker_device_info(hass: HomeAssistant) -> None:
-    """Test device info links tracker to correct device."""
-    data = _connected_device(SAMPLE_DEVICE_AP)
-    tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
-    info = tracker._attr_device_info
-    assert info is not None
-    assert info["identifiers"] == {("omada_open_api", AP_MAC)}
-    assert info["name"] == "Office AP"
-    assert info["manufacturer"] == "TP-Link"
-    assert info["model"] == "EAP660 HD"
-    assert info["sw_version"] == "1.2.3"
-
-
-async def test_device_tracker_device_info_missing(hass: HomeAssistant) -> None:
-    """Test device info returns None when device not in data."""
-    tracker = _create_device_tracker(hass, AP_MAC, {})
-    assert (
-        not hasattr(tracker, "_attr_device_info") or tracker._attr_device_info is None
-    )
 
 
 # ---------------------------------------------------------------------------

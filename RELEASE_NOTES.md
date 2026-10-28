@@ -5,11 +5,21 @@
 > release.
 
 This third beta brings the integration to the Home Assistant **Platinum**
-quality level, fixes the site LED switch not appearing on any device, and
-cleans up logging and error messages.
+quality level, fixes device names of tracked clients and network devices,
+fixes the site LED switch not appearing on any device, and cleans up logging
+and error messages.
 
 ### Fixed
 
+- **Device names of tracked clients and network devices** (#111). Selected
+  clients showed names like "90:48:6c:… Ring Chime" or "wlan0 Wipro Stilt
+  Plug", network devices like "Cinema Ap Cinema Ap", and every entity on
+  those devices carried the prefix ("wlan0 SSID"). Devices are now named
+  after the Omada client or device name, and trackers use the device name.
+  Existing devices are renamed after the update and a restart; names you set
+  yourself and entity IDs are kept.
+- **"Client signal sensors" option had no effect** (#111). Turning it off
+  now stops RSSI, SNR and signal strength sensors from being created.
 - **Site LED switch was not attached to any device** (#127). It now appears
   on the site device page under "Configuration". Its name changes from
   "<site> LED" to "LED", because the site device already shows the site
@@ -54,6 +64,8 @@ cleans up logging and error messages.
 
 ### Beta testing requested
 
+- Check device and tracker names of selected clients after the update and a
+  Home Assistant restart (#111).
 - Check that the site LED switch appears on the site device page (#127).
 - Fusion gateways: confirm setup and the options dialog still log in.
 - Report any warning that still repeats on every poll.
