@@ -599,13 +599,10 @@ class OmadaDeviceTracker(
         super().__init__(coordinator)
         self._device_mac = device_mac
 
-        device_data = self._device_data
-        device_name = device_data.get("name", device_mac)
-
-        self._attr_name = device_name
+        # The device already carries the Omada name; inherit it (#111).
+        self._attr_name = None
         self._unique_id = f"{DOMAIN}_device_{device_mac}"
         self._attr_mac_address = device_mac.replace("-", ":").lower()
-        self._update_device_info()
 
     @property
     def _device_data(self) -> dict[str, Any]:
@@ -657,22 +654,9 @@ class OmadaDeviceTracker(
         name: str | None = device.get("name")
         return name
 
-    def _update_device_info(self) -> None:
-        """Update device_info from current coordinator data."""
-        device = self._device_data
-        if device:
-            self._attr_device_info: DeviceInfo | None = DeviceInfo(  # type: ignore[assignment]
-                identifiers={(DOMAIN, self._device_mac)},
-                name=device.get("name", self._device_mac),
-                manufacturer="TP-Link",
-                model=device.get("model"),
-                sw_version=device.get("firmware_version"),
-            )
-
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        self._update_device_info()
         self.async_write_ha_state()
 
     @property
@@ -698,7 +682,7 @@ class OmadaDeviceTracker(
 
 class OmadaClientTracker(
     OmadaEntity[OmadaClientCoordinator],
-    ScannerEntity,
+    BaseScannerEntity,
 ):
     """Representation of an Omada network client for presence detection."""
 
@@ -711,14 +695,24 @@ class OmadaClientTracker(
         super().__init__(coordinator)
         self._client_mac = client_mac
 
-        client_data = coordinator.data.get(client_mac, {})
-        client_name = (
-            client_data.get("name") or client_data.get("host_name") or client_mac
-        )
-
-        self._attr_name = client_name
+        # ScannerEntity would name the device after the hostname or MAC and
+        # append the client name to every entity on it (#111). Use the same
+        # device as the client sensors instead and inherit its Omada name.
+        self._attr_name = None
         self._unique_id = f"{DOMAIN}_{client_mac}"
         self._attr_mac_address = client_mac.replace("-", ":").lower()
+        client_data = coordinator.data.get(client_mac)
+        self._client_device_info: DeviceInfo = (
+            build_client_device_info(
+                client_mac,
+                client_data,
+                coordinator.api_client.api_url,
+                coordinator.site_device_id,
+            )
+            if client_data
+            # Offline at startup: link to the device without renaming it.
+            else DeviceInfo(identifiers={(DOMAIN, client_mac)})
+        )
 
     # ------------------------------------------------------------------
     # ScannerEntity properties
@@ -728,6 +722,21 @@ class OmadaClientTracker(
     def unique_id(self) -> str:
         """Return unique ID of the entity."""
         return self._unique_id
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return the client device shared with the client sensors."""
+        return self._client_device_info
+
+    @property
+    def mac_address(self) -> str | None:
+        """Return the MAC address of the client."""
+        return self._attr_mac_address
+
+    @property
+    def source_type(self) -> SourceType:
+        """Presence is detected by the Omada router/controller."""
+        return SourceType.ROUTER
 
     @property
     def is_connected(self) -> bool:
@@ -773,7 +782,11 @@ class OmadaClientTracker(
         client = self.coordinator.data.get(self._client_mac)
         if client is None:
             return {}
-        attrs: dict[str, Any] = {}
+        # BaseScannerEntity, unlike ScannerEntity, adds no mac/ip/host_name.
+        attrs: dict[str, Any] = {"mac": self._attr_mac_address}
+        for key in ("ip", "host_name"):
+            if client.get(key):
+                attrs[key] = client[key]
         if client.get("ssid"):
             attrs["ssid"] = client["ssid"]
         if client.get("ap_name"):
