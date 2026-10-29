@@ -5,6 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC
+import pytest
+
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
@@ -511,9 +514,9 @@ async def test_device_tracker_attrs_gateway(hass: HomeAssistant) -> None:
 
 
 async def test_device_tracker_attrs_missing(hass: HomeAssistant) -> None:
-    """Test extra attributes returns empty dict for missing device."""
+    """Retain the tracked MAC when device data is missing."""
     tracker = _create_device_tracker(hass, AP_MAC, {})
-    assert tracker.extra_state_attributes == {}
+    assert tracker.extra_state_attributes == {"mac": "aa:bb:cc:dd:ee:01"}
 
 
 # ---------------------------------------------------------------------------
@@ -572,3 +575,31 @@ async def test_client_tracker_handle_coordinator_update(
     tracker._handle_coordinator_update()
 
     tracker.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "raw", [SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH, SAMPLE_DEVICE_GATEWAY]
+)
+async def test_infrastructure_tracker_links_to_existing_device(hass, raw):
+    mac = raw["mac"]
+    tracker = _create_device_tracker(hass, mac, {mac: _connected_device(raw)})
+    assert tracker.device_info is not None
+    assert tracker.device_info["identifiers"] == {(DOMAIN, mac)}
+    assert tracker.device_info["connections"] == {
+        (CONNECTION_NETWORK_MAC, mac.replace("-", ":").lower())
+    }
+    assert "name" not in tracker.device_info
+    assert tracker.unique_id == f"{DOMAIN}_device_{mac}"
+
+
+async def test_infrastructure_tracker_preserves_network_attributes(hass):
+    tracker = _create_device_tracker(
+        hass, AP_MAC, {AP_MAC: _connected_device(SAMPLE_DEVICE_AP)}
+    )
+    tracker.hass = hass
+    tracker.entity_id = "device_tracker.test_infrastructure"
+    tracker.async_write_ha_state()
+    attrs = hass.states.get(tracker.entity_id).attributes
+    assert attrs["mac"] == "aa:bb:cc:dd:ee:01"
+    assert attrs["ip"] == SAMPLE_DEVICE_AP["ip"]
+    assert attrs["host_name"] == SAMPLE_DEVICE_AP["name"]
