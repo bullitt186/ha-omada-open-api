@@ -9,12 +9,9 @@ import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.device_tracker.const import SourceType
-from homeassistant.components.device_tracker.entity import (
-    BaseScannerEntity,
-    ScannerEntity,
-)
+from homeassistant.components.device_tracker.entity import BaseScannerEntity
 from homeassistant.core import callback
-from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.device_registry import CONNECTION_NETWORK_MAC, DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
 from .auto_discovery import AutoClientManager
@@ -586,9 +583,11 @@ class OmadaAutoClientTracker(BaseScannerEntity):
 
 class OmadaDeviceTracker(
     OmadaEntity[OmadaSiteCoordinator],
-    ScannerEntity,
+    BaseScannerEntity,
 ):
     """Representation of an Omada network device (AP/switch/gateway) for presence detection."""
+
+    _attr_entity_registry_enabled_default = False
 
     def __init__(
         self,
@@ -603,6 +602,10 @@ class OmadaDeviceTracker(
         self._attr_name = None
         self._unique_id = f"{DOMAIN}_device_{device_mac}"
         self._attr_mac_address = device_mac.replace("-", ":").lower()
+        self._tracker_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_mac)},
+            connections={(CONNECTION_NETWORK_MAC, self._attr_mac_address)},
+        )
 
     @property
     def _device_data(self) -> dict[str, Any]:
@@ -616,6 +619,16 @@ class OmadaDeviceTracker(
     # ------------------------------------------------------------------
     # ScannerEntity properties
     # ------------------------------------------------------------------
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Link the tracker to its existing infrastructure device."""
+        return self._tracker_device_info
+
+    @property
+    def mac_address(self) -> str:
+        """Return the normalized MAC address of the device."""
+        return self._attr_mac_address
 
     @property
     def unique_id(self) -> str:
@@ -662,10 +675,14 @@ class OmadaDeviceTracker(
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes."""
+        attrs: dict[str, Any] = {"mac": self.mac_address}
         device = self._device_data
         if not device:
-            return {}
-        attrs: dict[str, Any] = {}
+            return attrs
+        if (ip := self.ip_address) is not None:
+            attrs["ip"] = ip
+        if (hostname := self.hostname) is not None:
+            attrs["host_name"] = hostname
         if device.get("type"):
             attrs["device_type"] = device["type"]
         if device.get("model"):
