@@ -4,7 +4,7 @@ homeassistant==2026.10.2
 # Development dependencies
 pytest>=8.0.0
 pytest-asyncio>=1.4.0
-pytest-homeassistant-custom-component==0.13.373
+pytest-homeassistant-custom-component==0.13.375
 pytest-cov>=7.1.0
 pytest-timeout>=2.4.0
 pytest-xdist>=3.8.0
