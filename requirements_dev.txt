@@ -1,5 +1,5 @@
 # Home Assistant for testing the integration
-homeassistant==2026.10.2
+homeassistant==2026.10.4
 
 # Development dependencies
 pytest>=8.0.0
