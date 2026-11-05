@@ -377,9 +377,21 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 info = await self.api_client.get_firmware_info(self.site_id, mac)
                 self._firmware_info[mac] = info
+                self._partial_log.ok("firmware info")
             except OmadaApiError as err:
                 _LOGGER.debug("Could not fetch firmware info for %s: %s", mac, err)
                 # Keep stale data if present; otherwise skip this device.
+            except TimeoutError:
+                # Controllers without internet time out for every device; stop
+                # this round and retry after the interval instead of blocking
+                # (and failing) the site refresh on each poll (GH #159).
+                self._partial_log.failed(
+                    "firmware info",
+                    "Timed out fetching firmware info in site %s; next check in %d s",
+                    self.site_name,
+                    DEFAULT_FIRMWARE_CHECK_INTERVAL,
+                )
+                break
 
         # Remove cached entries for devices no longer present in the network.
         stale_macs = set(self._firmware_info) - set(devices)
