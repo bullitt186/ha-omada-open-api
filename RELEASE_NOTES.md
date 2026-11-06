@@ -1,16 +1,26 @@
-## What's Changed in v1.12.0b3
+## What's Changed in v1.12.0b4
 
 > **Beta release:** HACS offers this version only when beta versions are
 > enabled for this repository. Please report problems before the stable
 > release.
 
-This third beta brings the integration to the Home Assistant **Platinum**
-quality level, fixes device names of tracked clients and network devices,
+This fourth beta keeps device and site entities available on controllers
+without internet access and removes a Home Assistant 2026.11 deprecation
+warning. It also contains everything from v1.12.0b3: the Home Assistant
+**Platinum** quality level, fixes device names of tracked clients and network devices,
 fixes the site LED switch not appearing on any device, and cleans up logging
 and error messages.
 
 ### Fixed
 
+- **Device and site entities went unavailable after ~30 minutes** on
+  controllers without internet access (#159, reported by @rloipfinger). The
+  firmware update check timed out and failed every following poll until a
+  reload. A timeout now only skips that check until the next one 30 minutes
+  later; all other data keeps updating.
+- **Device tracker warning in Home Assistant 2026.11** (#148, PR #150 by
+  @hmmbob). Network device trackers now provide their device information, so
+  Home Assistant no longer warns that this will stop working in 2028.11.
 - **Device names of tracked clients and network devices** (#111). Selected
   clients showed names like "90:48:6c:… Ring Chime" or "wlan0 Wipro Stilt
   Plug", network devices like "Cinema Ap Cinema Ap", and every entity on
@@ -64,10 +74,12 @@ and error messages.
 
 ### Beta testing requested
 
+- Controllers without internet: confirm entities stay available (#159).
+- Home Assistant 2026.11: confirm the device tracker warning is gone (#148).
 - Check device and tracker names of selected clients after the update and a
   Home Assistant restart (#111).
 - Check that the site LED switch appears on the site device page (#127).
 - Fusion gateways: confirm setup and the options dialog still log in.
 - Report any warning that still repeats on every poll.
 
-**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.12.0b2...v1.12.0b3
+**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.12.0b3...v1.12.0b4
