@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+import datetime as dt
+import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
+
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
+from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.entity_platform import EntityPlatform
+from homeassistant.util import slugify
+import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -572,3 +581,74 @@ async def test_client_tracker_handle_coordinator_update(
     tracker._handle_coordinator_update()
 
     tracker.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.parametrize("sensor_first", [True, False])
+@pytest.mark.parametrize("hostname", ["Office AP", None])
+async def test_infrastructure_tracker_registration(
+    hass: HomeAssistant,
+    caplog: pytest.LogCaptureFixture,
+    sensor_first: bool,
+    hostname: str | None,
+) -> None:
+    """Preserve the Core default and device naming on first registration."""
+    config_entry = MockConfigEntry(domain=DOMAIN)
+    config_entry.add_to_hass(hass)
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+    platform = EntityPlatform(
+        hass=hass,
+        logger=logging.getLogger(__name__),
+        domain="device_tracker",
+        platform_name=DOMAIN,
+        platform=None,
+        scan_interval=dt.timedelta(seconds=30),
+        entity_namespace=None,
+    )
+    platform.config_entry = config_entry
+
+    data = _connected_device(SAMPLE_DEVICE_AP)
+    data["name"] = hostname
+    tracker = _create_device_tracker(hass, AP_MAC, {AP_MAC: data})
+    mac = "aa:bb:cc:dd:ee:01"
+    connections = {(dr.CONNECTION_NETWORK_MAC, mac)}
+    sensor_info = dr.DeviceInfo(
+        identifiers={(DOMAIN, AP_MAC)},
+        connections=connections,
+        name="Sensor AP",
+    )
+    if sensor_first:
+        sensor_device = device_registry.async_get_or_create(
+            config_entry_id=config_entry.entry_id, **sensor_info
+        )
+
+    await platform.async_add_entities([tracker])
+    await hass.async_block_till_done()
+    entry = entity_registry.async_get(tracker.entity_id)
+    assert entry is not None
+    assert entry.unique_id == f"{DOMAIN}_device_{AP_MAC}"
+
+    if (MAJOR_VERSION, MINOR_VERSION) >= (2026, 11):
+        assert entry.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+        device = device_registry.async_get(entry.device_id)
+        assert device is not None
+        expected_name = hostname or (sensor_info["name"] if sensor_first else mac)
+        assert device.name == expected_name
+        assert entry.entity_id == f"device_tracker.{slugify(expected_name)}"
+        assert "does not provide device info" not in caplog.text
+    else:
+        assert entry.disabled is not sensor_first
+
+    if not sensor_first:
+        sensor_device = device_registry.async_get_or_create(
+            config_entry_id=config_entry.entry_id, **sensor_info
+        )
+        await hass.async_block_till_done()
+
+    entry = entity_registry.async_get(tracker.entity_id)
+    assert entry is not None
+    if (MAJOR_VERSION, MINOR_VERSION) >= (2026, 11) or sensor_first:
+        assert entry.device_id == sensor_device.id
+    else:
+        assert not entry.disabled
+    await platform.async_reset()
