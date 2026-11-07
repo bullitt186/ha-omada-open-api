@@ -566,12 +566,17 @@ class OmadaApiClient:
         issue #81, on Agile Series switches. The port PATCH takes the profile
         override and the PoE mode in a single call.
 
-        The controller merges this PATCH: a port field the body does not carry
-        keeps its current value, verified against every field the Open API
-        exposes for a port. The body therefore carries only the PoE mode plus
-        the two fields the controller rejects the request without, profileId
-        and operation, and both are read back from the controller instead of
-        being reconstructed. VLAN, speed, duplex and the remaining port
+        The controller merges most of this PATCH: a port field the body does
+        not carry keeps its current value. The port name is the exception.
+        Controller software 6.3.0.111 validates name on every PATCH of a port
+        and does not merge it from the stored object, so a body without it is
+        rejected with errorCode -39855, "The length of the port or LAG name is
+        invalid.", whatever the PoE value is. The body therefore carries the
+        PoE mode, the two fields the controller rejects the request without -
+        profileId and operation - and the name, and every one of them is read
+        back from the controller instead of being reconstructed. The name is
+        sent only when the controller reported one, so a controller that never
+        exposes it is unaffected. VLAN, speed, duplex and the remaining port
         settings are never sent.
 
         Args:
@@ -612,6 +617,21 @@ class OmadaApiClient:
                 f"Port {port} operation mode not readable on switch {switch_mac}"
             )
 
+        json_data: dict[str, Any] = {
+            "profileId": port_data["profileId"],
+            "profileOverrideEnable": True,
+            "operation": operation,
+            "poe": 1 if poe_enabled else 0,
+        }
+
+        # Controller 6.3.0.111 validates the port name on every PATCH and does
+        # not merge it from the stored object, so send back the name the
+        # controller reported. Never reconstruct one: a guessed name would
+        # rename the port.
+        port_name = port_data.get("name")
+        if port_name:
+            json_data["name"] = port_name
+
         _LOGGER.debug(
             "Patching port object for %s port %d, PoE %s",
             switch_mac,
@@ -621,12 +641,7 @@ class OmadaApiClient:
         await self._authenticated_request(
             "patch",
             f"{base}/ports/{port}",
-            json_data={
-                "profileId": port_data["profileId"],
-                "profileOverrideEnable": True,
-                "operation": operation,
-                "poe": 1 if poe_enabled else 0,
-            },
+            json_data=json_data,
         )
 
     async def reboot_device(self, site_id: str, device_mac: str) -> None:
