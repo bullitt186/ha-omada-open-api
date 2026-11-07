@@ -156,6 +156,7 @@ async def test_port_patch_disables_poe(hass: HomeAssistant, mock_config_entry) -
         "profileOverrideEnable": True,
         "operation": "switching",
         "poe": 0,
+        "name": "domofon",
     }
 
 
@@ -175,9 +176,11 @@ async def test_port_patch_sends_no_other_port_settings(
 ) -> None:
     """Test the body carries nothing that could overwrite other port settings.
 
-    The controller merges this PATCH, so any field the body does not carry
-    keeps its current value. Sending VLAN, speed or profile fields would
-    risk overwriting them with reconstructed values.
+    The controller merges every field of this PATCH but the name, so a field
+    the body does not carry keeps its current value. Sending VLAN, speed or
+    profile fields would risk overwriting them with reconstructed values, and
+    the name is no exception: it is sent because the controller rejects the
+    request without it, and it is read back rather than built.
     """
     api_client, mock_session = _build_client(mock_config_entry)
 
@@ -186,10 +189,17 @@ async def test_port_patch_sends_no_other_port_settings(
     )
 
     body = mock_session.patch.call_args[1]["json"]
-    assert set(body) == {"profileId", "profileOverrideEnable", "operation", "poe"}
+    assert set(body) == {
+        "profileId",
+        "profileOverrideEnable",
+        "operation",
+        "poe",
+        "name",
+    }
     # Everything the body does carry was read back from the controller.
     assert body["profileId"] == SWITCH_DETAIL["result"]["portList"][1]["profileId"]
     assert body["operation"] == POE_INFO["result"]["data"][0]["operation"]
+    assert body["name"] == SWITCH_DETAIL["result"]["portList"][1]["name"]
 
 
 async def test_port_patch_unknown_port_raises(
@@ -222,3 +232,38 @@ async def test_port_patch_unknown_operation_raises(
         )
 
     mock_session.patch.assert_not_called()
+
+
+async def test_port_patch_omits_unknown_port_name(
+    hass: HomeAssistant, mock_config_entry
+) -> None:
+    """Test a port with no name is patched without one, never with a guess.
+
+    A reconstructed name such as f"Port{port}" would silently rename the port
+    on a controller that accepts the field, so the name is sent only when the
+    controller reported one. A controller that never exposes it then gets the
+    same body as before, and keeps working.
+    """
+    nameless_detail: dict[str, Any] = {
+        "errorCode": 0,
+        "result": {
+            "mac": SWITCH_MAC,
+            "portList": [
+                {
+                    "port": 12,
+                    "profileId": "profile_all",
+                    "profileOverrideEnable": True,
+                    "poeMode": 1,
+                }
+            ],
+        },
+    }
+    api_client, mock_session = _build_client(mock_config_entry, detail=nameless_detail)
+
+    await api_client.set_port_poe_via_port_patch(
+        SITE_ID, SWITCH_MAC, 12, poe_enabled=False
+    )
+
+    body = mock_session.patch.call_args[1]["json"]
+    assert "name" not in body
+    assert body["poe"] == 0
