@@ -1,18 +1,27 @@
-## What's Changed in v1.12.0b4
+## What's Changed in v1.12.0
 
-> **Beta release:** HACS offers this version only when beta versions are
-> enabled for this repository. Please report problems before the stable
-> release.
+This release brings the integration to the Home Assistant **Platinum** quality
+level and adds optional automatic tracking of new clients. It makes PoE
+switching work on more controllers, keeps device and site entities available
+on controllers without internet access, fixes device names of tracked clients
+and network devices, and cleans up logging and error messages.
 
-This fourth beta keeps device and site entities available on controllers
-without internet access and removes a Home Assistant 2026.11 deprecation
-warning. It also contains everything from v1.12.0b3: the Home Assistant
-**Platinum** quality level, fixes device names of tracked clients and network devices,
-fixes the site LED switch not appearing on any device, and cleans up logging
-and error messages.
+### Added
+
+- **Optional client auto-discovery** (#88, #111, PR #89). Presence-only device
+  trackers for new clients, off by default, with SSID, wired, guest,
+  private-MAC, name and denylist filters and configurable registry retention.
+  Offline auto trackers keep their names, and private MAC addresses are
+  excluded by default.
 
 ### Fixed
 
+- **PoE switching on controllers that reject the PoE endpoints** (#81, PR #114
+  by @lkostrowski, PR #171 by @sergedornseiffer). The integration now falls
+  back to updating the port itself and leaves its VLAN, speed and name
+  unchanged. This helps controllers that reject the PoE endpoints, for example
+  with Agile Series switches, and includes controller software 6.3.0.111,
+  which requires the port name in that update.
 - **Device and site entities went unavailable after ~30 minutes** on
   controllers without internet access (#159, reported by @rloipfinger). The
   firmware update check timed out and failed every following poll until a
@@ -33,7 +42,11 @@ and error messages.
 - **Site LED switch was not attached to any device** (#127). It now appears
   on the site device page under "Configuration". Its name changes from
   "<site> LED" to "LED", because the site device already shows the site
-  name. Existing entity IDs are kept.
+  name. Existing entity IDs are kept. The switch also follows the controller
+  setting (#113).
+- **Clients missing on some software controllers** (PR #122 by @ot316).
+  Clients are listed via the v1 endpoint on controllers without the v2
+  clients endpoint.
 - **Repeated warnings on every poll** when an optional endpoint keeps
   failing (for example PoE, uplink, SSID overrides, WAN, VPN or application
   traffic). The integration now warns once, logs further failures at debug
@@ -59,27 +72,4 @@ and error messages.
 - The **Debug SSID switches** action is described in the README and offers a
   picker for the config entry.
 
-### Still in this beta (from v1.12.0b1 and v1.12.0b2)
-
-- Optional, presence-only client auto-discovery (#88, #111, PR #89), off by
-  default, with SSID, wired, guest, private-MAC, name and denylist filters
-  and configurable registry retention.
-- Offline auto trackers keep their names; private MAC addresses are excluded
-  from auto-discovery by default (#111).
-- Site LED switch follows the controller setting (#113).
-- PoE switching fallback for controllers that reject the PoE endpoint with
-  `-1001` (#81, PR #114 by @lkostrowski).
-- Clients are listed via the v1 endpoint on software controllers without
-  the v2 clients endpoint (PR #122 by @ot316).
-
-### Beta testing requested
-
-- Controllers without internet: confirm entities stay available (#159).
-- Home Assistant 2026.11: confirm the device tracker warning is gone (#148).
-- Check device and tracker names of selected clients after the update and a
-  Home Assistant restart (#111).
-- Check that the site LED switch appears on the site device page (#127).
-- Fusion gateways: confirm setup and the options dialog still log in.
-- Report any warning that still repeats on every poll.
-
-**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.12.0b3...v1.12.0b4
+**Full Changelog**: https://github.com/bullitt186/ha-omada-open-api/compare/v1.11.1...v1.12.0
