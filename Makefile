@@ -1,4 +1,5 @@
-.PHONY: test test-all lint typecheck coverage watch deploy check install devcontainer
+.PHONY: test test-all lint typecheck coverage watch deploy check install devcontainer \
+	mutate mutate-all mutate-results
 
 # Run focused tests fast (fail on first error)
 test:
@@ -30,9 +31,23 @@ coverage:
 		-n auto -q
 	open htmlcov/index.html
 
-# Watch mode for TDD — reruns failing tests on every file save
+# Watch mode — reruns failing tests on every file save
 watch:
 	ptw tests/ custom_components/ -- -x -q --tb=short
+
+# Mutation testing (mutmut): mutate only the integration modules changed
+# against origin/main (override with MUTATE_BASE=<ref>). Shows test strength,
+# which line coverage does not.
+mutate:
+	bash scripts/mutate.sh
+
+# Mutate the whole integration. Slow; the weekly CI workflow runs it.
+mutate-all:
+	bash scripts/mutate.sh --all
+
+# List the surviving mutants of the last run; inspect one with `mutmut show`.
+mutate-results:
+	@mutmut results 2>/dev/null | grep -v ': not checked$$' || true
 
 # Deploy integration to the LOCAL devcontainer HA instance and restart HA.
 # ONLY works inside the devcontainer (requires /config and localhost:8123).

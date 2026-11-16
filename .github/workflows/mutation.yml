@@ -1,0 +1,128 @@
+name: Mutation testing
+
+# Weekly full mutation run with mutmut. It reports the mutation score per
+# module and in total; it is not a required check and never blocks a pull
+# request. Run `make mutate` locally for the modules a change touches.
+
+on:
+  schedule:
+    - cron: "23 4 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: "3.14"
+
+jobs:
+  plan:
+    name: Plan modules
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.modules.outputs.modules }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # One job per module keeps each job well below the runner time limit.
+      # mutmut only mutates functions, so modules without any are skipped.
+      - name: List modules with functions
+        id: modules
+        run: |
+          modules=$(grep -lE '^[[:space:]]*(async[[:space:]]+)?def ' \
+            custom_components/omada_open_api/*.py \
+            | xargs -n1 basename | sed 's/\.py$//' \
+            | jq -R . | jq -cs .)
+          echo "modules=$modules" >> "$GITHUB_OUTPUT"
+          echo "Modules: $modules"
+
+  mutate:
+    name: Mutate ${{ matrix.module }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        module: ${{ fromJSON(needs.plan.outputs.modules) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r requirements_dev.txt
+
+      - name: Run mutmut
+        timeout-minutes: 300
+        run: bash scripts/mutate.sh "custom_components/omada_open_api/${{ matrix.module }}.py"
+
+      - name: Collect results
+        if: always()
+        run: |
+          mkdir -p mutation-results
+          python scripts/mutation_report.py \
+            --json "mutation-results/${{ matrix.module }}.json" \
+            "custom_components/omada_open_api/${{ matrix.module }}.py"
+          { mutmut results 2>/dev/null || true; } \
+            | grep -v ': not checked$' \
+            > "mutation-results/${{ matrix.module }}-survivors.txt" || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-${{ matrix.module }}
+          path: mutation-results/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  report:
+    name: Mutation score
+    needs: mutate
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          pattern: mutation-*
+          path: mutation-results
+          merge-multiple: true
+
+      - name: Report mutation score
+        run: |
+          python3 << 'PYEOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, pathlib
+          columns = ("killed", "survived", "no tests", "timeout", "suspicious", "skipped", "not checked")
+
+          def score(counts):
+              tested = sum(counts.values()) - counts.get("skipped", 0) - counts.get("not checked", 0)
+              if tested <= 0:
+                  return "n/a"
+              return f"{100 * (counts.get('killed', 0) + counts.get('timeout', 0)) / tested:.1f}%"
+
+          rows, total = {}, {}
+          for path in sorted(pathlib.Path("mutation-results").glob("*.json")):
+              for module, counts in json.loads(path.read_text())["modules"].items():
+                  rows[module] = counts
+                  for key, value in counts.items():
+                      total[key] = total.get(key, 0) + value
+
+          print("## Mutation testing\n")
+          if not rows:
+              print("No mutation results were produced.")
+              raise SystemExit(0)
+          print("| module | " + " | ".join(columns) + " | score |")
+          print("|" + "---|" * (len(columns) + 2))
+          for module, counts in [*sorted(rows.items()), ("**TOTAL**", total)]:
+              cells = [str(counts.get(c, 0)) for c in columns]
+              print(f"| {module} | " + " | ".join(cells) + f" | {score(counts)} |")
+          print("\nSurviving mutants are listed in the per-module artifacts.")
+          PYEOF
