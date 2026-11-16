@@ -253,26 +253,9 @@ checks. Use a concise conventional commit message.
 
 In Claude Code, `scripts/agent-stop-check.sh` runs as a `Stop` hook: when the
 working tree has changes, it runs Ruff, strict mypy, and the unit tests, and
-sends the agent back to work if one of them fails. `.claude/` is not tracked,
-so register the hook in your local `.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/agent-stop-check.sh",
-            "timeout": 300
-          }
-        ]
-      }
-    ]
-  }
-}
-```
+sends the agent back to work if one of them fails. The hook is registered in
+the tracked `.claude/settings.json`; keep machine-specific settings and secrets
+in the untracked `.claude/settings.local.json`.
 
 Use the narrowest relevant check while iterating:
 
