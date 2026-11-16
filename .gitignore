@@ -86,4 +86,5 @@ openapi/openapi.json
 poc/threat-heatmap/threat-heatmap-data.json
 .env
 ha-developer-docs/
-.claude
+.claude/*
+!.claude/settings.json
