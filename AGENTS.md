@@ -40,9 +40,12 @@ in `requirements_dev.txt`; keep the declared Python compatibility aligned with
 - `scripts/check_coverage.sh` — pre-commit coverage gate (total baseline).
 - `scripts/check_module_coverage.sh` — per-module minimum (95%, Platinum
   `test-coverage`); run by the pre-commit gate and CI.
+- `scripts/mutate.sh` — mutation testing with mutmut (`make mutate`).
+- `scripts/agent-stop-check.sh` — fast check for the Claude Code `Stop` hook.
 - `scripts/deploy.sh` — deploys only to the local devcontainer Home Assistant.
 - `.devcontainer/` — VS Code and Docker Compose development environments.
-- `.github/workflows/` — CI and tag-triggered release workflows.
+- `.github/workflows/` — CI, security, weekly mutation testing, and
+  tag-triggered release workflows.
 - `README.md`, `TROUBLESHOOTING.md`, and `CONTRIBUTING.md` — user and
   contributor documentation.
 
@@ -182,28 +185,94 @@ traffic semantics. Test each type against its own schema; do not reuse
 server/S2S peer-count semantics for a VPN client when the controller exposes
 client-level telemetry.
 
-## Test-driven changes and verification
+## Design-first changes and verification
 
-For every change under `custom_components/` or `tests/`, use this sequence for
-one unit at a time:
+For every change under `custom_components/` or `tests/`, use this sequence:
 
-1. Add one to three focused tests first and run them to confirm the expected
-   failure (RED).
-2. Add the smallest implementation that makes them pass (GREEN).
-3. Refactor without changing behavior and rerun the focused tests.
-4. Before committing, run the relevant full verification. Commits that complete
-   this cycle end with `(TDD)`.
+1. Write down the design before writing code: the behavior that changes, the
+   affected modules, and the Omada API endpoints and fields involved. Put it in
+   the issue or pull request description; for a small change, the commit
+   message is enough.
+2. Derive the test cases from the specification: the issue or requirement,
+   documented Home Assistant behavior, and the Omada API documentation (or a
+   recorded live payload where it disagrees with the documentation). Cover
+   successful, error, and availability behavior relevant to the change, plus
+   the boundaries the specification names.
+3. Implement the change together with those tests. A one-unit-at-a-time
+   red/green cycle is not required.
+4. Before committing, run the relevant full verification.
 
-Do not commit during RED and do not bypass failing pre-commit hooks. Mock
-external APIs through the Home Assistant-facing interfaces; cover successful,
-error, and availability behavior relevant to the change.
+A bug fix starts with a regression test that reproduces the bug. Run it and
+confirm that it fails for the reason the bug describes, not because of an
+import, fixture, or typing error. Then fix the bug and commit the test with
+the fix.
+
+Write tests that can fail:
+
+- Take expected values from the specification or the API documentation, never
+  from running the implementation and copying its output. A test whose
+  expected value came from the code under test only proves that the code does
+  what it does.
+- Assert on observable behavior: entity state, attributes, availability, the
+  request sent to the controller, or the raised error. A call count or a
+  "not None" check alone is not a behavioral assertion.
+- Mock external APIs through the Home Assistant-facing interfaces.
+- Changing an expected value in an existing test requires a reason in the
+  commit message: name the specification, documentation, or payload that makes
+  the new value correct.
+
+Line coverage shows which code ran, not whether a test notices a wrong result.
+Check test strength with mutation testing (mutmut):
+
+```bash
+make mutate
+make mutate-all
+make mutate-results
+```
+
+`make mutate` mutates only the integration modules changed against
+`origin/main`, including uncommitted changes; `make mutate-all` mutates the
+whole integration (more than 13,000 mutants) and takes hours. Treat a
+surviving mutant in code you changed as a missing or weak assertion: add a
+test that kills it, or state in the pull request why the mutant is equivalent
+to the original. The scheduled `Mutation testing` workflow runs the full
+mutation run weekly and reports the score; it does not block pull requests.
+
+Keep the lint, complexity, type-checking, and coverage thresholds in
+`pyproject.toml`, `.pre-commit-config.yaml`, and the coverage scripts as they
+are. When a change exceeds a threshold, refactor. Raise a threshold or add a
+suppression only as a justified exception, with the reason in a comment next to
+it and in the commit message.
 
 When an implementation step is complete, commit its scoped changes before
-moving to the next implementation step. Run the repository's pre-commit hook
-as part of that commit. Treat every hook finding as required work: inspect it,
-make the necessary correction, and rerun the hook until it passes. Never use
-`--no-verify`, skip hooks, or commit known failing checks. Use a concise commit
-message that ends with `(TDD)` when the commit completes a test-driven change.
+moving to the next implementation step. Do not commit while tests fail. Run the
+repository's pre-commit hook as part of that commit. Treat every hook finding
+as required work: inspect it, make the necessary correction, and rerun the hook
+until it passes. Never use `--no-verify`, skip hooks, or commit known failing
+checks. Use a concise conventional commit message.
+
+In Claude Code, `scripts/agent-stop-check.sh` runs as a `Stop` hook: when the
+working tree has changes, it runs Ruff, strict mypy, and the unit tests, and
+sends the agent back to work if one of them fails. `.claude/` is not tracked,
+so register the hook in your local `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/agent-stop-check.sh",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 Use the narrowest relevant check while iterating:
 
@@ -312,7 +381,10 @@ they are passed to the command as arguments.
 ## Definition of done
 
 - The requested behavior is implemented within the existing architecture.
-- Tests were added/updated before implementation where source behavior changed.
+- The design and the test cases derived from the specification were written
+  down before implementation where source behavior changed; a bug fix has a
+  regression test that failed before the fix.
+- Surviving mutants in changed code were killed or explained (`make mutate`).
 - Relevant unit tests and `make check` pass.
 - Required translations, diagnostics, documentation, and quality-scale rules
   are preserved.
