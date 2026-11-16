@@ -223,3 +223,11 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "@overload",
 ]
+
+[tool.mutmut]
+# Mutation testing: `make mutate` (changed modules) or `make mutate-all`.
+source_paths = ["custom_components/omada_open_api/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+# This test parses the integration source with ast; mutmut's generated
+# trampolines are not the real source, so the check cannot run on mutants.
+pytest_add_cli_args = ["--ignore=tests/test_exception_translations.py"]
