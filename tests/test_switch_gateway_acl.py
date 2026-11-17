@@ -242,3 +242,65 @@ async def test_switch_name_falls_back_to_rule_id(
     switch = OmadaAclSwitch(coordinator, "acl-9")
 
     assert switch.translation_placeholders == {"acl_name": "acl-9"}
+
+
+async def test_switch_name_starts_with_zero_padded_index(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The index prefix keeps the entity list in the controller's order."""
+    coordinator = _coordinator(hass, mock_api_client)
+    coordinator.data = {
+        "acl-4": {
+            "id": "acl-4",
+            "index": 4,
+            "description": "Home Connect",
+            "status": True,
+        },
+        "acl-12": {
+            "id": "acl-12",
+            "index": 12,
+            "description": "Doorspy",
+            "status": True,
+        },
+    }
+
+    first = OmadaAclSwitch(coordinator, "acl-4")
+    second = OmadaAclSwitch(coordinator, "acl-12")
+
+    assert first.translation_placeholders == {"acl_name": "04 Home Connect"}
+    assert second.translation_placeholders == {"acl_name": "12 Doorspy"}
+    # Alphabetical order equals the controller order.
+    assert (
+        first.translation_placeholders["acl_name"]
+        < second.translation_placeholders["acl_name"]
+    )
+
+
+async def test_switch_name_follows_reordering_in_controller(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Moving a rule in Omada updates the index in the entity name."""
+    coordinator = _coordinator(hass, mock_api_client)
+    coordinator.data = {
+        "acl-4": {
+            "id": "acl-4",
+            "index": 4,
+            "description": "Home Connect",
+            "status": True,
+        }
+    }
+    switch = OmadaAclSwitch(coordinator, "acl-4")
+    # The entity is not added to a platform here, so skip the state write.
+    switch.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+
+    coordinator.data = {
+        "acl-4": {
+            "id": "acl-4",
+            "index": 7,
+            "description": "Home Connect",
+            "status": True,
+        }
+    }
+    switch._handle_coordinator_update()
+
+    assert switch.translation_placeholders == {"acl_name": "07 Home Connect"}

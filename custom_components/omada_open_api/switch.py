@@ -488,9 +488,7 @@ class OmadaAclSwitch(
         """Initialize the gateway ACL switch."""
         super().__init__(coordinator)
         self._acl_id = acl_id
-        rule = coordinator.data.get(acl_id, {})
-        # Profile and custom rules identify themselves by their description.
-        self._acl_name: str = rule.get("description") or rule.get("name") or acl_id
+        self._acl_name: str = self._display_name(coordinator.data.get(acl_id, {}))
         self._attr_translation_key = "gateway_acl"
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_acl_{acl_id}"
         self._attr_translation_placeholders = {"acl_name": self._acl_name}
@@ -498,6 +496,28 @@ class OmadaAclSwitch(
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
         )
+
+    def _display_name(self, rule: dict[str, Any]) -> str:
+        """Return the entity name: zero-padded index plus rule description.
+
+        The index prefix makes the alphabetical entity order equal to the rule
+        order in the controller, where order decides which rule matches first.
+        """
+        # Profile and custom rules identify themselves by their description.
+        description: str = rule.get("description") or rule.get("name") or self._acl_id
+        index = rule.get("index")
+        if isinstance(index, int):
+            return f"{index:02d} {description}"
+        return description
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Refresh the name, since rules can be reordered in the controller."""
+        rule = self.coordinator.data.get(self._acl_id)
+        if rule is not None:
+            self._acl_name = self._display_name(rule)
+            self._attr_translation_placeholders = {"acl_name": self._acl_name}
+        super()._handle_coordinator_update()
 
     @property
     def is_on(self) -> bool | None:
