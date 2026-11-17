@@ -16,6 +16,7 @@ from .clients import normalize_client_mac, process_client
 from .const import (
     AP_ACTIVITY_HOLD_MIN_SECONDS,
     AP_ACTIVITY_HOLD_POLLS,
+    DEFAULT_ACL_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
     DEFAULT_RADIO_UTIL_INTERVAL,
@@ -1246,6 +1247,42 @@ class OmadaWanSpeedTestCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise UpdateFailed(
                 f"Error fetching WAN speed-test result for gateway {self.gateway_mac}: {err}"
             ) from err
+
+
+class OmadaAclCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
+    """Coordinator for the gateway ACL rules of one site.
+
+    Data maps the rule ID to the rule as returned by the controller.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        api_client: OmadaApiClient,
+        site_id: str,
+        site_name: str,
+        scan_interval: int = DEFAULT_ACL_SCAN_INTERVAL,
+    ) -> None:
+        """Initialize the gateway ACL coordinator."""
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{site_id}_gateway_acls",
+            update_interval=timedelta(seconds=scan_interval),
+        )
+        self.api_client = api_client
+        self.site_id = site_id
+        self.site_name = site_name
+
+    async def _async_update_data(self) -> dict[str, dict[str, Any]]:
+        """Fetch all gateway ACL rules of the site."""
+        try:
+            rules = await self.api_client.get_gateway_acls(self.site_id)
+        except OmadaApiError as err:
+            raise UpdateFailed(
+                f"Error fetching gateway ACLs for site {self.site_name}: {err}"
+            ) from err
+        return {rule["id"]: rule for rule in rules if rule.get("id")}
 
 
 class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):

@@ -199,12 +199,14 @@
                 "data": {
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",
-                    "app_scan_interval": "Application traffic polling interval (seconds)"
+                    "app_scan_interval": "Application traffic polling interval (seconds)",
+                    "acl_scan_interval": "Gateway ACL polling interval (seconds)"
                 },
                 "data_description": {
                     "device_scan_interval": "How often device, PoE and site data is fetched",
                     "client_scan_interval": "How often client data and presence are fetched",
-                    "app_scan_interval": "How often per-client application traffic is fetched"
+                    "app_scan_interval": "How often per-client application traffic is fetched",
+                    "acl_scan_interval": "How often gateway ACL rules are fetched (only used when the ACL switches are enabled)"
                 }
             },
             "tracker_settings": {
@@ -279,14 +281,16 @@
             },
             "gateway_entity_settings": {
                 "title": "Gateway Entity Settings",
-                "description": "Enable or disable optional VPN monitoring and WAN speed-test entities. Disabled features do not create entities or poll their API endpoints.\n\nAll settings default to enabled.",
+                "description": "Enable or disable optional VPN monitoring and WAN speed-test entities. Disabled features do not create entities or poll their API endpoints.\n\nVPN and WAN speed-test settings default to enabled; gateway ACL switches are off by default.",
                 "data": {
                     "enable_vpn_sensors": "VPN monitoring sensors (tunnels and peers)",
-                    "enable_wan_speed_test": "WAN speed test (trigger button, results, and running status)"
+                    "enable_wan_speed_test": "WAN speed test (trigger button, results, and running status)",
+                    "enable_gateway_acl_switches": "Gateway ACL rule switches"
                 },
                 "data_description": {
                     "enable_vpn_sensors": "Create sensors for site-to-site tunnels, VPN servers, VPN clients and their peers",
-                    "enable_wan_speed_test": "Create the WAN speed test button, its result sensors and the running status"
+                    "enable_wan_speed_test": "Create the WAN speed test button, its result sensors and the running status",
+                    "enable_gateway_acl_switches": "Create a switch per gateway ACL rule to enable or disable it (requires write access and polls the ACL list; off by default)"
                 }
             }
         }
@@ -644,6 +648,9 @@
             "led": {
                 "name": "LED"
             },
+            "gateway_acl": {
+                "name": "ACL {acl_name}"
+            },
             "ap_led": {
                 "name": "{ap_name} LED"
             },
@@ -722,6 +729,9 @@
         },
         "client_block_failed": {
             "message": "Failed to block client {mac}."
+        },
+        "gateway_acl_failed": {
+            "message": "Failed to change gateway ACL rule {acl_name}."
         },
         "site_led_failed": {
             "message": "Failed to change the LED setting for site {site}."

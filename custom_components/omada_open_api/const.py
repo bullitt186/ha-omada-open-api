@@ -45,6 +45,8 @@ CONF_ENABLE_CLIENT_RECONNECT_BUTTON = "enable_client_reconnect_button"
 CONF_ENABLE_THREAT_HEATMAP_SENSORS = "enable_threat_heatmap_sensors"
 CONF_ENABLE_VPN_SENSORS = "enable_vpn_sensors"
 CONF_ENABLE_WAN_SPEED_TEST = "enable_wan_speed_test"
+# Opt-in (default off): ACL switches need extra polling and write access.
+CONF_ENABLE_GATEWAY_ACL_SWITCHES = "enable_gateway_acl_switches"
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"
@@ -127,6 +129,8 @@ CONF_APP_SCAN_INTERVAL = "app_scan_interval"
 DEFAULT_DEVICE_SCAN_INTERVAL = 60
 DEFAULT_CLIENT_SCAN_INTERVAL = 30
 DEFAULT_APP_SCAN_INTERVAL = 300
+CONF_ACL_SCAN_INTERVAL = "acl_scan_interval"
+DEFAULT_ACL_SCAN_INTERVAL = 60
 DEFAULT_FIRMWARE_CHECK_INTERVAL = 1800  # 30 minutes
 DEFAULT_RADIO_UTIL_INTERVAL = 300  # 5 minutes
 # Polls an unchanged AP traffic counter may hold the last rate before idle.
@@ -182,3 +186,6 @@ WAN_SPEED_MAP: dict[int, int] = {
 # -1: general error, -1001: invalid request parameters,
 # -39737: profile override reported as disabled.
 POE_PORT_PATCH_FALLBACK_ERRORS = (-1, -1001, -39737)
+
+# Max one-rule pages tried when an ACL list must be read rule by rule.
+ACL_FALLBACK_MAX_PAGES = 50

@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 
 from .auth import ClientCredentialsAuth, OmadaAuthStrategy
-from .const import DEFAULT_TIMEOUT, VPN_REJECTED_RETRY_SECONDS, VPN_STATS_TYPES
+from .const import (
+    ACL_FALLBACK_MAX_PAGES,
+    DEFAULT_TIMEOUT,
+    VPN_REJECTED_RETRY_SECONDS,
+    VPN_STATS_TYPES,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -1658,13 +1663,13 @@ class OmadaApiClient:
             "post", url, json_data={"portUuidList": port_uuids}
         )
 
-    async def _get_paginated_vpn_rows(
+    async def _get_paginated_rows(
         self,
         url: str,
         filters: dict[str, Any] | None = None,
         expected_statuses: tuple[int, ...] = (),
     ) -> list[dict[str, Any]]:
-        """Fetch every page from a VPN endpoint."""
+        """Fetch every page from a paginated list endpoint."""
         page = 1
         all_rows: list[dict[str, Any]] = []
         while True:
@@ -1705,7 +1710,7 @@ class OmadaApiClient:
                 continue
             filters = None if vpn_type is None else {"filters.vpnType": vpn_type}
             try:
-                type_rows = await self._get_paginated_vpn_rows(
+                type_rows = await self._get_paginated_rows(
                     url, filters, expected_statuses=(400,)
                 )
             except OmadaApiError as err:
@@ -1785,6 +1790,161 @@ class OmadaApiClient:
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
         return await self._get_vpn_stats(url, "client")
 
+    def _gateway_acl_base_url(self, site_id: str) -> str:
+        """Return the ACL base URL for a site."""
+        return f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/acls"
+
+    async def get_gateway_acl_config_mode(self, site_id: str) -> int:
+        """Get the gateway ACL config mode of a site.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            0 when rules are built through profiles (``osg-acls``), 1 when
+            custom rules are used (``osg-custom-acls``). Controllers that do
+            not expose the endpoint are treated as profile mode (0).
+
+        """
+        url = f"{self._gateway_acl_base_url(site_id)}/osg-config-mode"
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError as err:
+            _LOGGER.debug(
+                "Gateway ACL config mode unavailable for site %s (%s); "
+                "assuming profile mode",
+                site_id,
+                err,
+            )
+            return 0
+        return int(result.get("result", {}).get("mode", 0))
+
+    async def _get_gateway_acl_rows(
+        self, site_id: str, mode: int
+    ) -> list[dict[str, Any]]:
+        """Fetch the gateway ACL rules for the given config mode."""
+        base = self._gateway_acl_base_url(site_id)
+        endpoint = "osg-custom-acls" if mode == 1 else "osg-acls"
+        return await self._get_acl_rows(f"{base}/{endpoint}")
+
+    async def _get_acl_rows(self, url: str) -> list[dict[str, Any]]:
+        """Fetch every rule from an ACL list endpoint, skipping unreadable ones.
+
+        Some controllers answer a page with ``-1 General error`` when it
+        contains a rule they cannot serialise, which would make the whole
+        list unreadable. In that case the rules are read one per page and the
+        unreadable ones are skipped.
+        """
+        try:
+            return await self._get_paginated_rows(url)
+        except OmadaApiError as err:
+            if err.error_code != -1:
+                raise
+            _LOGGER.debug("ACL list %s failed (%s); reading rule by rule", url, err)
+        return await self._get_acl_rows_one_by_one(url)
+
+    async def _get_acl_rows_one_by_one(self, url: str) -> list[dict[str, Any]]:
+        """Read an ACL list with one rule per page and skip unreadable rules."""
+        rows: list[dict[str, Any]] = []
+        total: int | None = None
+        skipped = 0
+        last_error: OmadaApiError | None = None
+        page = 1
+        while page <= (total if total is not None else ACL_FALLBACK_MAX_PAGES):
+            try:
+                result = await self._authenticated_request(
+                    "get", url, params={"page": page, "pageSize": 1}
+                )
+            except OmadaApiError as err:
+                if err.error_code != -1:
+                    raise
+                last_error = err
+                skipped += 1
+            else:
+                payload = result.get("result", {})
+                total = payload.get("totalRows", 0)
+                rows.extend(payload.get("data", []))
+            page += 1
+        if total is None and last_error is not None:
+            raise last_error
+        if skipped:
+            _LOGGER.debug("Skipped %s ACL rule(s) the controller cannot read", skipped)
+        return rows
+
+    async def get_gateway_acls(self, site_id: str) -> list[dict[str, Any]]:
+        """Get all gateway ACL rules of a site (profile or custom mode).
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of rule dictionaries with at least ``id``, ``name`` and
+            ``status`` (all pages).
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        _LOGGER.debug("Fetching gateway ACLs for site %s", site_id)
+        mode = await self.get_gateway_acl_config_mode(site_id)
+        _LOGGER.debug("Gateway ACL config mode for site %s: %s", site_id, mode)
+        return await self._get_gateway_acl_rows(site_id, mode)
+
+    async def set_gateway_acl_status(
+        self, site_id: str, acl_id: str, *, enabled: bool
+    ) -> None:
+        """Enable or disable a gateway ACL rule.
+
+        The rule is read fresh (not from cached coordinator data) so edits
+        made in the controller UI since the last poll are not overwritten.
+        Profile mode PUTs the editable rule fields with only ``status`` changed;
+        custom mode uses the batch-edit endpoint, keeping the log status.
+
+        Args:
+            site_id: Site ID the rule belongs to
+            acl_id: ID of the gateway ACL rule
+            enabled: Whether the rule should be enabled
+
+        Raises:
+            OmadaApiError: If the rule no longer exists or a request fails
+
+        """
+        mode = await self.get_gateway_acl_config_mode(site_id)
+        rules = await self._get_gateway_acl_rows(site_id, mode)
+        rule = next((r for r in rules if r.get("id") == acl_id), None)
+        if rule is None:
+            msg = f"Gateway ACL {acl_id} not found in site {site_id}"
+            raise OmadaApiError(msg)
+        _LOGGER.debug(
+            "Setting gateway ACL %s to %s in site %s (mode %s)",
+            acl_id,
+            "enabled" if enabled else "disabled",
+            site_id,
+            mode,
+        )
+        base = self._gateway_acl_base_url(site_id)
+        if mode == 1:
+            await self._authenticated_request(
+                "post",
+                f"{base}/gateway-acls/batch-edit",
+                json_data={
+                    "ids": [acl_id],
+                    "selectType": "include",
+                    "status": int(enabled),
+                    "log": int(bool(rule.get("logStatus"))),
+                },
+            )
+            return
+        await self._authenticated_request(
+            "put",
+            f"{base}/osg-acls/{acl_id}",
+            # id and index are read-only and not part of the modify model.
+            json_data={
+                key: value for key, value in rule.items() if key not in ("id", "index")
+            }
+            | {"status": enabled},
+        )
+
     async def get_vpn_s2s_peers(
         self, site_id: str, tunnel_id: str
     ) -> list[dict[str, Any]]:
@@ -1806,7 +1966,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/s2s/{tunnel_id}/peer"
         )
         _LOGGER.debug("Fetching S2S VPN peers for tunnel %s", tunnel_id)
-        return await self._get_paginated_vpn_rows(url)
+        return await self._get_paginated_rows(url)
 
     async def get_vpn_server_clients(
         self, site_id: str, tunnel_id: str
@@ -1829,7 +1989,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/server/{tunnel_id}/client"
         )
         _LOGGER.debug("Querying VPN server clients for tunnel %s", tunnel_id)
-        return await self._get_paginated_vpn_rows(url)
+        return await self._get_paginated_rows(url)
 
     @property
     def auth(self) -> OmadaAuthStrategy:

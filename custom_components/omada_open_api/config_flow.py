@@ -33,6 +33,7 @@ from .const import (
     AUTH_MODE_OPENAPI,
     AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
+    CONF_ACL_SCAN_INTERVAL,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
@@ -59,6 +60,7 @@ from .const import (
     CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_GATEWAY_ACL_SWITCHES,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -75,6 +77,7 @@ from .const import (
     CONTROLLER_TYPE_CLOUD,
     CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
+    DEFAULT_ACL_SCAN_INTERVAL,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_AUTO_DISCOVERY_EXCLUDE_LOCAL_MACS,
     DEFAULT_AUTO_DISCOVERY_RETENTION_DAYS,
@@ -1764,6 +1767,9 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     CONF_ENABLE_WAN_SPEED_TEST: user_input.get(
                         CONF_ENABLE_WAN_SPEED_TEST, True
                     ),
+                    CONF_ENABLE_GATEWAY_ACL_SWITCHES: user_input.get(
+                        CONF_ENABLE_GATEWAY_ACL_SWITCHES, False
+                    ),
                 },
             )
 
@@ -1776,6 +1782,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 vol.Required(
                     CONF_ENABLE_WAN_SPEED_TEST,
                     default=opts.get(CONF_ENABLE_WAN_SPEED_TEST, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_GATEWAY_ACL_SWITCHES,
+                    default=opts.get(CONF_ENABLE_GATEWAY_ACL_SWITCHES, False),
                 ): bool,
             }
         )
@@ -2055,6 +2065,7 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     CONF_DEVICE_SCAN_INTERVAL: user_input[CONF_DEVICE_SCAN_INTERVAL],
                     CONF_CLIENT_SCAN_INTERVAL: user_input[CONF_CLIENT_SCAN_INTERVAL],
                     CONF_APP_SCAN_INTERVAL: user_input[CONF_APP_SCAN_INTERVAL],
+                    CONF_ACL_SCAN_INTERVAL: user_input[CONF_ACL_SCAN_INTERVAL],
                 },
             )
 
@@ -2067,6 +2078,9 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         )
         current_app = self.config_entry.options.get(
             CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL
+        )
+        current_acl = self.config_entry.options.get(
+            CONF_ACL_SCAN_INTERVAL, DEFAULT_ACL_SCAN_INTERVAL
         )
 
         data_schema = vol.Schema(
@@ -2084,6 +2098,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                 ),
                 vol.Required(CONF_APP_SCAN_INTERVAL, default=current_app): vol.All(
+                    vol.Coerce(int),
+                    vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
+                ),
+                vol.Required(CONF_ACL_SCAN_INTERVAL, default=current_acl): vol.All(
                     vol.Coerce(int),
                     vol.Range(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL),
                 ),

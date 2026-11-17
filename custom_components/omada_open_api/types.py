@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from .api import OmadaApiClient
     from .auto_discovery import AutoClientManager
     from .coordinator import (
+        OmadaAclCoordinator,
         OmadaAppTrafficCoordinator,
         OmadaClientCoordinator,
         OmadaDeviceStatsCoordinator,
@@ -41,6 +42,7 @@ class OmadaRuntimeData:
     wan_speed_test_coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator] = (
         field(default_factory=dict)
     )
+    acl_coordinators: dict[str, OmadaAclCoordinator] = field(default_factory=dict)
     auto_client_manager: AutoClientManager | None = None
 
 
