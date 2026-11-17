@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
@@ -214,3 +215,18 @@ async def test_options_flow_stores_acl_switch_option(hass: HomeAssistant) -> Non
 
     assert result["type"] == "create_entry"
     assert result["data"][CONF_ENABLE_GATEWAY_ACL_SWITCHES] is True
+
+
+async def test_setup_survives_failing_acl_endpoint(hass: HomeAssistant) -> None:
+    """A failing ACL endpoint must not break the switch platform (no data yet)."""
+    entry = _build_entry(
+        hass, {CONF_ENABLE_GATEWAY_ACL_SWITCHES: True}, "test_acl_switch_err"
+    )
+    mock = _build_mock_api([])
+    mock.get_gateway_acls = AsyncMock(side_effect=OmadaApiError("General error"))
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED

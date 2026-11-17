@@ -1770,37 +1770,76 @@ class OmadaApiClient:
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
         return await self._get_vpn_stats(url, "client")
 
-    def _gateway_acl_url(self, site_id: str) -> str:
-        """Return the gateway ACL (osg-acls) collection URL for a site."""
-        return (
-            f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/acls/osg-acls"
-        )
+    def _gateway_acl_base_url(self, site_id: str) -> str:
+        """Return the ACL base URL for a site."""
+        return f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/acls"
 
-    async def get_gateway_acls(self, site_id: str) -> list[dict[str, Any]]:
-        """Get all gateway ACL rules of a site.
+    async def get_gateway_acl_config_mode(self, site_id: str) -> int:
+        """Get the gateway ACL config mode of a site.
 
         Args:
             site_id: Site ID to query
 
         Returns:
-            List of gateway ACL rule dictionaries (all pages).
+            0 when rules are built through profiles (``osg-acls``), 1 when
+            custom rules are used (``osg-custom-acls``). Controllers that do
+            not expose the endpoint are treated as profile mode (0).
+
+        """
+        url = f"{self._gateway_acl_base_url(site_id)}/osg-config-mode"
+        try:
+            result = await self._authenticated_request("get", url)
+        except OmadaApiError as err:
+            _LOGGER.debug(
+                "Gateway ACL config mode unavailable for site %s (%s); "
+                "assuming profile mode",
+                site_id,
+                err,
+            )
+            return 0
+        return int(result.get("result", {}).get("mode", 0))
+
+    async def _get_gateway_acl_rows(
+        self, site_id: str, mode: int
+    ) -> list[dict[str, Any]]:
+        """Fetch the gateway ACL rules for the given config mode.
+
+        Custom-mode rules identify themselves with ``description``; a ``name``
+        key is added so both modes can be handled uniformly.
+        """
+        base = self._gateway_acl_base_url(site_id)
+        if mode == 1:
+            rows = await self._get_paginated_rows(f"{base}/osg-custom-acls")
+            return [{**row, "name": row.get("description")} for row in rows]
+        return await self._get_paginated_rows(f"{base}/osg-acls")
+
+    async def get_gateway_acls(self, site_id: str) -> list[dict[str, Any]]:
+        """Get all gateway ACL rules of a site (profile or custom mode).
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of rule dictionaries with at least ``id``, ``name`` and
+            ``status`` (all pages).
 
         Raises:
             OmadaApiError: If the request fails
 
         """
         _LOGGER.debug("Fetching gateway ACLs for site %s", site_id)
-        return await self._get_paginated_rows(self._gateway_acl_url(site_id))
+        mode = await self.get_gateway_acl_config_mode(site_id)
+        return await self._get_gateway_acl_rows(site_id, mode)
 
     async def set_gateway_acl_status(
         self, site_id: str, acl_id: str, *, enabled: bool
     ) -> None:
         """Enable or disable a gateway ACL rule.
 
-        The controller requires the complete rule in the PUT body, so the
-        current rule is read first and written back with only ``status``
-        changed. Reading fresh (instead of using cached coordinator data)
-        avoids overwriting edits made in the controller UI since the last poll.
+        The rule is read fresh (not from cached coordinator data) so edits
+        made in the controller UI since the last poll are not overwritten.
+        Profile mode PUTs the complete rule with only ``status`` changed;
+        custom mode uses the batch-edit endpoint, keeping the log status.
 
         Args:
             site_id: Site ID the rule belongs to
@@ -1811,20 +1850,35 @@ class OmadaApiClient:
             OmadaApiError: If the rule no longer exists or a request fails
 
         """
-        rules = await self.get_gateway_acls(site_id)
+        mode = await self.get_gateway_acl_config_mode(site_id)
+        rules = await self._get_gateway_acl_rows(site_id, mode)
         rule = next((r for r in rules if r.get("id") == acl_id), None)
         if rule is None:
             msg = f"Gateway ACL {acl_id} not found in site {site_id}"
             raise OmadaApiError(msg)
         _LOGGER.debug(
-            "Setting gateway ACL %s to %s in site %s",
+            "Setting gateway ACL %s to %s in site %s (mode %s)",
             acl_id,
             "enabled" if enabled else "disabled",
             site_id,
+            mode,
         )
+        base = self._gateway_acl_base_url(site_id)
+        if mode == 1:
+            await self._authenticated_request(
+                "post",
+                f"{base}/gateway-acls/batch-edit",
+                json_data={
+                    "ids": [acl_id],
+                    "selectType": "include",
+                    "status": int(enabled),
+                    "log": int(bool(rule.get("logStatus"))),
+                },
+            )
+            return
         await self._authenticated_request(
             "put",
-            f"{self._gateway_acl_url(site_id)}/{acl_id}",
+            f"{base}/osg-acls/{acl_id}",
             json_data={**rule, "status": enabled},
         )
 

@@ -69,7 +69,10 @@ def _async_setup_acl_switches(
             sid: str = acl_site_id,
         ) -> None:
             """Add switches for newly discovered gateway ACL rules."""
-            new_ids = {(sid, acl_id) for acl_id in coord.data} - known_acl_ids
+            # data is None until a first successful refresh; the listener
+            # fires again once the ACL endpoint starts answering.
+            rules = coord.data or {}
+            new_ids = {(sid, acl_id) for acl_id in rules} - known_acl_ids
             if not new_ids:
                 return
             known_acl_ids.update(new_ids)
