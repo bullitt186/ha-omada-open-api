@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.data_entry_flow import InvalidData
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 import pytest
@@ -367,3 +368,147 @@ async def test_update_intervals_step_saves_acl_interval(hass: HomeAssistant) -> 
 
     assert result["type"] == "create_entry"
     assert entry.options[CONF_ACL_SCAN_INTERVAL] == 120
+
+
+async def test_coordinator_name_and_site_are_exposed(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The coordinator is named per site and keeps hass, client and site."""
+    coordinator = OmadaAclCoordinator(
+        hass, mock_api_client, TEST_SITE_ID, TEST_SITE_NAME
+    )
+
+    assert coordinator.hass is hass
+    assert coordinator.name == f"{DOMAIN}_{TEST_SITE_ID}_gateway_acls"
+    assert coordinator.site_name == TEST_SITE_NAME
+    assert coordinator.site_id == TEST_SITE_ID
+    assert coordinator.api_client is mock_api_client
+
+
+async def test_coordinator_error_message_names_the_site(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A failed refresh explains which site's ACL list could not be read."""
+    mock_api_client.get_gateway_acls = AsyncMock(side_effect=OmadaApiError("boom"))
+    coordinator = OmadaAclCoordinator(
+        hass, mock_api_client, TEST_SITE_ID, TEST_SITE_NAME
+    )
+
+    await coordinator.async_refresh()
+
+    assert TEST_SITE_NAME in str(coordinator.last_exception)
+    assert "boom" in str(coordinator.last_exception)
+
+
+async def test_switch_for_unknown_rule_falls_back_to_its_id(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A switch for a rule that is not in the data yet does not crash."""
+    coordinator = _coordinator(hass, mock_api_client)
+
+    switch = OmadaAclSwitch(coordinator, "not-there")
+
+    assert switch.translation_placeholders == {"acl_name": "not-there"}
+    assert switch.is_on is None
+
+
+async def test_switch_name_uses_legacy_name_when_no_description(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Rules that carry 'name' instead of 'description' keep their name."""
+    coordinator = _coordinator(hass, mock_api_client)
+    coordinator.data = {"acl-5": {"id": "acl-5", "name": "Legacy", "status": True}}
+
+    switch = OmadaAclSwitch(coordinator, "acl-5")
+
+    assert switch.translation_placeholders == {"acl_name": "Legacy"}
+
+
+async def test_switch_write_error_carries_translation_details(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The error shown to the user is translatable and names the rule."""
+    mock_api_client.set_gateway_acl_status = AsyncMock(
+        side_effect=OmadaApiError("denied")
+    )
+    switch = OmadaAclSwitch(_coordinator(hass, mock_api_client), "acl-1")
+
+    with pytest.raises(HomeAssistantError) as raised:
+        await switch.async_turn_off()
+
+    assert raised.value.translation_domain == DOMAIN
+    assert raised.value.translation_key == "gateway_acl_failed"
+    assert raised.value.translation_placeholders == {"acl_name": "Block IoT"}
+
+
+async def test_rules_added_later_get_a_switch_and_unload_stops_listening(
+    hass: HomeAssistant,
+) -> None:
+    """A rule that appears after setup gets a switch; unload removes the listener."""
+    entry = _build_entry(
+        hass, {CONF_ENABLE_GATEWAY_ACL_SWITCHES: True}, "test_acl_listener"
+    )
+    mock = _build_mock_api([])
+    mock.get_gateway_acls = AsyncMock(return_value=[RULE_ON])
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    unique_id = f"{DOMAIN}_{TEST_SITE_ID}_acl_acl-2"
+    assert reg.async_get_entity_id("switch", DOMAIN, unique_id) is None
+
+    coordinator = entry.runtime_data.acl_coordinators[TEST_SITE_ID]
+    coordinator.async_set_updated_data({"acl-1": RULE_ON, "acl-2": RULE_OFF})
+    await hass.async_block_till_done()
+    assert reg.async_get_entity_id("switch", DOMAIN, unique_id) is not None
+
+    listeners_before = len(coordinator._listeners)
+    await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert len(coordinator._listeners) < listeners_before
+
+
+async def test_acl_interval_field_shows_saved_value_and_enforces_range(
+    hass: HomeAssistant,
+) -> None:
+    """The ACL interval field defaults to the saved value and accepts 30-3600."""
+    entry = _build_entry(hass, {CONF_ACL_SCAN_INTERVAL: 120}, "test_acl_range")
+
+    result = await hass.config_entries.options.async_init(
+        entry.entry_id, context={"source": "init"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "update_intervals"}
+    )
+    keys = {str(k): k for k in result["data_schema"].schema}
+    assert keys[CONF_ACL_SCAN_INTERVAL].default() == 120
+
+    base = {
+        "device_scan_interval": 60,
+        "client_scan_interval": 30,
+        "app_scan_interval": 300,
+    }
+    for invalid in (29, 3601):
+        with pytest.raises(InvalidData, match=CONF_ACL_SCAN_INTERVAL):
+            await hass.config_entries.options.async_configure(
+                result["flow_id"], {**base, CONF_ACL_SCAN_INTERVAL: invalid}
+            )
+
+
+async def test_acl_switch_option_form_shows_saved_value(hass: HomeAssistant) -> None:
+    """The gateway settings form defaults to the saved ACL switch option."""
+    entry = _build_entry(
+        hass, {CONF_ENABLE_GATEWAY_ACL_SWITCHES: True}, "test_acl_option_default"
+    )
+
+    result = await hass.config_entries.options.async_init(
+        entry.entry_id, context={"source": "init"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "gateway_entity_settings"}
+    )
+
+    keys = {str(k): k for k in result["data_schema"].schema}
+    assert keys[CONF_ENABLE_GATEWAY_ACL_SWITCHES].default() is True

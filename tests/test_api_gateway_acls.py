@@ -195,6 +195,11 @@ async def test_set_status_custom_mode_uses_batch_edit() -> None:
 
     await client.set_gateway_acl_status("site-id", "c1", enabled=False)
 
+    # The rule list for the toggle comes from the custom-mode endpoint.
+    assert client._authenticated_request.await_args_list[1].args == (
+        "get",
+        CUSTOM_URL,
+    )
     post_call = client._authenticated_request.await_args_list[2]
     assert post_call.args == ("post", BATCH_EDIT_URL)
     assert post_call.kwargs["json_data"] == {
@@ -220,3 +225,116 @@ async def test_set_status_unknown_rule_raises_without_writing() -> None:
         await client.set_gateway_acl_status("site-id", "gone", enabled=True)
 
     assert client._authenticated_request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_config_mode_defaults_to_profile_when_result_is_incomplete() -> None:
+    """A mode answer without 'mode' (or without 'result') means profile mode."""
+    client = _client()
+    client._authenticated_request = AsyncMock(
+        side_effect=[{"result": {}}, {"errorCode": 0}]
+    )
+
+    assert await client.get_gateway_acl_config_mode("site-id") == 0
+    assert await client.get_gateway_acl_config_mode("site-id") == 0
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_acls_asks_mode_of_the_requested_site() -> None:
+    """The config mode is read from the same site whose rules are listed."""
+    client = _client()
+    client._authenticated_request = AsyncMock(
+        side_effect=[CUSTOM_MODE, {"result": {"data": [], "totalRows": 0}}]
+    )
+
+    await client.get_gateway_acls("other-site")
+
+    calls = client._authenticated_request.await_args_list
+    other = "https://controller.local/openapi/v1/controller-id/sites/other-site/acls"
+    assert calls[0].args == ("get", f"{other}/osg-config-mode")
+    assert calls[1].args == ("get", f"{other}/osg-custom-acls")
+
+
+@pytest.mark.asyncio
+async def test_rule_by_rule_fallback_requests_the_same_list_url() -> None:
+    """The per-rule pages are GET requests to the list endpoint that failed."""
+    client = _client()
+    general_error = OmadaApiError("General error.", error_code=-1)
+    client._authenticated_request = AsyncMock(
+        side_effect=[
+            PROFILE_MODE,
+            general_error,
+            {"result": {"data": [{"id": "r1"}], "totalRows": 1}},
+        ]
+    )
+
+    await client.get_gateway_acls("site-id")
+
+    fallback = client._authenticated_request.await_args_list[2]
+    assert fallback.args == ("get", PROFILE_URL)
+    assert fallback.kwargs["params"] == {"page": 1, "pageSize": 1}
+
+
+@pytest.mark.asyncio
+async def test_rule_by_rule_fallback_tolerates_missing_payload_fields() -> None:
+    """An answer without result, data or totalRows yields no rules, not a crash."""
+    client = _client()
+    general_error = OmadaApiError("General error.", error_code=-1)
+    client._authenticated_request = AsyncMock(
+        side_effect=[PROFILE_MODE, general_error, {"errorCode": 0}]
+    )
+
+    assert await client.get_gateway_acls("site-id") == []
+
+
+@pytest.mark.asyncio
+async def test_rule_by_rule_fallback_reads_every_page_up_to_total_rows() -> None:
+    """With totalRows=3 exactly pages 1 to 3 are requested, no more."""
+    client = _client()
+    general_error = OmadaApiError("General error.", error_code=-1)
+    pages = [{"result": {"data": [{"id": f"r{i}"}], "totalRows": 3}} for i in (1, 2, 3)]
+    client._authenticated_request = AsyncMock(
+        side_effect=[PROFILE_MODE, general_error, *pages]
+    )
+
+    rules = await client.get_gateway_acls("site-id")
+
+    assert [r["id"] for r in rules] == ["r1", "r2", "r3"]
+    requested = [
+        c.kwargs["params"]["page"]
+        for c in client._authenticated_request.await_args_list[2:]
+    ]
+    assert requested == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_set_status_asks_mode_and_rules_of_the_requested_site() -> None:
+    """Mode lookup and rule list use the site that is being changed."""
+    client = _client()
+    client._authenticated_request = AsyncMock(
+        side_effect=[
+            PROFILE_MODE,
+            {"result": {"data": [{"id": "a", "status": True}], "totalRows": 1}},
+            {"errorCode": 0},
+        ]
+    )
+
+    await client.set_gateway_acl_status("other-site", "a", enabled=True)
+
+    other = "https://controller.local/openapi/v1/controller-id/sites/other-site/acls"
+    calls = client._authenticated_request.await_args_list
+    assert calls[0].args == ("get", f"{other}/osg-config-mode")
+    assert calls[1].args == ("get", f"{other}/osg-acls")
+    assert calls[2].args == ("put", f"{other}/osg-acls/a")
+
+
+@pytest.mark.asyncio
+async def test_set_status_unknown_rule_error_names_rule_and_site() -> None:
+    """The error for a vanished rule says which rule in which site."""
+    client = _client()
+    client._authenticated_request = AsyncMock(
+        side_effect=[PROFILE_MODE, {"result": {"data": [], "totalRows": 0}}]
+    )
+
+    with pytest.raises(OmadaApiError, match=r"gone.*site-id"):
+        await client.set_gateway_acl_status("site-id", "gone", enabled=True)
