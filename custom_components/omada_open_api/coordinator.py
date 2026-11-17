@@ -16,6 +16,7 @@ from .clients import normalize_client_mac, process_client
 from .const import (
     AP_ACTIVITY_HOLD_MIN_SECONDS,
     AP_ACTIVITY_HOLD_POLLS,
+    DEFAULT_ACL_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_FIRMWARE_CHECK_INTERVAL,
     DEFAULT_RADIO_UTIL_INTERVAL,
@@ -1248,13 +1249,14 @@ class OmadaAclCoordinator(DataUpdateCoordinator[dict[str, dict[str, Any]]]):
         api_client: OmadaApiClient,
         site_id: str,
         site_name: str,
+        scan_interval: int = DEFAULT_ACL_SCAN_INTERVAL,
     ) -> None:
         """Initialize the gateway ACL coordinator."""
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{site_id}_gateway_acls",
-            update_interval=timedelta(seconds=DEFAULT_DEVICE_SCAN_INTERVAL),
+            update_interval=timedelta(seconds=scan_interval),
         )
         self.api_client = api_client
         self.site_id = site_id

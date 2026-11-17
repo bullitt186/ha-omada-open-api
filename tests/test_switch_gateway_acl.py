@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -12,7 +13,9 @@ import pytest
 
 from custom_components.omada_open_api.api import OmadaApiError
 from custom_components.omada_open_api.const import (
+    CONF_ACL_SCAN_INTERVAL,
     CONF_ENABLE_GATEWAY_ACL_SWITCHES,
+    DEFAULT_ACL_SCAN_INTERVAL,
     DOMAIN,
 )
 from custom_components.omada_open_api.coordinator import OmadaAclCoordinator
@@ -304,3 +307,63 @@ async def test_switch_name_follows_reordering_in_controller(
     switch._handle_coordinator_update()
 
     assert switch.translation_placeholders == {"acl_name": "07 Home Connect"}
+
+
+async def test_coordinator_default_and_custom_interval(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The ACL poll interval defaults to 60 s and can be overridden."""
+    default = OmadaAclCoordinator(hass, mock_api_client, TEST_SITE_ID, TEST_SITE_NAME)
+    custom = OmadaAclCoordinator(
+        hass, mock_api_client, TEST_SITE_ID, TEST_SITE_NAME, scan_interval=300
+    )
+
+    assert DEFAULT_ACL_SCAN_INTERVAL == 60
+    assert default.update_interval == timedelta(seconds=60)
+    assert custom.update_interval == timedelta(seconds=300)
+
+
+async def test_setup_uses_configured_acl_interval(hass: HomeAssistant) -> None:
+    """The acl_scan_interval option sets the coordinator's poll interval."""
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_GATEWAY_ACL_SWITCHES: True, CONF_ACL_SCAN_INTERVAL: 300},
+        "test_acl_interval",
+    )
+    mock = _build_mock_api([])
+    mock.get_gateway_acls = AsyncMock(return_value=[RULE_ON])
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    coordinator = entry.runtime_data.acl_coordinators[TEST_SITE_ID]
+    assert coordinator.update_interval == timedelta(seconds=300)
+
+
+async def test_update_intervals_step_saves_acl_interval(hass: HomeAssistant) -> None:
+    """The update-intervals options step stores the ACL interval."""
+    entry = _build_entry(hass, {}, "test_acl_interval_flow")
+
+    result = await hass.config_entries.options.async_init(
+        entry.entry_id, context={"source": "init"}
+    )
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"next_step_id": "update_intervals"}
+    )
+    keys = {str(k): k for k in result["data_schema"].schema}
+    assert keys[CONF_ACL_SCAN_INTERVAL].default() == 60
+
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {
+                "device_scan_interval": 60,
+                "client_scan_interval": 30,
+                "app_scan_interval": 300,
+                CONF_ACL_SCAN_INTERVAL: 120,
+            },
+        )
+
+    assert result["type"] == "create_entry"
+    assert entry.options[CONF_ACL_SCAN_INTERVAL] == 120

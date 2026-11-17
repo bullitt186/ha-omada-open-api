@@ -32,6 +32,7 @@ from .clients import normalize_client_mac
 from .const import (
     AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
+    CONF_ACL_SCAN_INTERVAL,
     CONF_API_URL,
     CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
@@ -56,6 +57,7 @@ from .const import (
     CONF_TOKEN_EXPIRES,
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
+    DEFAULT_ACL_SCAN_INTERVAL,
     DEFAULT_APP_SCAN_INTERVAL,
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
@@ -190,6 +192,7 @@ _SCAN_INTERVAL_KEYS = {
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_APP_SCAN_INTERVAL,
+    CONF_ACL_SCAN_INTERVAL,
 }
 
 
@@ -819,9 +822,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     # never blocks setup (async_refresh instead of the first-refresh variant).
     acl_coordinators: dict[str, OmadaAclCoordinator] = {}
     if has_write_access and entry.options.get(CONF_ENABLE_GATEWAY_ACL_SWITCHES, False):
+        acl_interval = entry.options.get(
+            CONF_ACL_SCAN_INTERVAL, DEFAULT_ACL_SCAN_INTERVAL
+        )
         for site_id, site_coordinator in coordinators.items():
             acl_coordinator = OmadaAclCoordinator(
-                hass, api_client, site_id, site_coordinator.site_name
+                hass, api_client, site_id, site_coordinator.site_name, acl_interval
             )
             await acl_coordinator.async_refresh()
             acl_coordinators[site_id] = acl_coordinator

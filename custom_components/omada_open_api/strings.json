@@ -199,12 +199,14 @@
                 "data": {
                     "device_scan_interval": "Device polling interval (seconds)",
                     "client_scan_interval": "Client polling interval (seconds)",
-                    "app_scan_interval": "Application traffic polling interval (seconds)"
+                    "app_scan_interval": "Application traffic polling interval (seconds)",
+                    "acl_scan_interval": "Gateway ACL polling interval (seconds)"
                 },
                 "data_description": {
                     "device_scan_interval": "How often device, PoE and site data is fetched",
                     "client_scan_interval": "How often client data and presence are fetched",
-                    "app_scan_interval": "How often per-client application traffic is fetched"
+                    "app_scan_interval": "How often per-client application traffic is fetched",
+                    "acl_scan_interval": "How often gateway ACL rules are fetched (only used when the ACL switches are enabled)"
                 }
             },
             "tracker_settings": {
