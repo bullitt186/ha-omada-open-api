@@ -70,34 +70,83 @@ async def test_get_gateway_acls_profile_mode_paginates_all_rows() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_gateway_acls_custom_mode_uses_description_as_name() -> None:
-    """Custom mode reads osg-custom-acls and exposes the description as name."""
+async def test_get_gateway_acls_custom_mode_reads_custom_endpoint() -> None:
+    """Custom mode reads osg-custom-acls and returns the rows unchanged."""
     client = _client()
+    row = {"id": "c1", "description": "Allow IoT", "status": True}
+    client._authenticated_request = AsyncMock(
+        side_effect=[CUSTOM_MODE, {"result": {"data": [row], "totalRows": 1}}]
+    )
+
+    rules = await client.get_gateway_acls("site-id")
+
+    assert rules == [row]
+    assert client._authenticated_request.await_args_list[1].args == ("get", CUSTOM_URL)
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_acls_skips_rules_the_controller_cannot_read() -> None:
+    """A controller 'General error' falls back to one-rule pages, skipping bad ones."""
+    client = _client()
+    general_error = OmadaApiError("General error.", error_code=-1)
     client._authenticated_request = AsyncMock(
         side_effect=[
-            CUSTOM_MODE,
-            {
-                "result": {
-                    "data": [{"id": "c1", "description": "Allow IoT", "status": True}],
-                    "totalRows": 1,
-                }
-            },
+            PROFILE_MODE,
+            general_error,  # bulk read fails
+            {"result": {"data": [{"id": "r1", "status": True}], "totalRows": 3}},
+            general_error,  # rule 2 is unreadable
+            {"result": {"data": [{"id": "r3", "status": False}], "totalRows": 3}},
         ]
     )
 
     rules = await client.get_gateway_acls("site-id")
 
-    assert rules == [
-        {"id": "c1", "description": "Allow IoT", "name": "Allow IoT", "status": True}
-    ]
-    assert client._authenticated_request.await_args_list[1].args == ("get", CUSTOM_URL)
+    assert [r["id"] for r in rules] == ["r1", "r3"]
+    calls = client._authenticated_request.await_args_list
+    assert [c.kwargs["params"]["pageSize"] for c in calls[2:]] == [1, 1, 1]
+    assert [c.kwargs["params"]["page"] for c in calls[2:]] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_acls_other_errors_are_not_retried_per_rule() -> None:
+    """Errors other than the controller's -1 are raised without the fallback."""
+    client = _client()
+    client._authenticated_request = AsyncMock(
+        side_effect=[PROFILE_MODE, OmadaApiError("denied", error_code=-1005)]
+    )
+
+    with pytest.raises(OmadaApiError):
+        await client.get_gateway_acls("site-id")
+
+    assert client._authenticated_request.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_get_gateway_acls_raises_when_no_rule_is_readable() -> None:
+    """If every per-rule page fails the error is raised after a bounded retry."""
+    client = _client()
+    general_error = OmadaApiError("General error.", error_code=-1)
+    client._authenticated_request = AsyncMock(
+        side_effect=[PROFILE_MODE] + [general_error] * 60
+    )
+
+    with pytest.raises(OmadaApiError):
+        await client.get_gateway_acls("site-id")
+
+    assert client._authenticated_request.await_count <= 52
 
 
 @pytest.mark.asyncio
 async def test_set_status_profile_mode_writes_back_full_rule() -> None:
-    """Profile mode PUTs the complete rule with only 'status' changed."""
+    """Profile mode PUTs the editable rule fields with only 'status' changed."""
     client = _client()
-    rule = {"id": "acl-1", "name": "Block IoT", "status": True, "policy": 0}
+    rule = {
+        "id": "acl-1",
+        "index": 3,
+        "description": "Block IoT",
+        "status": True,
+        "policy": 0,
+    }
     client._authenticated_request = AsyncMock(
         side_effect=[
             PROFILE_MODE,
@@ -110,9 +159,9 @@ async def test_set_status_profile_mode_writes_back_full_rule() -> None:
 
     put_call = client._authenticated_request.await_args_list[2]
     assert put_call.args == ("put", f"{PROFILE_URL}/acl-1")
+    # id and index are not part of the modify model, so they are not sent.
     assert put_call.kwargs["json_data"] == {
-        "id": "acl-1",
-        "name": "Block IoT",
+        "description": "Block IoT",
         "status": False,
         "policy": 0,
     }

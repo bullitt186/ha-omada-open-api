@@ -24,8 +24,8 @@ from .test_entity_toggles import _build_entry, _build_mock_api
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-RULE_ON = {"id": "acl-1", "name": "Block IoT", "status": True}
-RULE_OFF = {"id": "acl-2", "name": "Guest to LAN", "status": False}
+RULE_ON = {"id": "acl-1", "description": "Block IoT", "status": True}
+RULE_OFF = {"id": "acl-2", "description": "Guest to LAN", "status": False}
 
 
 def _coordinator(hass: HomeAssistant, api: MagicMock) -> OmadaAclCoordinator:
@@ -230,3 +230,15 @@ async def test_setup_survives_failing_acl_endpoint(hass: HomeAssistant) -> None:
         await hass.async_block_till_done()
 
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_switch_name_falls_back_to_rule_id(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A rule without description gets its ID as display name."""
+    coordinator = _coordinator(hass, mock_api_client)
+    coordinator.data = {"acl-9": {"id": "acl-9", "status": True}}
+
+    switch = OmadaAclSwitch(coordinator, "acl-9")
+
+    assert switch.translation_placeholders == {"acl_name": "acl-9"}

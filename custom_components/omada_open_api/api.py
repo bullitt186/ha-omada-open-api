@@ -9,7 +9,12 @@ from typing import TYPE_CHECKING, Any
 import aiohttp
 
 from .auth import ClientCredentialsAuth, OmadaAuthStrategy
-from .const import DEFAULT_TIMEOUT, VPN_REJECTED_RETRY_SECONDS, VPN_STATS_TYPES
+from .const import (
+    ACL_FALLBACK_MAX_PAGES,
+    DEFAULT_TIMEOUT,
+    VPN_REJECTED_RETRY_SECONDS,
+    VPN_STATS_TYPES,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -1802,16 +1807,54 @@ class OmadaApiClient:
     async def _get_gateway_acl_rows(
         self, site_id: str, mode: int
     ) -> list[dict[str, Any]]:
-        """Fetch the gateway ACL rules for the given config mode.
-
-        Custom-mode rules identify themselves with ``description``; a ``name``
-        key is added so both modes can be handled uniformly.
-        """
+        """Fetch the gateway ACL rules for the given config mode."""
         base = self._gateway_acl_base_url(site_id)
-        if mode == 1:
-            rows = await self._get_paginated_rows(f"{base}/osg-custom-acls")
-            return [{**row, "name": row.get("description")} for row in rows]
-        return await self._get_paginated_rows(f"{base}/osg-acls")
+        endpoint = "osg-custom-acls" if mode == 1 else "osg-acls"
+        return await self._get_acl_rows(f"{base}/{endpoint}")
+
+    async def _get_acl_rows(self, url: str) -> list[dict[str, Any]]:
+        """Fetch every rule from an ACL list endpoint, skipping unreadable ones.
+
+        Some controllers answer a page with ``-1 General error`` when it
+        contains a rule they cannot serialise, which would make the whole
+        list unreadable. In that case the rules are read one per page and the
+        unreadable ones are skipped.
+        """
+        try:
+            return await self._get_paginated_rows(url)
+        except OmadaApiError as err:
+            if err.error_code != -1:
+                raise
+            _LOGGER.debug("ACL list %s failed (%s); reading rule by rule", url, err)
+        return await self._get_acl_rows_one_by_one(url)
+
+    async def _get_acl_rows_one_by_one(self, url: str) -> list[dict[str, Any]]:
+        """Read an ACL list with one rule per page and skip unreadable rules."""
+        rows: list[dict[str, Any]] = []
+        total: int | None = None
+        skipped = 0
+        last_error: OmadaApiError | None = None
+        page = 1
+        while page <= (total if total is not None else ACL_FALLBACK_MAX_PAGES):
+            try:
+                result = await self._authenticated_request(
+                    "get", url, params={"page": page, "pageSize": 1}
+                )
+            except OmadaApiError as err:
+                if err.error_code != -1:
+                    raise
+                last_error = err
+                skipped += 1
+            else:
+                payload = result.get("result", {})
+                total = payload.get("totalRows", 0)
+                rows.extend(payload.get("data", []))
+            page += 1
+        if total is None and last_error is not None:
+            raise last_error
+        if skipped:
+            _LOGGER.debug("Skipped %s ACL rule(s) the controller cannot read", skipped)
+        return rows
 
     async def get_gateway_acls(self, site_id: str) -> list[dict[str, Any]]:
         """Get all gateway ACL rules of a site (profile or custom mode).
@@ -1829,6 +1872,7 @@ class OmadaApiClient:
         """
         _LOGGER.debug("Fetching gateway ACLs for site %s", site_id)
         mode = await self.get_gateway_acl_config_mode(site_id)
+        _LOGGER.debug("Gateway ACL config mode for site %s: %s", site_id, mode)
         return await self._get_gateway_acl_rows(site_id, mode)
 
     async def set_gateway_acl_status(
@@ -1838,7 +1882,7 @@ class OmadaApiClient:
 
         The rule is read fresh (not from cached coordinator data) so edits
         made in the controller UI since the last poll are not overwritten.
-        Profile mode PUTs the complete rule with only ``status`` changed;
+        Profile mode PUTs the editable rule fields with only ``status`` changed;
         custom mode uses the batch-edit endpoint, keeping the log status.
 
         Args:
@@ -1879,7 +1923,11 @@ class OmadaApiClient:
         await self._authenticated_request(
             "put",
             f"{base}/osg-acls/{acl_id}",
-            json_data={**rule, "status": enabled},
+            # id and index are read-only and not part of the modify model.
+            json_data={
+                key: value for key, value in rule.items() if key not in ("id", "index")
+            }
+            | {"status": enabled},
         )
 
     async def get_vpn_s2s_peers(

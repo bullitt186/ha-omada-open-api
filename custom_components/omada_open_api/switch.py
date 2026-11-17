@@ -488,7 +488,9 @@ class OmadaAclSwitch(
         """Initialize the gateway ACL switch."""
         super().__init__(coordinator)
         self._acl_id = acl_id
-        self._acl_name: str = coordinator.data.get(acl_id, {}).get("name") or acl_id
+        rule = coordinator.data.get(acl_id, {})
+        # Profile and custom rules identify themselves by their description.
+        self._acl_name: str = rule.get("description") or rule.get("name") or acl_id
         self._attr_translation_key = "gateway_acl"
         self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_acl_{acl_id}"
         self._attr_translation_placeholders = {"acl_name": self._acl_name}

@@ -184,3 +184,6 @@ WAN_SPEED_MAP: dict[int, int] = {
 # -1: general error, -1001: invalid request parameters,
 # -39737: profile override reported as disabled.
 POE_PORT_PATCH_FALLBACK_ERRORS = (-1, -1001, -39737)
+
+# Max one-rule pages tried when an ACL list must be read rule by rule.
+ACL_FALLBACK_MAX_PAGES = 50
