@@ -45,6 +45,12 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# Mutation testing (mutmut 3 keeps everything in mutants/; .mutmut-cache and
+# html/ are the cache and report of older mutmut versions)
+mutants/
+.mutmut-cache
+html/
+
 # Virtual environments
 venv/
 ENV/
@@ -80,4 +86,5 @@ openapi/openapi.json
 poc/threat-heatmap/threat-heatmap-data.json
 .env
 ha-developer-docs/
-.claude
+.claude/*
+!.claude/settings.json

@@ -4,6 +4,11 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # pytest-homeassistant-custom-component pins these exactly; they arrive
+    # with its updates, separate bumps cannot be installed.
+    ignore:
+      - dependency-name: pytest
+      - dependency-name: pytest-asyncio
 
   - package-ecosystem: github-actions
     directory: /

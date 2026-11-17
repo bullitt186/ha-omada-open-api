@@ -609,6 +609,32 @@ async def test_site_coordinator_fetches_firmware_info(
         assert coordinator.data["firmware_info"][mac]["lastFwVer"] == "1.1.0"
 
 
+async def test_firmware_timeout_does_not_fail_site_refresh(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A firmware-check timeout keeps the site data available (GH #159).
+
+    Controllers without internet time out on the firmware endpoint. The
+    round stops after the first timeout and waits for the next interval
+    instead of failing every poll.
+    """
+    mock_api_client.get_firmware_info = AsyncMock(side_effect=TimeoutError)
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert mock_api_client.get_firmware_info.call_count == 1
+
+    await coordinator.async_refresh()
+    assert coordinator.last_update_success is True
+    assert mock_api_client.get_firmware_info.call_count == 1
+
+
 async def test_site_coordinator_firmware_info_skips_within_interval(
     hass: HomeAssistant, mock_api_client: MagicMock
 ) -> None:

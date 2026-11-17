@@ -13,7 +13,9 @@ from homeassistant.components.device_tracker.entity import (
     BaseScannerEntity,
     ScannerEntity,
 )
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -603,6 +605,29 @@ class OmadaDeviceTracker(
         self._attr_name = None
         self._unique_id = f"{DOMAIN}_device_{device_mac}"
         self._attr_mac_address = device_mac.replace("-", ":").lower()
+        self._attr_device_info = None
+
+    async def async_prepare_to_add_to_hass(self) -> None:
+        """Provide device info while preserving the scanner's naming rules."""
+        mac = self.mac_address
+        entry = self.platform.config_entry
+        if (
+            (MAJOR_VERSION, MINOR_VERSION) >= (2026, 11)
+            and mac
+            and entry is not None
+            and self.device_info is None
+        ):
+            connections = {(dr.CONNECTION_NETWORK_MAC, mac)}
+            device_info = DeviceInfo(connections=connections)
+            if name := self.hostname:
+                device_info["name"] = name
+            elif not dr.async_get(self.hass).async_get_devices(
+                connections=connections, config_entry_id=entry.entry_id
+            ):
+                device_info["name"] = mac
+            # Before HA 2026.11, ScannerEntity did not accept device info.
+            self._attr_device_info = device_info  # type: ignore[assignment]
+        await super().async_prepare_to_add_to_hass()
 
     @property
     def _device_data(self) -> dict[str, Any]:
