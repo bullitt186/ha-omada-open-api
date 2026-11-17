@@ -512,3 +512,34 @@ async def test_acl_switch_option_form_shows_saved_value(hass: HomeAssistant) -> 
 
     keys = {str(k): k for k in result["data_schema"].schema}
     assert keys[CONF_ENABLE_GATEWAY_ACL_SWITCHES].default() is True
+
+
+async def test_friendly_name_follows_rule_reordering(hass: HomeAssistant) -> None:
+    """Moving a rule in the controller changes the shown name, not just a field."""
+    entry = _build_entry(
+        hass, {CONF_ENABLE_GATEWAY_ACL_SWITCHES: True}, "test_acl_rename"
+    )
+    mock = _build_mock_api([])
+    rule = {"id": "acl-1", "description": "Block IoT", "index": 4, "status": True}
+    mock.get_gateway_acls = AsyncMock(return_value=[rule])
+
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    reg = er.async_get(hass)
+    entity_id = reg.async_get_entity_id(
+        "switch", DOMAIN, f"{DOMAIN}_{TEST_SITE_ID}_acl_acl-1"
+    )
+    assert entity_id is not None
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["friendly_name"].endswith("ACL 04 Block IoT")
+
+    coordinator = entry.runtime_data.acl_coordinators[TEST_SITE_ID]
+    coordinator.async_set_updated_data({"acl-1": {**rule, "index": 2}})
+    await hass.async_block_till_done()
+
+    state = hass.states.get(entity_id)
+    assert state is not None
+    assert state.attributes["friendly_name"].endswith("ACL 02 Block IoT")

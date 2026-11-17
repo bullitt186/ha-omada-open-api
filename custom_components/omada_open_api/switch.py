@@ -517,6 +517,11 @@ class OmadaAclSwitch(
         if rule is not None:
             self._acl_name = self._display_name(rule)
             self._attr_translation_placeholders = {"acl_name": self._acl_name}
+            # Home Assistant caches the translated name and only drops that
+            # cache when _attr_name changes, so drop it here the same way its
+            # own _attr_ setters do. Otherwise a reordered rule keeps its old
+            # index in the name.
+            self.__dict__.pop("name", None)
         super()._handle_coordinator_update()
 
     @property
