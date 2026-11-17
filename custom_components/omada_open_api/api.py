@@ -1643,13 +1643,13 @@ class OmadaApiClient:
             "post", url, json_data={"portUuidList": port_uuids}
         )
 
-    async def _get_paginated_vpn_rows(
+    async def _get_paginated_rows(
         self,
         url: str,
         filters: dict[str, Any] | None = None,
         expected_statuses: tuple[int, ...] = (),
     ) -> list[dict[str, Any]]:
-        """Fetch every page from a VPN endpoint."""
+        """Fetch every page from a paginated list endpoint."""
         page = 1
         all_rows: list[dict[str, Any]] = []
         while True:
@@ -1690,7 +1690,7 @@ class OmadaApiClient:
                 continue
             filters = None if vpn_type is None else {"filters.vpnType": vpn_type}
             try:
-                type_rows = await self._get_paginated_vpn_rows(
+                type_rows = await self._get_paginated_rows(
                     url, filters, expected_statuses=(400,)
                 )
             except OmadaApiError as err:
@@ -1770,6 +1770,64 @@ class OmadaApiClient:
         _LOGGER.debug("Fetching VPN client stats for site %s", site_id)
         return await self._get_vpn_stats(url, "client")
 
+    def _gateway_acl_url(self, site_id: str) -> str:
+        """Return the gateway ACL (osg-acls) collection URL for a site."""
+        return (
+            f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/acls/osg-acls"
+        )
+
+    async def get_gateway_acls(self, site_id: str) -> list[dict[str, Any]]:
+        """Get all gateway ACL rules of a site.
+
+        Args:
+            site_id: Site ID to query
+
+        Returns:
+            List of gateway ACL rule dictionaries (all pages).
+
+        Raises:
+            OmadaApiError: If the request fails
+
+        """
+        _LOGGER.debug("Fetching gateway ACLs for site %s", site_id)
+        return await self._get_paginated_rows(self._gateway_acl_url(site_id))
+
+    async def set_gateway_acl_status(
+        self, site_id: str, acl_id: str, *, enabled: bool
+    ) -> None:
+        """Enable or disable a gateway ACL rule.
+
+        The controller requires the complete rule in the PUT body, so the
+        current rule is read first and written back with only ``status``
+        changed. Reading fresh (instead of using cached coordinator data)
+        avoids overwriting edits made in the controller UI since the last poll.
+
+        Args:
+            site_id: Site ID the rule belongs to
+            acl_id: ID of the gateway ACL rule
+            enabled: Whether the rule should be enabled
+
+        Raises:
+            OmadaApiError: If the rule no longer exists or a request fails
+
+        """
+        rules = await self.get_gateway_acls(site_id)
+        rule = next((r for r in rules if r.get("id") == acl_id), None)
+        if rule is None:
+            msg = f"Gateway ACL {acl_id} not found in site {site_id}"
+            raise OmadaApiError(msg)
+        _LOGGER.debug(
+            "Setting gateway ACL %s to %s in site %s",
+            acl_id,
+            "enabled" if enabled else "disabled",
+            site_id,
+        )
+        await self._authenticated_request(
+            "put",
+            f"{self._gateway_acl_url(site_id)}/{acl_id}",
+            json_data={**rule, "status": enabled},
+        )
+
     async def get_vpn_s2s_peers(
         self, site_id: str, tunnel_id: str
     ) -> list[dict[str, Any]]:
@@ -1791,7 +1849,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/s2s/{tunnel_id}/peer"
         )
         _LOGGER.debug("Fetching S2S VPN peers for tunnel %s", tunnel_id)
-        return await self._get_paginated_vpn_rows(url)
+        return await self._get_paginated_rows(url)
 
     async def get_vpn_server_clients(
         self, site_id: str, tunnel_id: str
@@ -1814,7 +1872,7 @@ class OmadaApiClient:
             f"/sites/{site_id}/setting/vpn/stats/server/{tunnel_id}/client"
         )
         _LOGGER.debug("Querying VPN server clients for tunnel %s", tunnel_id)
-        return await self._get_paginated_vpn_rows(url)
+        return await self._get_paginated_rows(url)
 
     @property
     def auth(self) -> OmadaAuthStrategy:

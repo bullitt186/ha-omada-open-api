@@ -45,6 +45,8 @@ CONF_ENABLE_CLIENT_RECONNECT_BUTTON = "enable_client_reconnect_button"
 CONF_ENABLE_THREAT_HEATMAP_SENSORS = "enable_threat_heatmap_sensors"
 CONF_ENABLE_VPN_SENSORS = "enable_vpn_sensors"
 CONF_ENABLE_WAN_SPEED_TEST = "enable_wan_speed_test"
+# Opt-in (default off): ACL switches need extra polling and write access.
+CONF_ENABLE_GATEWAY_ACL_SWITCHES = "enable_gateway_acl_switches"
 
 # Controller types
 CONTROLLER_TYPE_CLOUD = "cloud"

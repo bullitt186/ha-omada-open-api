@@ -59,6 +59,7 @@ from .const import (
     CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
     CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
+    CONF_ENABLE_GATEWAY_ACL_SWITCHES,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -1764,6 +1765,9 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     CONF_ENABLE_WAN_SPEED_TEST: user_input.get(
                         CONF_ENABLE_WAN_SPEED_TEST, True
                     ),
+                    CONF_ENABLE_GATEWAY_ACL_SWITCHES: user_input.get(
+                        CONF_ENABLE_GATEWAY_ACL_SWITCHES, False
+                    ),
                 },
             )
 
@@ -1776,6 +1780,10 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 vol.Required(
                     CONF_ENABLE_WAN_SPEED_TEST,
                     default=opts.get(CONF_ENABLE_WAN_SPEED_TEST, True),
+                ): bool,
+                vol.Required(
+                    CONF_ENABLE_GATEWAY_ACL_SWITCHES,
+                    default=opts.get(CONF_ENABLE_GATEWAY_ACL_SWITCHES, False),
                 ): bool,
             }
         )

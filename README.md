@@ -61,6 +61,7 @@ Not every feature works on every setup — some need specific hardware:
 | Temperature, public IP, WAN rate/total/latency/loss, WAN status | Sensor, Binary Sensor | Gateway |
 | VPN tunnel and peer/client connection status | Binary Sensor, Sensor | Gateway with site-to-site, VPN server, or VPN client tunnels; can be disabled in Options |
 | WAN speed test | Button, Binary Sensor, Sensor | Fusion gateway with a WAN port; can be disabled in Options |
+| Gateway ACL rule enable/disable | Switch | Gateway ACL rules (opt-in in Options; needs write access) |
 | Application (DPI) traffic | Sensor | Gateway with DPI enabled, plus clients/apps selected in Options |
 | PoE budget/used/remaining, per-port power & switch | Sensor, Switch | PoE-capable switch (switch needs write access) |
 | Site totals (clients, guest clients, PoE consumption) | Sensor | Any selected site |
@@ -538,9 +539,10 @@ from being created.
 |---|---|---|
 | **VPN monitoring sensors** | Enabled | Creates one primary connection binary sensor for every site-to-site, VPN server, and VPN client tunnel. Tunnel peer/client telemetry is available as diagnostic entities. A VPN client exposes its own traffic, remote IP, and connection-time diagnostics rather than misleading peer counts. |
 | **WAN speed test** | Enabled | Creates a **Run speed test** button, a **Speed test running** binary sensor, and diagnostic download, upload, latency, and last-test-result sensors for each WAN port supported by the gateway. Run the button from the device page or dashboard; the running entity is on while Omada reports the test in progress. |
+| **Gateway ACL rule switches** | Disabled | Creates one configuration switch per gateway ACL rule (Open API `acls/osg-acls`) to enable or disable it. The state is read from the controller, so it follows changes made in the Omada UI. Toggling reads the current rule and writes it back with only its status changed. Requires write access; read-only credentials get no switches and the ACL list is not polled. |
 
-Saving an option reloads the integration. Disabled VPN and WAN speed-test
-features neither create entities nor poll their optional API endpoints.
+Saving an option reloads the integration. Disabled VPN, WAN speed-test and
+ACL-switch features neither create entities nor poll their optional API endpoints.
 
 ---
 

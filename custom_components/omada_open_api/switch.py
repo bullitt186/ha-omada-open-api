@@ -14,7 +14,11 @@ from homeassistant.helpers.device_registry import DeviceInfo
 
 from .api import OmadaApiError
 from .const import DOMAIN, POE_PORT_PATCH_FALLBACK_ERRORS
-from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
+from .coordinator import (
+    OmadaAclCoordinator,
+    OmadaClientCoordinator,
+    OmadaSiteCoordinator,
+)
 from .entity import OmadaEntity
 
 if TYPE_CHECKING:
@@ -50,6 +54,31 @@ def _new_ap_led_entities(
             )
         )
     return new_entities
+
+
+def _async_setup_acl_switches(
+    entry: OmadaConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    """Add gateway ACL switches and track rules that appear later."""
+    known_acl_ids: set[tuple[str, str]] = set()
+    for acl_site_id, acl_coord in entry.runtime_data.acl_coordinators.items():
+
+        @callback
+        def _async_check_new_acls(
+            coord: OmadaAclCoordinator = acl_coord,
+            sid: str = acl_site_id,
+        ) -> None:
+            """Add switches for newly discovered gateway ACL rules."""
+            new_ids = {(sid, acl_id) for acl_id in coord.data} - known_acl_ids
+            if not new_ids:
+                return
+            known_acl_ids.update(new_ids)
+            async_add_entities(
+                [OmadaAclSwitch(coord, acl_id) for _, acl_id in sorted(new_ids)]
+            )
+
+        _async_check_new_acls()
+        entry.async_on_unload(acl_coord.async_add_listener(_async_check_new_acls))
 
 
 async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-statements
@@ -172,6 +201,9 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
         entry.async_on_unload(
             site_coord.async_add_listener(_async_check_new_device_switches)
         )
+
+    # --- Dynamic gateway ACL switches (opt-in, write access only) ---
+    _async_setup_acl_switches(entry, async_add_entities)
 
     # --- Dynamic client block/unblock switches ---
     known_client_macs: set[str] = set()
@@ -433,6 +465,70 @@ class OmadaClientBlockSwitch(
                 translation_domain=DOMAIN,
                 translation_key="client_block_failed",
                 translation_placeholders={"mac": self._client_mac},
+            ) from err
+        await self.coordinator.async_request_refresh()
+
+
+class OmadaAclSwitch(
+    OmadaEntity[OmadaAclCoordinator],
+    SwitchEntity,
+):
+    """Switch entity to enable or disable one gateway ACL rule.
+
+    The state is read from the coordinator, so it follows changes made in
+    the controller UI.
+    """
+
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: OmadaAclCoordinator, acl_id: str) -> None:
+        """Initialize the gateway ACL switch."""
+        super().__init__(coordinator)
+        self._acl_id = acl_id
+        self._acl_name: str = coordinator.data.get(acl_id, {}).get("name") or acl_id
+        self._attr_translation_key = "gateway_acl"
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_acl_{acl_id}"
+        self._attr_translation_placeholders = {"acl_name": self._acl_name}
+        # Attach to the site device so the switch shows on its page.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if the rule is enabled."""
+        rule = self.coordinator.data.get(self._acl_id)
+        if rule is None:
+            return None
+        return bool(rule.get("status"))
+
+    @property
+    def available(self) -> bool:
+        """Return if the entity is available (rule still exists)."""
+        return (
+            bool(self.coordinator.last_update_success)
+            and self._acl_id in self.coordinator.data
+        )
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the ACL rule."""
+        await self._set_status(enabled=True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the ACL rule."""
+        await self._set_status(enabled=False)
+
+    async def _set_status(self, *, enabled: bool) -> None:
+        """Write the rule status and refresh the coordinator."""
+        try:
+            await self.coordinator.api_client.set_gateway_acl_status(
+                self.coordinator.site_id, self._acl_id, enabled=enabled
+            )
+        except OmadaApiError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="gateway_acl_failed",
+                translation_placeholders={"acl_name": self._acl_name},
             ) from err
         await self.coordinator.async_request_refresh()
 

@@ -42,6 +42,7 @@ from .const import (
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_GATEWAY_ACL_SWITCHES,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -66,6 +67,7 @@ from .const import (
     resolve_verify_ssl,
 )
 from .coordinator import (
+    OmadaAclCoordinator,
     OmadaAppTrafficCoordinator,
     OmadaClientCoordinator,
     OmadaDeviceStatsCoordinator,
@@ -812,6 +814,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             total_ssids,
         )
 
+    # Gateway ACL switches are opt-in and need write access, so the ACL
+    # endpoint is only polled when both conditions hold. A failing endpoint
+    # never blocks setup (async_refresh instead of the first-refresh variant).
+    acl_coordinators: dict[str, OmadaAclCoordinator] = {}
+    if has_write_access and entry.options.get(CONF_ENABLE_GATEWAY_ACL_SWITCHES, False):
+        for site_id, site_coordinator in coordinators.items():
+            acl_coordinator = OmadaAclCoordinator(
+                hass, api_client, site_id, site_coordinator.site_name
+            )
+            await acl_coordinator.async_refresh()
+            acl_coordinators[site_id] = acl_coordinator
+
     entry.runtime_data = OmadaRuntimeData(
         api_client=api_client,
         coordinators=coordinators,
@@ -824,6 +838,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         prev_options=dict(entry.options),
         threat_heatmap_coordinators=threat_heatmap_coordinators,
         wan_speed_test_coordinators=wan_speed_test_coordinators,
+        acl_coordinators=acl_coordinators,
     )
 
     # Set up platforms
