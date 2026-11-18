@@ -2029,6 +2029,38 @@ async def test_remove_device_allows_merged_device(hass: HomeAssistant) -> None:
     assert result is True
 
 
+async def test_repair_issue_dpi_not_raised_without_apps(hass: HomeAssistant) -> None:
+    """Without selected apps, a site without gateway raises no DPI issue."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_devices=AsyncMock(return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "dpi_no_gateway") is None
+
+
+async def test_repair_issue_dpi_fields(hass: HomeAssistant) -> None:
+    """The DPI issue is a non-fixable warning with its own translation."""
+    entry = _build_entry(hass, options={CONF_SELECTED_APPLICATIONS: ["app_1"]})
+    patcher, _mock_client = _patch_api_client(
+        get_devices=AsyncMock(return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "dpi_no_gateway")
+    assert issue is not None
+    assert issue.is_fixable is False
+    assert issue.issue_domain == DOMAIN
+    assert issue.translation_key == "dpi_no_gateway"
+
+
 # ---------------------------------------------------------------------------
 # Absent AP band entities
 # ---------------------------------------------------------------------------
@@ -2046,22 +2078,24 @@ async def test_purge_absent_band_entities(hass: HomeAssistant) -> None:
             "sensor", platform, unique_id, config_entry=entry
         ).entity_id
 
+    # Entries that must be skipped come first, so a skip that ended the
+    # scan early would leave the later absent bands in place.
+    no_separator = _add("clients")
+    other_platform = _add(f"{ap}_clients_5g", platform="other")
+    non_band = _add(f"{ap}_cpu_util")
     present = _add(f"{ap}_clients_2g")
     absent = _add(f"{ap}_clients_6g")
-    non_band = _add(f"{ap}_cpu_util")
-    other_platform = _add(f"{ap}_clients_5g", platform="other")
     switch_band = _add(f"{switch}_clients_2g")
-    no_separator = _add("clients")
     coordinators = {
+        "s0": SimpleNamespace(data=None),
         "s1": SimpleNamespace(
             data={
                 "devices": {
-                    ap: {"type": "AP", "client_num_2g": 3},
                     switch: {"type": "switch", "client_num_2g": 1},
+                    ap: {"type": "AP", "client_num_2g": 3},
                 }
             }
         ),
-        "s2": SimpleNamespace(data=None),
     }
 
     purge_absent_band_entities(
