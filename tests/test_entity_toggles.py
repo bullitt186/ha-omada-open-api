@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.helpers import entity_registry as er
 import pytest
@@ -34,6 +34,11 @@ from custom_components.omada_open_api.const import (
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
+)
+from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
+from custom_components.omada_open_api.sensor import (
+    _check_ap_band_entities,
+    _excluded_device_sensor_keys,
 )
 
 from .conftest import (
@@ -643,3 +648,108 @@ async def test_client_reconnect_button_follows_option(
         reg.async_get_entity_id("switch", DOMAIN, f"{DOMAIN}_{client_mac}_block")
         is not None
     )
+
+
+# ---------------------------------------------------------------------------
+# GH #184: the sensor key categories behind the device options.
+# ---------------------------------------------------------------------------
+
+_DIAGNOSTIC_KEYS = {
+    "uptime",
+    "cpu_util",
+    "mem_util",
+    "detail_status",
+    "device_ip",
+    "public_ip",
+    "temperature",
+    "ipv6",
+    "tag",
+    "uplink_device",
+    "uplink_port",
+    "link_speed",
+    "device_type",
+}
+_CLIENT_COUNT_KEYS = {
+    "client_num",
+    "wired_clients",
+    "wireless_clients",
+    "guest_clients",
+    "clients_2g",
+    "clients_5g",
+    "clients_5g2",
+    "clients_6g",
+}
+_RADIO_UTIL_KEYS = {
+    f"radio_{kind}_util_{band}"
+    for kind in ("tx", "rx", "inter", "busy")
+    for band in ("2g", "5g", "5g2", "6g")
+}
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({}, set()),
+        ({CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: False}, _DIAGNOSTIC_KEYS),
+        ({CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: False}, _CLIENT_COUNT_KEYS),
+        ({CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: False}, _RADIO_UTIL_KEYS),
+        (
+            {
+                CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: False,
+                CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: False,
+                CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: False,
+            },
+            _DIAGNOSTIC_KEYS | _CLIENT_COUNT_KEYS | _RADIO_UTIL_KEYS,
+        ),
+    ],
+)
+def test_excluded_device_sensor_keys(options: dict, expected: set[str]) -> None:
+    """Each turned-off category excludes exactly its sensor keys."""
+    assert _excluded_device_sensor_keys(options) == expected
+
+
+def test_band_entities_skip_excluded_keys_only_once_created() -> None:
+    """Excluded band sensors are skipped; the others are created once."""
+    coordinator = MagicMock()
+    # A device without a type comes first: it must not end the scan.
+    devices = {
+        "AA-BB-CC-DD-EE-77": {"name": "no type"},
+        _AP_MAC: {
+            "type": "ap",
+            "client_num_2g": 1,
+            "client_num_5g": 2,
+            "radio_tx_util_2g": 3,
+            "radio_rx_util_2g": 4,
+        },
+    }
+    known: set[tuple[str, str]] = set()
+    excluded = frozenset({"clients_2g", "radio_tx_util_2g"})
+
+    with patch(
+        "custom_components.omada_open_api.sensor._make_device_sensor",
+        side_effect=lambda _coord, desc, mac: (mac, desc.key),
+    ):
+        created = _check_ap_band_entities(coordinator, devices, known, excluded)
+        again = _check_ap_band_entities(coordinator, devices, known, excluded)
+
+    assert sorted(created) == [
+        (_AP_MAC, "clients_5g"),
+        (_AP_MAC, "radio_rx_util_2g"),
+    ]
+    assert again == []
+
+
+async def test_site_coordinator_polls_radio_utilization_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """A coordinator built without the flag still polls radio utilization."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=_build_ap_api(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    data = await coordinator._async_update_data()
+
+    assert data["devices"][_AP_MAC]["radio_tx_util_2g"] == 10
