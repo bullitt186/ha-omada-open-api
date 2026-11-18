@@ -23,6 +23,7 @@ from custom_components.omada_open_api.binary_sensor import (
     OmadaVpnPeerBinarySensor,
     OmadaWanBinarySensor,
     _build_vpn_binary_sensors,
+    _build_vpn_peer_binary_sensors,
 )
 from custom_components.omada_open_api.const import DOMAIN
 from custom_components.omada_open_api.entity import build_linked_infra_device_info
@@ -42,7 +43,9 @@ from custom_components.omada_open_api.sensor import (
     OmadaVpnPeerSensor,
     OmadaVpnSensor,
     OmadaWanSensor,
+    _build_vpn_peer_sensors,
     _build_vpn_sensors,
+    _build_wan_sensors,
 )
 
 if TYPE_CHECKING:
@@ -299,3 +302,139 @@ async def test_linked_device_info_links_uplink_except_for_gateways(
     assert switch_info["configuration_url"] == "https://controller"
     assert "via_device_id" not in gateway_info
     assert "via_device_id" not in ap_info
+
+
+# ---------------------------------------------------------------------------
+# Sparse payloads: fields the controller may omit.
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_defaults_for_missing_fields() -> None:
+    """Missing names and IDs fall back to empty strings; WAN names to WAN<n>."""
+    devices = {SWITCH: {}, GW: {"type": "gateway"}}
+    tunnels = new_vpn_tunnel_entities(
+        devices,
+        {"server": [{"peers": [{}]}]},
+        set(),
+        lambda _t: (_desc("t"),),
+        lambda *args: args,
+    )
+    peers = new_vpn_peer_entities(
+        devices,
+        {"server": [{"peers": [{}]}]},
+        set(),
+        (_desc("p"),),
+        lambda *args: args,
+    )
+    ports = new_wan_port_entities(
+        {GW: [{"name": "Fiber"}]}, set(), (_desc("w"),), lambda *args: args
+    )
+
+    assert [args[1:] for args in tunnels] == [(GW, "server", "", "")]
+    assert [args[1:] for args in peers] == [(GW, "server", "", "", "", "")]
+    assert [args[1:] for args in ports] == [(GW, 0, "Fiber")]
+
+
+def test_discovery_skips_only_known_descriptions() -> None:
+    """A known unique ID skips that description, not the following ones."""
+    tunnel_known = {f"{GW}_vpn_s2s_cfg-1_a"}
+    peer_known = {f"{GW}_vpn_peer_s2s_cfg-1_7_a"}
+
+    tunnels = new_vpn_tunnel_entities(
+        DEVICES,
+        {"s2s": [TUNNEL]},
+        tunnel_known,
+        lambda _t: (_desc("a"), _desc("b")),
+        lambda *args: args,
+    )
+    peers = new_vpn_peer_entities(
+        DEVICES,
+        {"s2s": [TUNNEL]},
+        peer_known,
+        (_desc("a"), _desc("b")),
+        lambda *args: args,
+    )
+
+    assert [args[0].key for args in tunnels] == ["b"]
+    assert [args[0].key for args in peers] == ["b"]
+
+
+def test_tunnel_lookup_falls_back_to_row_id_and_tolerates_missing_data() -> None:
+    """Tunnels without vpnId match on id; missing data means unavailable."""
+    data: dict[str, Any] = {"vpn_status": {"client": [CLIENT_TUNNEL]}}
+    tunnel = OmadaVpnSensor(
+        _coordinator(data), VPN_CLIENT_SENSORS[0], GW, "client", "row-2", "to-hq"
+    )
+    peer = OmadaVpnPeerSensor(
+        _coordinator(data), VPN_PEER_SENSORS[0], GW, "client", "row-2", "", "7", ""
+    )
+    port = OmadaWanSensor(_coordinator(data), WAN_PORT_SENSORS[0], GW, 0, "WAN1")
+
+    assert tunnel._get_tunnel_data() is CLIENT_TUNNEL
+    assert peer._get_peer_data() is None
+    assert port._get_port_data() is None
+
+    data.clear()
+    assert tunnel._get_tunnel_data() is None
+    assert port._get_port_data() is None
+
+
+def test_platform_builders_pass_their_coordinator() -> None:
+    """Every builder creates entities bound to the given coordinator."""
+    coordinator = _coordinator({})
+    vpn_status = {"s2s": [TUNNEL]}
+
+    built = [
+        *_build_wan_sensors(coordinator, {GW: [{"name": "WAN1"}]}, set()),
+        *_build_vpn_sensors(coordinator, DEVICES, vpn_status, set()),
+        *_build_vpn_peer_sensors(coordinator, DEVICES, vpn_status, set()),
+        *_build_vpn_binary_sensors(coordinator, DEVICES, vpn_status, set()),
+        *_build_vpn_peer_binary_sensors(coordinator, DEVICES, vpn_status, set()),
+    ]
+
+    assert built
+    assert all(entity.coordinator is coordinator for entity in built)
+    assert any(isinstance(e, OmadaVpnPeerBinarySensor) for e in built)
+
+
+async def test_linked_device_info_skips_routers_and_unknown_devices(
+    hass: HomeAssistant,
+) -> None:
+    """Routers are never linked; an unknown device gets plain device info."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    uplink = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, SWITCH)}
+    )
+    devices = {
+        "AA-BB-CC-DD-EE-10": {"type": "Router", "uplink_device_mac": SWITCH},
+        "AA-BB-CC-DD-EE-11": {"type": "AP", "uplink_device_mac": SWITCH},
+        "AA-BB-CC-DD-EE-12": {"uplink_device_mac": SWITCH},
+    }
+    coordinator = SimpleNamespace(
+        data={"devices": devices},
+        api_client=SimpleNamespace(api_url="https://controller"),
+        hass=hass,
+        config_entry=entry,
+    )
+
+    router = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-10")
+    ap = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-11")
+    untyped = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-12")
+    unknown = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-99")
+    empty = build_linked_infra_device_info(
+        SimpleNamespace(
+            data={},
+            api_client=coordinator.api_client,
+            hass=hass,
+            config_entry=entry,
+        ),
+        "AA-BB-CC-DD-EE-99",
+    )
+
+    assert "via_device_id" not in router
+    assert ap["via_device_id"] == uplink.id
+    assert untyped["via_device_id"] == uplink.id
+    assert unknown["name"] == "Unknown Device"
+    assert "via_device_id" not in unknown
+    assert empty["identifiers"] == {(DOMAIN, "AA-BB-CC-DD-EE-99")}
