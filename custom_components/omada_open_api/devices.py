@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
+    from .coordinator import OmadaSiteCoordinator
+
 
 def normalize_site_id(site_id: str) -> str:
     """Normalize site IDs for registry comparisons."""
@@ -187,6 +189,30 @@ def build_infra_device_info(
         sw_version=device_data.get("firmware_version"),
         configuration_url=api_url,
     )
+
+
+def build_linked_infra_device_info(
+    coordinator: OmadaSiteCoordinator, device_mac: str
+) -> DeviceInfo:
+    """Build DeviceInfo for an infrastructure device, linked to its uplink.
+
+    Devices other than gateways and routers are linked via_device to their
+    uplink device once that device is registered; without a known uplink
+    the device stays standalone.
+    """
+    device_data = coordinator.data.get("devices", {}).get(device_mac, {})
+    device_info = build_infra_device_info(
+        device_mac, device_data, coordinator.api_client.api_url
+    )
+    device_type = device_data.get("type", "").lower()
+    uplink_mac = device_data.get("uplink_device_mac")
+    if uplink_mac and "gateway" not in device_type and "router" not in device_type:
+        via_device_id = resolve_via_device_id(
+            coordinator.hass, uplink_mac, coordinator.config_entry
+        )
+        if via_device_id is not None:
+            device_info["via_device_id"] = via_device_id
+    return device_info
 
 
 def build_client_device_info(
