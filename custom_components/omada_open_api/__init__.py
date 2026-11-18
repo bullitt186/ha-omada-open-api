@@ -42,6 +42,7 @@ from .const import (
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
     CONF_DISCONNECT_TIMEOUT,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
@@ -576,6 +577,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             site_name=site_name,
             scan_interval=device_interval,
             enable_vpn_status=entry.options.get(CONF_ENABLE_VPN_SENSORS, True),
+            enable_radio_utilization=entry.options.get(
+                CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, True
+            ),
         )
 
         # Perform initial data fetch

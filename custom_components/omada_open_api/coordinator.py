@@ -75,6 +75,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         site_name: str,
         scan_interval: int = DEFAULT_DEVICE_SCAN_INTERVAL,
         enable_vpn_status: bool = True,
+        enable_radio_utilization: bool = True,
     ) -> None:
         """Initialize the coordinator.
 
@@ -85,6 +86,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_name: Site name for logging
             scan_interval: Update interval in seconds
             enable_vpn_status: Whether to poll optional VPN status endpoints
+            enable_radio_utilization: Whether to poll per-band AP radio
+                utilization (only the radio utilization sensors use it)
 
         """
         super().__init__(
@@ -98,6 +101,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.site_name = site_name
         self._partial_log = PartialFailureLog(site_name)
         self._enable_vpn_status = enable_vpn_status
+        self._enable_radio_utilization = enable_radio_utilization
         # Distinguish a successful empty client poll from a failed optional call.
         self._clients_fetch_ok = True
         self._unsupported_vpn_types: set[str] = set()
@@ -159,7 +163,8 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._merge_band_client_stats(devices)
 
             # Fetch per-band radio utilization for AP devices (cached, every 5 min)
-            await self._merge_ap_radio_utilization(devices)
+            if self._enable_radio_utilization:
+                await self._merge_ap_radio_utilization(devices)
 
             # Compute AP activity rates from traffic counters every poll cycle.
             # Done separately from the utilization cache so rates update every 60s

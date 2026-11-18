@@ -514,6 +514,11 @@ from being created.
 | **Diagnostic sensors** | CPU, memory, uptime, IP, firmware, topology, temperature, and similar diagnostics |
 | **Radio utilization sensors** | AP TX, RX, interference, and channel-busy sensors per supported band |
 
+Disabling **Radio utilization sensors** also stops the per-AP radio query that
+only these sensors use. Entities created before a category was disabled stay in
+the entity registry as unavailable, so customizations are kept; remove them
+there if you no longer need them.
+
 ### Client Entity Settings
 
 All categories default to enabled. Disabling a category prevents its entities

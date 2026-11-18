@@ -13,7 +13,11 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .api import OmadaApiError
-from .const import DOMAIN, POE_PORT_PATCH_FALLBACK_ERRORS
+from .const import (
+    CONF_ENABLE_CLIENT_BLOCK_SWITCH,
+    DOMAIN,
+    POE_PORT_PATCH_FALLBACK_ERRORS,
+)
 from .coordinator import OmadaClientCoordinator, OmadaSiteCoordinator
 from .entity import OmadaEntity
 
@@ -173,7 +177,9 @@ async def async_setup_entry(  # pylint: disable=too-many-branches,too-many-state
             site_coord.async_add_listener(_async_check_new_device_switches)
         )
 
-    # --- Dynamic client block/unblock switches ---
+    # --- Dynamic client block/unblock switches (optional) ---
+    if not entry.options.get(CONF_ENABLE_CLIENT_BLOCK_SWITCH, True):
+        return
     known_client_macs: set[str] = set()
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 

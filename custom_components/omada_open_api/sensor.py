@@ -31,7 +31,9 @@ from .const import (
     CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS,
     CONF_ENABLE_CLIENT_SIGNAL_SENSORS,
     CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS,
+    CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS,
     CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS,
+    CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS,
     CONF_ENABLE_THREAT_HEATMAP_SENSORS,
     CONF_ENABLE_VPN_SENSORS,
     DOMAIN,
@@ -78,6 +80,17 @@ _DEVICE_DIAGNOSTIC_SENSOR_KEYS: frozenset[str] = frozenset(
     }
 )
 
+# Device sensor keys that belong to the "client count" toggle category. The
+# per-band AP client counts (AP_BAND_CLIENT_SENSORS) belong to it as well.
+_DEVICE_CLIENT_COUNT_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        "client_num",
+        "wired_clients",
+        "wireless_clients",
+        "guest_clients",
+    }
+)
+
 # Client sensor keys that belong to the "bandwidth" toggle category.
 _CLIENT_BANDWIDTH_SENSOR_KEYS: frozenset[str] = frozenset(
     {
@@ -110,7 +123,7 @@ DEVICE_TYPE_LABELS: dict[str, str] = {
 }
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -1564,22 +1577,44 @@ def _migrate_5g_entity_ids(
             reg.async_update_entity(old_id, new_entity_id=new_id)
 
 
+def _excluded_device_sensor_keys(options: Mapping[str, Any]) -> frozenset[str]:
+    """Return the device sensor keys whose toggle option is turned off."""
+    excluded: frozenset[str] = frozenset()
+    if not options.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True):
+        excluded |= _DEVICE_DIAGNOSTIC_SENSOR_KEYS
+    if not options.get(CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS, True):
+        excluded |= _DEVICE_CLIENT_COUNT_SENSOR_KEYS
+        excluded |= {desc.key for desc in AP_BAND_CLIENT_SENSORS}
+    if not options.get(CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, True):
+        excluded |= {desc.key for desc in AP_BAND_RADIO_UTIL_SENSORS}
+    return excluded
+
+
 def _check_ap_band_entities(
     coord: OmadaSiteCoordinator,
     devices: Any,
     known_keys: set[tuple[str, str]],
+    excluded_keys: frozenset[str] = frozenset(),
 ) -> list[SensorEntity]:
-    """Return new per-band entities for APs whose band data just appeared."""
+    """Return new per-band entities for APs whose band data just appeared.
+
+    Sensors whose key is in ``excluded_keys`` (turned off in the options)
+    are never created.
+    """
     new_entities: list[SensorEntity] = []
     for mac, device_data in devices.items():
         if device_data.get("type", "").lower() != "ap":
             continue
         for desc in AP_BAND_CLIENT_SENSORS:
+            if desc.key in excluded_keys:
+                continue
             data_key = desc.key.replace("clients_", "client_num_")
             if (mac, desc.key) not in known_keys and data_key in device_data:
                 known_keys.add((mac, desc.key))
                 new_entities.append(_make_device_sensor(coord, desc, mac))
         for desc in AP_BAND_RADIO_UTIL_SENSORS:
+            if desc.key in excluded_keys:
+                continue
             if (mac, desc.key) not in known_keys and desc.key in device_data:
                 known_keys.add((mac, desc.key))
                 new_entities.append(_make_device_sensor(coord, desc, mac))
@@ -1602,7 +1637,7 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     # Entity type toggles — all default True (preserve existing behavior)
     opts = entry.options
     _enable_device_bandwidth = opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True)
-    _enable_device_diagnostic = opts.get(CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS, True)
+    excluded_device_keys = _excluded_device_sensor_keys(opts)
     _enable_client_bandwidth = opts.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True)
     _enable_client_signal = opts.get(CONF_ENABLE_CLIENT_SIGNAL_SENSORS, True)
     device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
@@ -1666,15 +1701,14 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
                             or device_type in desc.applicable_types
                         )
                         and (desc.applicable_fn is None or desc.applicable_fn(device))
-                        and (
-                            _enable_device_diagnostic
-                            or desc.key not in _DEVICE_DIAGNOSTIC_SENSOR_KEYS
-                        )
+                        and desc.key not in excluded_device_keys
                     )
 
             # Per-band sensors — run for all APs on every coordinator update.
             new_entities.extend(
-                _check_ap_band_entities(coord, devices, known_ap_band_entity_keys)
+                _check_ap_band_entities(
+                    coord, devices, known_ap_band_entity_keys, excluded_device_keys
+                )
             )
 
             # PoE budget sensors for new switches.

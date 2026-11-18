@@ -13,7 +13,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 
 from .api import OmadaApiError
-from .const import DOMAIN
+from .const import CONF_ENABLE_CLIENT_RECONNECT_BUTTON, DOMAIN
 from .coordinator import (
     OmadaClientCoordinator,
     OmadaSiteCoordinator,
@@ -92,7 +92,9 @@ async def async_setup_entry(
         _async_check_new_devices()
         entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
 
-    # --- Dynamic client buttons ---
+    # --- Dynamic client reconnect buttons (optional) ---
+    if not entry.options.get(CONF_ENABLE_CLIENT_RECONNECT_BUTTON, True):
+        return
     known_client_macs: set[str] = set()
     client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
 
