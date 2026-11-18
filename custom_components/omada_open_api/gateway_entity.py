@@ -261,7 +261,34 @@ class OmadaWanPortEntity(_OmadaGatewayChildEntity):
         return None
 
 
-class OmadaVpnTunnelEntity(_OmadaGatewayChildEntity):
+class _OmadaVpnEntity(_OmadaGatewayChildEntity):
+    """Entity that reads a VPN tunnel of its VPN type from the coordinator."""
+
+    def __init__(
+        self,
+        coordinator: OmadaSiteCoordinator,
+        description: EntityDescription,
+        gateway_mac: str,
+        vpn_type: str,
+        tunnel_id: str,
+        unique_id: str,
+        placeholders: dict[str, str],
+    ) -> None:
+        """Initialize the shared VPN entity attributes."""
+        super().__init__(coordinator, description, gateway_mac, unique_id, placeholders)
+        self._vpn_type = vpn_type
+        self._tunnel_id = tunnel_id
+
+    def _get_tunnel_data(self) -> dict[str, Any] | None:
+        """Return the tunnel data dict, or None if unavailable."""
+        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
+        for tunnel in tunnels:
+            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
+                return tunnel  # type: ignore[no-any-return]
+        return None
+
+
+class OmadaVpnTunnelEntity(_OmadaVpnEntity):
     """Entity for one VPN tunnel reported for a gateway."""
 
     def __init__(
@@ -288,26 +315,18 @@ class OmadaVpnTunnelEntity(_OmadaGatewayChildEntity):
             coordinator,
             description,
             gateway_mac,
+            vpn_type,
+            tunnel_id,
             vpn_tunnel_unique_id(gateway_mac, vpn_type, tunnel_id, description.key),
             {"tunnel_name": tunnel_name},
         )
-        self._vpn_type = vpn_type
-        self._tunnel_id = tunnel_id
-
-    def _get_tunnel_data(self) -> dict[str, Any] | None:
-        """Return the tunnel data dict, or None if unavailable."""
-        tunnels = self.coordinator.data.get("vpn_status", {}).get(self._vpn_type, [])
-        for tunnel in tunnels:
-            if tunnel.get("vpnId", tunnel.get("id")) == self._tunnel_id:
-                return tunnel  # type: ignore[no-any-return]
-        return None
 
     def _get_data(self) -> dict[str, Any] | None:
         """Return the tunnel data dict, or None if unavailable."""
         return self._get_tunnel_data()
 
 
-class OmadaVpnPeerEntity(OmadaVpnTunnelEntity):
+class OmadaVpnPeerEntity(_OmadaVpnEntity):
     """Entity for one peer of a VPN tunnel reported for a gateway."""
 
     def __init__(
@@ -335,16 +354,17 @@ class OmadaVpnPeerEntity(OmadaVpnTunnelEntity):
 
         """
         super().__init__(
-            coordinator, description, gateway_mac, vpn_type, tunnel_id, tunnel_name
+            coordinator,
+            description,
+            gateway_mac,
+            vpn_type,
+            tunnel_id,
+            vpn_peer_unique_id(
+                gateway_mac, vpn_type, tunnel_id, peer_id, description.key
+            ),
+            {"peer_name": peer_name, "tunnel_name": tunnel_name},
         )
         self._peer_id = peer_id
-        self._attr_unique_id = vpn_peer_unique_id(
-            gateway_mac, vpn_type, tunnel_id, peer_id, description.key
-        )
-        self._attr_translation_placeholders = {
-            "peer_name": peer_name,
-            "tunnel_name": tunnel_name,
-        }
 
     def _get_data(self) -> dict[str, Any] | None:
         """Return the peer data dict within the tunnel, or None if unavailable."""

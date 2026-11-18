@@ -25,7 +25,7 @@ from custom_components.omada_open_api.binary_sensor import (
     _build_vpn_binary_sensors,
 )
 from custom_components.omada_open_api.const import DOMAIN
-from custom_components.omada_open_api.devices import build_linked_infra_device_info
+from custom_components.omada_open_api.entity import build_linked_infra_device_info
 from custom_components.omada_open_api.gateway_entity import (
     new_vpn_peer_entities,
     new_vpn_tunnel_entities,
