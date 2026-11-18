@@ -41,11 +41,13 @@ def _page(prefix: str, start: int, count: int, total: int) -> dict[str, Any]:
     }
 
 
-def _requests(client: OmadaApiClient) -> list[tuple[str, str, dict[str, Any]]]:
+def _requests(client: OmadaApiClient) -> list[tuple[str, str, dict[str, Any] | None]]:
     """Return (method, url, params) of every request the client sent."""
     mock = client._authenticated_request
     assert isinstance(mock, AsyncMock)
-    return [(c.args[0], c.args[1], c.kwargs["params"]) for c in mock.await_args_list]
+    return [
+        (c.args[0], c.args[1], c.kwargs.get("params")) for c in mock.await_args_list
+    ]
 
 
 @pytest.mark.asyncio
@@ -136,3 +138,102 @@ async def test_error_on_a_later_page_is_raised() -> None:
         await client.get_devices("site-1")
 
     assert err.value.http_status == 500
+
+
+@pytest.mark.asyncio
+async def test_response_without_result_counts_as_empty_list() -> None:
+    """A success response without a result object yields no rows."""
+    client = _client([{"errorCode": 0}])
+
+    assert await client.get_sites() == []
+
+
+@pytest.mark.asyncio
+async def test_result_without_data_counts_as_empty_page() -> None:
+    """A result without a data list yields no rows."""
+    client = _client([{"errorCode": 0, "result": {"totalRows": 0}}])
+
+    assert await client.get_devices("site-1") == []
+
+
+@pytest.mark.asyncio
+async def test_result_without_total_rows_returns_the_received_page() -> None:
+    """Without totalRows the received full page is all that is known."""
+    page = _page("site", 0, 100, 0)
+    del page["result"]["totalRows"]
+    client = _client([page])
+
+    sites = await client.get_sites()
+
+    assert len(sites) == 100
+    assert len(_requests(client)) == 1
+
+
+@pytest.mark.asyncio
+async def test_threat_management_pages_with_the_requested_page_size() -> None:
+    """The caller's page_size is sent as pageSize and ends paging."""
+    url = f"{API_URL}/openapi/v1/{OMADA_ID}/security/threat-management"
+    client = _client([_page("t", 0, 50, 60), _page("t", 50, 10, 60)])
+
+    rows = await client.get_threat_management(
+        site_id="site-1", start_time=10, end_time=20, page_size=50
+    )
+
+    assert len(rows) == 60
+    filters = {
+        "siteList": "site-1",
+        "archived": "false",
+        "filters.startTime": 10,
+        "filters.endTime": 20,
+        "sorts.time": "desc",
+    }
+    assert _requests(client) == [
+        ("get", url, {"page": 1, "pageSize": 50, **filters}),
+        ("get", url, {"page": 2, "pageSize": 50, **filters}),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_site_ssids_skip_wlans_without_id_and_keep_ssid_name() -> None:
+    """WLAN groups without an ID are skipped; an existing ssidName is kept."""
+    ssids_url = (
+        f"{API_URL}/openapi/v1/{OMADA_ID}/sites/site-1/wireless-network/wlans/w2/ssids"
+    )
+    client = _client(
+        [
+            {
+                "errorCode": 0,
+                "result": [{"name": "Broken"}, {"wlanId": "w2", "name": "Main"}],
+            },
+            {
+                "errorCode": 0,
+                "result": {
+                    "totalRows": 2,
+                    "data": [
+                        {"ssidId": "s1", "name": "Home"},
+                        {"ssidId": "s2", "name": "raw", "ssidName": "Guest"},
+                    ],
+                },
+            },
+        ]
+    )
+
+    ssids = await client.get_site_ssids_comprehensive("site-1")
+
+    assert ssids == [
+        {
+            "ssidId": "s1",
+            "name": "Home",
+            "ssidName": "Home",
+            "wlanId": "w2",
+            "wlanName": "Main",
+        },
+        {
+            "ssidId": "s2",
+            "name": "raw",
+            "ssidName": "Guest",
+            "wlanId": "w2",
+            "wlanName": "Main",
+        },
+    ]
+    assert _requests(client)[1] == ("get", ssids_url, {"page": 1, "pageSize": 100})
