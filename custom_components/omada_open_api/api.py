@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import time
 from typing import TYPE_CHECKING, Any
@@ -13,7 +14,6 @@ from .const import DEFAULT_TIMEOUT, VPN_REJECTED_RETRY_SECONDS, VPN_STATS_TYPES
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    import datetime as dt
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +72,40 @@ class OmadaApiClient:
                 refresh_token=refresh_token,
                 token_expires_at=token_expires_at,
             )
+
+    @classmethod
+    def from_auth(
+        cls,
+        session: aiohttp.ClientSession,
+        auth: OmadaAuthStrategy,
+        api_url: str,
+        omada_id: str,
+    ) -> OmadaApiClient:
+        """Create a client that authenticates with a ready auth strategy.
+
+        Args:
+            session: aiohttp client session the requests use
+            auth: Authentication strategy (OAuth or Fusion web session)
+            api_url: Base API URL (cloud, local controller or Fusion gateway)
+            omada_id: Omada controller ID
+
+        """
+
+        async def _unused_token_callback(*_args: str) -> None:
+            """Token persistence is the auth strategy's own concern."""
+
+        return cls(
+            session=session,
+            token_update_callback=_unused_token_callback,
+            api_url=api_url,
+            omada_id=omada_id,
+            client_id="",
+            client_secret="",
+            access_token="",
+            refresh_token="",
+            token_expires_at=dt.datetime.now(dt.UTC),
+            auth=auth,
+        )
 
     @property
     def api_url(self) -> str:
@@ -365,30 +399,54 @@ class OmadaApiClient:
         result = await self._authenticated_request("get", url, params=params)
         return result["result"]  # type: ignore[no-any-return]
 
-    async def get_applications(
-        self, site_id: str, page: int = 1, page_size: int = 1000
-    ) -> dict[str, Any]:
-        """Get all available applications for DPI tracking.
+    async def get_all_clients(
+        self, site_id: str, *, scope: int = 0, page_size: int = 200
+    ) -> list[dict[str, Any]]:
+        """Get every client of a site, following all result pages.
+
+        Uses get_clients, so controllers without the v2 endpoint are read
+        through the v1 GET endpoint, which lists online clients only.
+
+        Args:
+            site_id: Site ID to get clients for
+            scope: Client scope filter — 0: all (default), 1: online,
+                2: offline, 3: blocked
+            page_size: Number of clients per page (1-1000)
+
+        Returns:
+            List of client dictionaries
+
+        Raises:
+            OmadaApiError: If a page request fails
+
+        """
+
+        async def fetch_page(page: int) -> dict[str, Any]:
+            return await self.get_clients(
+                site_id, page=page, page_size=page_size, scope=scope
+            )
+
+        return await self._collect_pages(fetch_page, page_size)
+
+    async def get_applications(self, site_id: str) -> list[dict[str, Any]]:
+        """Get every application available for DPI tracking in a site.
 
         Args:
             site_id: Site ID to get applications for
-            page: Page number (starts at 1)
-            page_size: Number of applications per page (1-1000)
 
         Returns:
-            Dictionary with application data including totalRows, currentPage,
-            and data list. Each app has: applicationId, applicationName,
-            description, family
+            List of application dictionaries with applicationId,
+            application, description and family
+
+        Raises:
+            OmadaApiError: If a page request fails
 
         """
         url = (
             f"{self._api_url}/openapi/v1/{self._omada_id}"
             f"/sites/{site_id}/applicationControl/applications"
         )
-        params = {"page": page, "pageSize": page_size}
-
-        result = await self._authenticated_request("get", url, params=params)
-        return result["result"]  # type: ignore[no-any-return]
+        return await self._get_all_pages(url, page_size=1000)
 
     async def get_client_app_traffic(
         self, site_id: str, client_mac: str, start: int, end: int
@@ -1812,6 +1870,50 @@ class OmadaApiClient:
     def session(self) -> aiohttp.ClientSession:
         """Return the underlying aiohttp session (carries the Fusion cookie jar)."""
         return self._session
+
+
+async def async_get_controller_id(session: aiohttp.ClientSession, api_url: str) -> str:
+    """Read the Omada controller ID from the unauthenticated info endpoint.
+
+    Fusion gateways and local controllers report their ID as ``omadacId`` in
+    the result of ``GET /api/info``.
+
+    Args:
+        session: aiohttp client session to use
+        api_url: Base URL of the controller or gateway
+
+    Returns:
+        The controller ID
+
+    Raises:
+        OmadaApiError: If the endpoint cannot be reached, returns an error,
+            or reports no controller ID
+
+    """
+    url = f"{api_url.rstrip('/')}/api/info"
+    try:
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
+        ) as response:
+            if response.status != 200:
+                raise OmadaApiError(
+                    f"Controller info endpoint returned HTTP {response.status}",
+                    http_status=response.status,
+                )
+            result = await response.json(content_type=None)
+    except aiohttp.ClientError as err:
+        raise OmadaApiError(f"Connection error: {err}") from err
+
+    error_code = result.get("errorCode")
+    if error_code != 0:
+        raise OmadaApiError(
+            f"Controller info error: {result.get('msg', 'Unknown')}",
+            error_code=error_code,
+        )
+    omada_cid = (result.get("result") or {}).get("omadacId")
+    if not omada_cid:
+        raise OmadaApiError("Could not detect Omada Controller ID")
+    return omada_cid  # type: ignore[no-any-return]
 
 
 class OmadaApiError(Exception):
