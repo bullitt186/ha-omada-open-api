@@ -400,7 +400,7 @@ def test_platform_builders_pass_their_coordinator() -> None:
 async def test_linked_device_info_skips_routers_and_unknown_devices(
     hass: HomeAssistant,
 ) -> None:
-    """Routers are never linked; an unknown device gets plain device info."""
+    """Gateways and routers are never linked; unknown devices get plain info."""
     entry = MockConfigEntry(domain=DOMAIN)
     entry.add_to_hass(hass)
     uplink = dr.async_get(hass).async_get_or_create(
@@ -410,6 +410,7 @@ async def test_linked_device_info_skips_routers_and_unknown_devices(
         "AA-BB-CC-DD-EE-10": {"type": "Router", "uplink_device_mac": SWITCH},
         "AA-BB-CC-DD-EE-11": {"type": "AP", "uplink_device_mac": SWITCH},
         "AA-BB-CC-DD-EE-12": {"uplink_device_mac": SWITCH},
+        "AA-BB-CC-DD-EE-13": {"type": "gateway", "uplink_device_mac": SWITCH},
     }
     coordinator = SimpleNamespace(
         data={"devices": devices},
@@ -419,6 +420,7 @@ async def test_linked_device_info_skips_routers_and_unknown_devices(
     )
 
     router = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-10")
+    gateway = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-13")
     ap = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-11")
     untyped = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-12")
     unknown = build_linked_infra_device_info(coordinator, "AA-BB-CC-DD-EE-99")
@@ -433,6 +435,7 @@ async def test_linked_device_info_skips_routers_and_unknown_devices(
     )
 
     assert "via_device_id" not in router
+    assert "via_device_id" not in gateway
     assert ap["via_device_id"] == uplink.id
     assert untyped["via_device_id"] == uplink.id
     assert unknown["name"] == "Unknown Device"
