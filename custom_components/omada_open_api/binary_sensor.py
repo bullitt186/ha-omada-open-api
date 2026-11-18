@@ -21,8 +21,8 @@ from .coordinator import (
     OmadaSiteCoordinator,
     OmadaWanSpeedTestCoordinator,
 )
-from .devices import build_linked_infra_device_info, get_device_sort_key
-from .entity import OmadaEntity
+from .devices import get_device_sort_key
+from .entity import OmadaEntity, build_linked_infra_device_info
 from .gateway_entity import (
     OmadaVpnPeerEntity,
     OmadaVpnTunnelEntity,

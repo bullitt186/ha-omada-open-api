@@ -50,13 +50,12 @@ from .coordinator import (
 )
 from .devices import (
     build_client_device_info,
-    build_linked_infra_device_info,
     format_detail_status,
     format_link_speed,
     get_device_sort_key,
     resolve_via_device_id,
 )
-from .entity import OmadaEntity
+from .entity import OmadaEntity, build_linked_infra_device_info
 from .gateway_entity import (
     OmadaVpnPeerEntity,
     OmadaVpnTunnelEntity,
