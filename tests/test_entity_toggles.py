@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.helpers import entity_registry as er
 import pytest
@@ -34,6 +34,11 @@ from custom_components.omada_open_api.const import (
     CONF_SELECTED_SITES,
     CONF_TOKEN_EXPIRES_AT,
     DOMAIN,
+)
+from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
+from custom_components.omada_open_api.sensor import (
+    _check_ap_band_entities,
+    _excluded_device_sensor_keys,
 )
 
 from .conftest import (
@@ -457,3 +462,294 @@ async def test_client_signal_sensors_skipped_when_disabled(
         reg.async_get_entity_id("sensor", DOMAIN, f"{client_mac}_downloaded")
         is not None
     )
+
+
+# ---------------------------------------------------------------------------
+# GH #184: client count, radio utilization, client block and reconnect
+# toggles. Each option set to False must keep its entities from being
+# created; set to True (or left unset) the entities exist.
+# ---------------------------------------------------------------------------
+
+_AP_MAC = SAMPLE_DEVICE_AP["mac"]
+_CLIENT_COUNT_UIDS = (
+    f"{_AP_MAC}_client_num",
+    f"{_AP_MAC}_wireless_clients",
+    f"{_AP_MAC}_clients_2g",
+    f"{_AP_MAC}_clients_5g",
+)
+_RADIO_UTIL_UIDS = (
+    f"{_AP_MAC}_radio_tx_util_2g",
+    f"{_AP_MAC}_radio_rx_util_2g",
+    f"{_AP_MAC}_radio_inter_util_2g",
+    f"{_AP_MAC}_radio_busy_util_5g",
+)
+
+
+def _build_ap_api() -> AsyncMock:
+    """Mock an AP that reports per-band client counts and radio utilization."""
+    mock = _build_mock_api([SAMPLE_DEVICE_AP])
+    mock.get_device_client_stats = AsyncMock(
+        return_value=[
+            {"mac": _AP_MAC, "clientNum": 12, "clientNum2g": 5, "clientNum5g": 7}
+        ]
+    )
+    band = {"actualChannel": "36", "txUtil": 10, "rxUtil": 20, "interUtil": 5}
+    mock.get_ap_radios = AsyncMock(
+        return_value={
+            "wp2g": {**band, "busyUtil": 35},
+            "wp5g": {**band, "busyUtil": 40},
+        }
+    )
+    return mock
+
+
+async def _setup_with(hass: HomeAssistant, entry: MockConfigEntry, mock) -> None:
+    with patch("custom_components.omada_open_api.OmadaApiClient", return_value=mock):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+
+def _sensor_exists(hass: HomeAssistant, unique_id: str) -> bool:
+    return (
+        er.async_get(hass).async_get_entity_id("sensor", DOMAIN, unique_id) is not None
+    )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_device_client_count_sensors_follow_option(
+    hass: HomeAssistant, enabled: bool
+) -> None:
+    """Per-device and per-band client count sensors follow their option."""
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: enabled},
+        f"test_toggle_client_count_{enabled}",
+    )
+    await _setup_with(hass, entry, _build_ap_api())
+
+    for unique_id in _CLIENT_COUNT_UIDS:
+        assert _sensor_exists(hass, unique_id) is enabled, unique_id
+    # Sensors of other categories are not affected.
+    assert _sensor_exists(hass, f"{_AP_MAC}_cpu_util")
+    assert _sensor_exists(hass, f"{_AP_MAC}_radio_tx_util_2g")
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_device_radio_utilization_sensors_follow_option(
+    hass: HomeAssistant, enabled: bool
+) -> None:
+    """Per-band radio utilization sensors follow their option."""
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: enabled},
+        f"test_toggle_radio_util_{enabled}",
+    )
+    await _setup_with(hass, entry, _build_ap_api())
+
+    for unique_id in _RADIO_UTIL_UIDS:
+        assert _sensor_exists(hass, unique_id) is enabled, unique_id
+    assert _sensor_exists(hass, f"{_AP_MAC}_clients_2g")
+
+
+async def test_radio_utilization_not_polled_when_disabled(
+    hass: HomeAssistant,
+) -> None:
+    """With the option off, the coordinator skips the radio utilization poll."""
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: False},
+        "test_toggle_radio_util_poll",
+    )
+    mock = _build_ap_api()
+    await _setup_with(hass, entry, mock)
+
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    ap_data = coordinator.data["devices"][_AP_MAC]
+    assert not any(key.startswith("radio_") for key in ap_data)
+
+
+async def test_radio_utilization_polled_by_default(hass: HomeAssistant) -> None:
+    """Without the option set, radio utilization is polled as before."""
+    entry = _build_entry(hass, {}, "test_toggle_radio_util_default")
+    await _setup_with(hass, entry, _build_ap_api())
+
+    coordinator = entry.runtime_data.coordinators[TEST_SITE_ID]
+    ap_data = coordinator.data["devices"][_AP_MAC]
+    assert ap_data["radio_tx_util_2g"] == 10
+    assert ap_data["radio_busy_util_5g"] == 40
+
+
+def _build_client_api(client_mac: str) -> AsyncMock:
+    mock = _build_mock_api([])
+    mock.get_clients = AsyncMock(
+        return_value={
+            "data": [
+                {
+                    "mac": client_mac,
+                    "name": "Phone",
+                    "active": True,
+                    "wireless": True,
+                }
+            ],
+            "totalRows": 1,
+            "currentPage": 1,
+        }
+    )
+    return mock
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_client_block_switch_follows_option(
+    hass: HomeAssistant, enabled: bool
+) -> None:
+    """The per-client network access switch follows its option."""
+    client_mac = "11-22-33-44-55-B1"
+    entry = _build_entry(
+        hass,
+        {CONF_ENABLE_CLIENT_BLOCK_SWITCH: enabled, CONF_SELECTED_CLIENTS: [client_mac]},
+        f"test_toggle_block_{enabled}",
+    )
+    await _setup_with(hass, entry, _build_client_api(client_mac))
+
+    reg = er.async_get(hass)
+    block_switch = reg.async_get_entity_id(
+        "switch", DOMAIN, f"{DOMAIN}_{client_mac}_block"
+    )
+    assert (block_switch is not None) is enabled
+    # The reconnect button has its own option and stays.
+    assert (
+        reg.async_get_entity_id("button", DOMAIN, f"{DOMAIN}_{client_mac}_reconnect")
+        is not None
+    )
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+async def test_client_reconnect_button_follows_option(
+    hass: HomeAssistant, enabled: bool
+) -> None:
+    """The per-client reconnect button follows its option."""
+    client_mac = "11-22-33-44-55-B2"
+    entry = _build_entry(
+        hass,
+        {
+            CONF_ENABLE_CLIENT_RECONNECT_BUTTON: enabled,
+            CONF_SELECTED_CLIENTS: [client_mac],
+        },
+        f"test_toggle_reconnect_{enabled}",
+    )
+    await _setup_with(hass, entry, _build_client_api(client_mac))
+
+    reg = er.async_get(hass)
+    button = reg.async_get_entity_id(
+        "button", DOMAIN, f"{DOMAIN}_{client_mac}_reconnect"
+    )
+    assert (button is not None) is enabled
+    assert (
+        reg.async_get_entity_id("switch", DOMAIN, f"{DOMAIN}_{client_mac}_block")
+        is not None
+    )
+
+
+# ---------------------------------------------------------------------------
+# GH #184: the sensor key categories behind the device options.
+# ---------------------------------------------------------------------------
+
+_DIAGNOSTIC_KEYS = {
+    "uptime",
+    "cpu_util",
+    "mem_util",
+    "detail_status",
+    "device_ip",
+    "public_ip",
+    "temperature",
+    "ipv6",
+    "tag",
+    "uplink_device",
+    "uplink_port",
+    "link_speed",
+    "device_type",
+}
+_CLIENT_COUNT_KEYS = {
+    "client_num",
+    "wired_clients",
+    "wireless_clients",
+    "guest_clients",
+    "clients_2g",
+    "clients_5g",
+    "clients_5g2",
+    "clients_6g",
+}
+_RADIO_UTIL_KEYS = {
+    f"radio_{kind}_util_{band}"
+    for kind in ("tx", "rx", "inter", "busy")
+    for band in ("2g", "5g", "5g2", "6g")
+}
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({}, set()),
+        ({CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: False}, _DIAGNOSTIC_KEYS),
+        ({CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: False}, _CLIENT_COUNT_KEYS),
+        ({CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: False}, _RADIO_UTIL_KEYS),
+        (
+            {
+                CONF_ENABLE_DEVICE_DIAGNOSTIC_SENSORS: False,
+                CONF_ENABLE_DEVICE_CLIENT_COUNT_SENSORS: False,
+                CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS: False,
+            },
+            _DIAGNOSTIC_KEYS | _CLIENT_COUNT_KEYS | _RADIO_UTIL_KEYS,
+        ),
+    ],
+)
+def test_excluded_device_sensor_keys(options: dict, expected: set[str]) -> None:
+    """Each turned-off category excludes exactly its sensor keys."""
+    assert _excluded_device_sensor_keys(options) == expected
+
+
+def test_band_entities_skip_excluded_keys_only_once_created() -> None:
+    """Excluded band sensors are skipped; the others are created once."""
+    coordinator = MagicMock()
+    # A device without a type comes first: it must not end the scan.
+    devices = {
+        "AA-BB-CC-DD-EE-77": {"name": "no type"},
+        _AP_MAC: {
+            "type": "ap",
+            "client_num_2g": 1,
+            "client_num_5g": 2,
+            "radio_tx_util_2g": 3,
+            "radio_rx_util_2g": 4,
+        },
+    }
+    known: set[tuple[str, str]] = set()
+    excluded = frozenset({"clients_2g", "radio_tx_util_2g"})
+
+    with patch(
+        "custom_components.omada_open_api.sensor._make_device_sensor",
+        side_effect=lambda _coord, desc, mac: (mac, desc.key),
+    ):
+        created = _check_ap_band_entities(coordinator, devices, known, excluded)
+        again = _check_ap_band_entities(coordinator, devices, known, excluded)
+
+    assert sorted(created) == [
+        (_AP_MAC, "clients_5g"),
+        (_AP_MAC, "radio_rx_util_2g"),
+    ]
+    assert again == []
+
+
+async def test_site_coordinator_polls_radio_utilization_by_default(
+    hass: HomeAssistant,
+) -> None:
+    """A coordinator built without the flag still polls radio utilization."""
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=_build_ap_api(),
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    data = await coordinator._async_update_data()
+
+    assert data["devices"][_AP_MAC]["radio_tx_util_2g"] == 10
