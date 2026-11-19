@@ -16,10 +16,15 @@ from homeassistant.data_entry_flow import FlowResultType
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.omada_open_api.api import (
+    OmadaApiAuthError,
+    OmadaApiClient,
+    OmadaApiError,
+)
 from custom_components.omada_open_api.config_flow import (
-    InvalidAuthError,
     OmadaConfigFlow,
     OmadaOptionsFlowHandler,
+    _api_error_key,
     _classify_connection_error,
 )
 from custom_components.omada_open_api.const import (
@@ -53,7 +58,6 @@ from custom_components.omada_open_api.const import (
     CONF_TOKEN_EXPIRES_AT,
     CONF_USERNAME,
     CONTROLLER_TYPE_CLOUD,
-    CONTROLLER_TYPE_FUSION,
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
 )
@@ -83,6 +87,47 @@ MOCK_TOKEN_DATA = {
 MOCK_SITES = [{"siteId": "site123", "name": "Test Site"}]
 
 
+def _patch_authenticate(
+    side_effect: Any = None, token_data: dict[str, Any] = MOCK_TOKEN_DATA
+) -> Any:
+    """Patch the OAuth credential check of the config flow.
+
+    Without a side effect the patched check succeeds and hands the given
+    token response to the flow, as the real auth strategy's token callback
+    does after a client_credentials grant.
+    """
+
+    async def _grant_tokens(flow: OmadaConfigFlow, *_args: Any) -> None:
+        expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
+            seconds=token_data["expiresIn"]
+        )
+        await flow._async_store_tokens(
+            token_data["accessToken"],
+            token_data["refreshToken"],
+            expires_at.isoformat(),
+        )
+
+    return patch.object(
+        OmadaConfigFlow,
+        "_authenticate",
+        autospec=True,
+        side_effect=side_effect if side_effect is not None else _grant_tokens,
+    )
+
+
+def _assert_expires_in_two_hours(expires_at_iso: str) -> None:
+    """Assert a stored expiry matches the token answer's expiresIn of 7200 s."""
+    remaining = dt.datetime.fromisoformat(expires_at_iso) - dt.datetime.now(dt.UTC)
+    assert dt.timedelta(minutes=119) < remaining <= dt.timedelta(hours=2)
+
+
+def _connection_error(err: aiohttp.ClientError) -> OmadaApiError:
+    """Wrap a connection error the way the API and auth layers do."""
+    wrapped = OmadaApiError(f"Connection error: {err}")
+    wrapped.__cause__ = err
+    return wrapped
+
+
 def _mock_openapi_shared_session() -> MagicMock:
     """Build a mocked HA shared session serving token and sites responses."""
     token_response = MagicMock()
@@ -107,44 +152,62 @@ async def test_openapi_flows_use_configured_shared_session(
     hass: HomeAssistant,
 ) -> None:
     """OpenAPI config and options requests pass the configured verify_ssl flag."""
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
-    entry.add_to_hass(hass)
-
     for verify_ssl in (False, True):
-        shared_session = _mock_openapi_shared_session()
-        hass.config_entries.async_update_entry(
-            entry, data={CONF_VERIFY_SSL: verify_ssl}
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_LOCAL,
+                CONF_API_URL: "https://test.example.com",
+                CONF_OMADA_ID: "cid123",
+                CONF_CLIENT_ID: "client-id",
+                CONF_CLIENT_SECRET: "client-secret",
+                CONF_ACCESS_TOKEN: "stored-access",
+                CONF_REFRESH_TOKEN: "stored-refresh",
+                CONF_TOKEN_EXPIRES_AT: (
+                    dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+                ).isoformat(),
+                CONF_VERIFY_SSL: verify_ssl,
+            },
+            options={},
         )
+        entry.add_to_hass(hass)
+        shared_session = _mock_openapi_shared_session()
         flow = OmadaConfigFlow()
         flow.hass = hass
-        flow._controller_type = CONTROLLER_TYPE_CLOUD
-        flow._api_url = "https://test.example.com"
-        flow._omada_id = "cid123"
-        flow._access_token = "token"
+        flow._controller_type = CONTROLLER_TYPE_LOCAL
         flow._verify_ssl = verify_ssl
 
         options_flow = OmadaOptionsFlowHandler(entry)
         options_flow.hass = hass
         options_flow.handler = entry.entry_id
-        options_flow._access_token = "token"
 
         with patch(
             "custom_components.omada_open_api.config_flow.async_get_clientsession",
             return_value=shared_session,
         ) as mock_get_clientsession:
-            assert (
-                await flow._get_access_token(
-                    "https://test.example.com", "cid123", "client-id", "client-secret"
-                )
-                == MOCK_TOKEN_DATA
+            await flow._authenticate(
+                "https://test.example.com", "cid123", "client-id", "client-secret"
             )
             assert await flow._get_sites() == MOCK_SITES
-            assert flow._get_http_session() is shared_session
-            assert options_flow._get_http_session() is shared_session
+            options_flow._ensure_api_client()
 
+        assert flow._access_token == MOCK_TOKEN_DATA["accessToken"]
+        assert flow._refresh_token == MOCK_TOKEN_DATA["refreshToken"]
+        token_call = shared_session.post.call_args
+        assert token_call.args == ("https://test.example.com/openapi/authorize/token",)
+        assert token_call.kwargs["params"] == {"grant_type": "client_credentials"}
+        assert token_call.kwargs["json"] == {
+            "omadacId": "cid123",
+            "client_id": "client-id",
+            "client_secret": "client-secret",
+        }
+        assert shared_session.get.call_args.args == (
+            "https://test.example.com/openapi/v1/cid123/sites",
+        )
+        assert options_flow._client.session is shared_session
         assert (
             mock_get_clientsession.call_args_list
-            == [call(hass, verify_ssl=verify_ssl)] * 4
+            == [call(hass, verify_ssl=verify_ssl)] * 2
         )
 
 
@@ -204,10 +267,7 @@ async def test_local_flow_stores_and_uses_verify_ssl(
 async def test_local_flow_defaults_verify_ssl_on(hass: HomeAssistant) -> None:
     """A local flow that omits the toggle defaults to verification on."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -246,10 +306,7 @@ async def test_local_flow_defaults_verify_ssl_on(hass: HomeAssistant) -> None:
 async def test_cloud_flow_stores_verify_ssl_on(hass: HomeAssistant) -> None:
     """A cloud flow stores verification on (TP-Link cloud certs are valid)."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -330,10 +387,7 @@ async def test_credentials_step_shows_certificate_error(
         result["flow_id"], {CONF_API_URL: "https://omada.local:8043"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=cert_error,
-    ):
+    with _patch_authenticate(side_effect=_connection_error(cert_error)):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -405,6 +459,35 @@ MOCK_APPLICATIONS = [
 def _future_token_expiry() -> str:
     """Return an ISO timestamp 1 hour in the future."""
     return (dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)).isoformat()
+
+
+def _with_cause(err: OmadaApiError, cause: BaseException) -> OmadaApiError:
+    """Return err with the given cause, as ``raise err from cause`` sets it."""
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    ("err", "expected"),
+    [
+        (_with_cause(OmadaApiError("x"), TimeoutError()), "timeout"),
+        (
+            _with_cause(
+                OmadaApiAuthError("x"), aiohttp.ClientError("Connection refused")
+            ),
+            "connection_refused",
+        ),
+        (OmadaApiError("x", error_code=-7131), "controller_id_not_found_free_tier"),
+        (OmadaApiAuthError("x", error_code=-44106), "invalid_auth"),
+        (OmadaApiAuthError("x", http_status=401), "invalid_auth"),
+        (OmadaApiAuthError("x", http_status=503), "cannot_connect"),
+        (OmadaApiError("HTTP 404", http_status=404), "cannot_connect"),
+        (OmadaApiError("HTTP 401 after token refresh"), "invalid_auth"),
+    ],
+)
+def test_api_error_key(err: OmadaApiError, expected: str) -> None:
+    """API errors map to the most specific form error."""
+    assert _api_error_key(err) == expected
 
 
 def _make_client_error_with_cause(message: str) -> aiohttp.ClientError:
@@ -486,10 +569,7 @@ async def test_credentials_step_invalid_auth(hass: HomeAssistant) -> None:
     assert result["step_id"] == "credentials"
 
     # Test with invalid credentials (should show error)
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=Exception("Invalid credentials"),
-    ):
+    with _patch_authenticate(side_effect=Exception("Invalid credentials")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -522,10 +602,7 @@ async def test_connection_timeout_error(hass: HomeAssistant) -> None:
     )
 
     # Mock connection timeout
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=TimeoutError("Connection timeout"),
-    ):
+    with _patch_authenticate(side_effect=TimeoutError("Connection timeout")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             user_input={
@@ -557,15 +634,11 @@ async def test_invalid_client_credentials_error_code(hass: HomeAssistant) -> Non
         user_input={CONF_REGION: "us"},
     )
 
-    # Mock API returning error code -44106
-    mock_invalid_response = {
-        "errorCode": -44106,
-        "msg": "Invalid client credentials",
-    }
-
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        return_value=mock_invalid_response,
+    # The controller answers the token request with error code -44106.
+    with _patch_authenticate(
+        side_effect=OmadaApiAuthError(
+            "API error: Invalid client credentials", error_code=-44106
+        )
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -578,20 +651,19 @@ async def test_invalid_client_credentials_error_code(hass: HomeAssistant) -> Non
 
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "credentials"
-    assert "base" in result["errors"]
+    assert result["errors"] == {"base": "invalid_auth"}
 
 
 async def test_complete_cloud_flow_with_token_storage(hass: HomeAssistant) -> None:
     """Test complete cloud controller flow with token storage in config entry."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value={
+        _patch_authenticate(
+            token_data={
                 "accessToken": "test_access_token",
                 "tokenType": "bearer",
                 "expiresIn": 7200,
                 "refreshToken": "test_refresh_token",
-            },
+            }
         ),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
@@ -628,19 +700,19 @@ async def test_complete_cloud_flow_with_token_storage(hass: HomeAssistant) -> No
         assert result["title"] == "Omada - Test Site"
         assert result["data"][CONF_ACCESS_TOKEN] == "test_access_token"
         assert result["data"][CONF_REFRESH_TOKEN] == "test_refresh_token"
+        _assert_expires_in_two_hours(result["data"][CONF_TOKEN_EXPIRES_AT])
 
 
 async def test_complete_local_flow_with_token_storage(hass: HomeAssistant) -> None:
     """Test complete local controller flow with token storage in config entry."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value={
+        _patch_authenticate(
+            token_data={
                 "accessToken": "test_access_token",
                 "tokenType": "bearer",
                 "expiresIn": 7200,
                 "refreshToken": "test_refresh_token",
-            },
+            }
         ),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
@@ -677,19 +749,19 @@ async def test_complete_local_flow_with_token_storage(hass: HomeAssistant) -> No
         assert result["title"] == "Omada - Local Site"
         assert result["data"][CONF_ACCESS_TOKEN] == "test_access_token"
         assert result["data"][CONF_REFRESH_TOKEN] == "test_refresh_token"
+        _assert_expires_in_two_hours(result["data"][CONF_TOKEN_EXPIRES_AT])
 
 
 async def test_site_selection_multiple_sites(hass: HomeAssistant) -> None:
     """Test selecting multiple sites creates entry with proper title."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value={
+        _patch_authenticate(
+            token_data={
                 "accessToken": "test_access_token",
                 "tokenType": "bearer",
                 "expiresIn": 7200,
                 "refreshToken": "test_refresh_token",
-            },
+            }
         ),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
@@ -759,10 +831,7 @@ async def test_unique_config_entry_abort(hass: HomeAssistant) -> None:
 
     # Start a new flow with the same omada_id
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
     ):
         result = await hass.config_entries.flow.async_init(
@@ -795,10 +864,7 @@ async def test_unique_config_entry_abort(hass: HomeAssistant) -> None:
 async def test_entry_stores_options_separately(hass: HomeAssistant) -> None:
     """Test that client and app selections are stored in entry.options."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -860,10 +926,7 @@ async def test_entry_stores_options_separately(hass: HomeAssistant) -> None:
 async def test_clients_step_with_available_clients(hass: HomeAssistant) -> None:
     """Test that client selection step shows available clients."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -903,10 +966,7 @@ async def test_clients_step_with_available_clients(hass: HomeAssistant) -> None:
 async def test_clients_step_no_clients_skips(hass: HomeAssistant) -> None:
     """Test that no available clients skips to entry creation."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -946,10 +1006,7 @@ async def test_clients_step_no_clients_skips(hass: HomeAssistant) -> None:
 async def test_clients_step_fetch_error(hass: HomeAssistant) -> None:
     """Test client fetch error falls back to entry creation."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -993,10 +1050,7 @@ async def test_clients_step_fetch_error(hass: HomeAssistant) -> None:
 async def test_applications_step_with_apps(hass: HomeAssistant) -> None:
     """Test application selection step shows available apps."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -1045,10 +1099,7 @@ async def test_applications_step_with_apps(hass: HomeAssistant) -> None:
 async def test_applications_step_no_apps_skips(hass: HomeAssistant) -> None:
     """Test that no available apps skips to entry creation."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -1111,9 +1162,8 @@ async def test_credentials_aiohttp_error(hass: HomeAssistant) -> None:
         result["flow_id"], {CONF_REGION: "us"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=aiohttp.ClientError("some network error"),
+    with _patch_authenticate(
+        side_effect=_connection_error(aiohttp.ClientError("some network error"))
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -1140,10 +1190,7 @@ async def test_credentials_timeout_error(hass: HomeAssistant) -> None:
         result["flow_id"], {CONF_REGION: "us"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=TimeoutError("Connection timed out"),
-    ):
+    with _patch_authenticate(side_effect=TimeoutError("Connection timed out")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1169,9 +1216,10 @@ async def test_credentials_dns_resolution_error(hass: HomeAssistant) -> None:
         result["flow_id"], {CONF_REGION: "us"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=_make_client_error_with_cause("Name or service not known"),
+    with _patch_authenticate(
+        side_effect=_connection_error(
+            _make_client_error_with_cause("Name or service not known")
+        )
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -1198,9 +1246,10 @@ async def test_credentials_connection_refused_error(hass: HomeAssistant) -> None
         result["flow_id"], {CONF_REGION: "us"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=_make_client_error_with_cause("Connection refused"),
+    with _patch_authenticate(
+        side_effect=_connection_error(
+            _make_client_error_with_cause("Connection refused")
+        )
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -1218,10 +1267,7 @@ async def test_credentials_connection_refused_error(hass: HomeAssistant) -> None
 async def test_credentials_no_sites_error(hass: HomeAssistant) -> None:
     """Test that no sites found shows error."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=[],
@@ -1303,10 +1349,7 @@ async def test_reauth_flow_success(
     assert result["step_id"] == "reauth_confirm"
 
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate() as mock_authenticate,
         patch("custom_components.omada_open_api.async_setup_entry", return_value=True),
     ):
         result = await hass.config_entries.flow.async_configure(
@@ -1320,8 +1363,16 @@ async def test_reauth_flow_success(
 
     assert result["type"] == FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
+    assert mock_authenticate.await_args.args[1:] == (
+        "https://test.example.com",
+        "reauth_omada",
+        "new_cid",
+        "new_csecret",
+    )
     assert entry.data[CONF_CLIENT_ID] == "new_cid"
     assert entry.data[CONF_ACCESS_TOKEN] == "test_access_token"
+    assert entry.data[CONF_REFRESH_TOKEN] == "test_refresh_token"
+    _assert_expires_in_two_hours(entry.data[CONF_TOKEN_EXPIRES_AT])
     for secret in (
         "old_csecret",
         "expired_token",
@@ -1455,10 +1506,7 @@ async def test_reauth_flow_invalid_auth(hass: HomeAssistant) -> None:
 
     result = await entry.start_reauth_flow(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=InvalidAuthError("bad creds"),
-    ):
+    with _patch_authenticate(side_effect=OmadaApiAuthError("bad creds")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1496,9 +1544,8 @@ async def test_reauth_flow_connection_error(hass: HomeAssistant) -> None:
 
     result = await entry.start_reauth_flow(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=aiohttp.ClientError("some network error"),
+    with _patch_authenticate(
+        side_effect=_connection_error(aiohttp.ClientError("some network error"))
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -1537,10 +1584,7 @@ async def test_reauth_flow_unknown_error(hass: HomeAssistant) -> None:
 
     result = await entry.start_reauth_flow(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=RuntimeError("something unexpected"),
-    ):
+    with _patch_authenticate(side_effect=RuntimeError("something unexpected")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1578,10 +1622,7 @@ async def test_reauth_flow_timeout_error(hass: HomeAssistant) -> None:
 
     result = await entry.start_reauth_flow(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=TimeoutError("Connection timed out"),
-    ):
+    with _patch_authenticate(side_effect=TimeoutError("Connection timed out")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -1619,9 +1660,10 @@ async def test_reauth_flow_dns_error(hass: HomeAssistant) -> None:
 
     result = await entry.start_reauth_flow(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=_make_client_error_with_cause("Name or service not known"),
+    with _patch_authenticate(
+        side_effect=_connection_error(
+            _make_client_error_with_cause("Name or service not known")
+        )
     ):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
@@ -2005,12 +2047,12 @@ async def test_options_application_selection_no_apps(hass: HomeAssistant) -> Non
 
 
 # ---------------------------------------------------------------------------
-# Credentials step - InvalidAuthError specifically
+# Credentials step - rejected credentials specifically
 # ---------------------------------------------------------------------------
 
 
 async def test_credentials_invalid_auth_error(hass: HomeAssistant) -> None:
-    """Test that InvalidAuthError from _get_access_token shows invalid_auth."""
+    """Test that rejected credentials show invalid_auth."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
@@ -2021,10 +2063,7 @@ async def test_credentials_invalid_auth_error(hass: HomeAssistant) -> None:
         result["flow_id"], {CONF_REGION: "us"}
     )
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=InvalidAuthError("invalid client id"),
-    ):
+    with _patch_authenticate(side_effect=OmadaApiAuthError("invalid client id")):
         result = await hass.config_entries.flow.async_configure(
             result["flow_id"],
             {
@@ -2128,10 +2167,7 @@ async def test_options_app_selection_fetch_error(hass: HomeAssistant) -> None:
 async def test_complete_flow_with_applications(hass: HomeAssistant) -> None:
     """Test full flow through applications step with selection submitted."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -2195,10 +2231,7 @@ async def test_complete_flow_with_applications(hass: HomeAssistant) -> None:
 async def test_applications_fetch_error_creates_entry(hass: HomeAssistant) -> None:
     """Test that app fetch error creates entry without apps."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -2377,8 +2410,8 @@ async def test_full_flow_http_level(hass: HomeAssistant, aioclient_mock) -> None
     assert result["options"][CONF_SELECTED_APPLICATIONS] == ["100"]
 
 
-async def test_get_access_token_401(hass: HomeAssistant, aioclient_mock) -> None:
-    """Test _get_access_token with 401 response raises InvalidAuthError."""
+async def test_token_request_401(hass: HomeAssistant, aioclient_mock) -> None:
+    """Test that a token request answered with HTTP 401 shows invalid_auth."""
     _register_token_endpoint(aioclient_mock, status=401)
 
     result = await hass.config_entries.flow.async_init(
@@ -2403,8 +2436,8 @@ async def test_get_access_token_401(hass: HomeAssistant, aioclient_mock) -> None
     assert result["errors"]["base"] == "invalid_auth"
 
 
-async def test_get_access_token_500(hass: HomeAssistant, aioclient_mock) -> None:
-    """Test _get_access_token with 500 response raises error."""
+async def test_token_request_500(hass: HomeAssistant, aioclient_mock) -> None:
+    """Test that a token request answered with HTTP 500 shows an error."""
     _register_token_endpoint(
         aioclient_mock, status=500, json_data={"error": "server error"}
     )
@@ -2431,10 +2464,10 @@ async def test_get_access_token_500(hass: HomeAssistant, aioclient_mock) -> None
     assert result["errors"]["base"] == "cannot_connect"
 
 
-async def test_get_access_token_api_error_code(
+async def test_token_request_api_error_code(
     hass: HomeAssistant, aioclient_mock
 ) -> None:
-    """Test _get_access_token with API error code raises InvalidAuthError."""
+    """Test that a token request answered with an error code shows invalid_auth."""
     _register_token_endpoint(
         aioclient_mock,
         json_data={"errorCode": -44106, "msg": "Invalid client credentials"},
@@ -2462,7 +2495,7 @@ async def test_get_access_token_api_error_code(
     assert result["errors"]["base"] == "invalid_auth"
 
 
-async def test_get_access_token_controller_id_not_found(
+async def test_token_request_controller_id_not_found(
     hass: HomeAssistant, aioclient_mock
 ) -> None:
     """Test error -7131 shows a free-tier-specific message, not generic invalid_auth.
@@ -2664,7 +2697,7 @@ async def test_get_sites_http_error(hass: HomeAssistant, aioclient_mock) -> None
 
 
 async def test_get_sites_api_error(hass: HomeAssistant, aioclient_mock) -> None:
-    """Test _get_sites with API error code raises InvalidAuthError."""
+    """Test that a sites request answered with an error code shows invalid_auth."""
     _register_token_endpoint(aioclient_mock)
     _register_sites_endpoint(
         aioclient_mock,
@@ -3076,10 +3109,7 @@ async def test_empty_site_selection_default_title(
 ) -> None:
     """Test that selecting no sites produces 'Omada Controller' as the title."""
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -3252,10 +3282,7 @@ async def test_reconfigure_full_flow_cloud(
     entry.add_to_hass(hass)
 
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -3311,10 +3338,7 @@ async def test_reconfigure_invalid_auth(
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=InvalidAuthError("Bad creds"),
-    ):
+    with _patch_authenticate(side_effect=OmadaApiAuthError("Bad creds")):
         result = await entry.start_reconfigure_flow(hass)
 
         result = await hass.config_entries.flow.async_configure(
@@ -3394,10 +3418,7 @@ async def test_reconfigure_timeout_error(
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=TimeoutError("Connection timed out"),
-    ):
+    with _patch_authenticate(side_effect=TimeoutError("Connection timed out")):
         result = await entry.start_reconfigure_flow(hass)
 
         result = await hass.config_entries.flow.async_configure(
@@ -3437,9 +3458,10 @@ async def test_reconfigure_connection_refused_error(
     )
     entry.add_to_hass(hass)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-        side_effect=_make_client_error_with_cause("Connection refused"),
+    with _patch_authenticate(
+        side_effect=_connection_error(
+            _make_client_error_with_cause("Connection refused")
+        )
     ):
         result = await entry.start_reconfigure_flow(hass)
 
@@ -3481,10 +3503,7 @@ async def test_reconfigure_persists_verify_ssl_toggle(
     entry.add_to_hass(hass)
 
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -3540,10 +3559,7 @@ async def test_reconfigure_legacy_cloud_forces_verify_ssl(
     assert CONF_VERIFY_SSL not in entry.data
 
     with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_access_token",
-            return_value=MOCK_TOKEN_DATA,
-        ),
+        _patch_authenticate(),
         patch(
             "custom_components.omada_open_api.config_flow.OmadaConfigFlow._get_sites",
             return_value=MOCK_SITES,
@@ -3636,40 +3652,40 @@ def _mock_session_with_missing_content_type(method: str, json_result: dict):
     return mock_session
 
 
+def _flow_api_client(session: MagicMock) -> OmadaApiClient:
+    """Build an API client on the given session with an always-valid Fusion auth."""
+    auth = MagicMock()
+    auth.ensure_valid_session = AsyncMock()
+    auth.decorate_request = MagicMock(
+        side_effect=lambda headers: headers.update({"Csrf-Token": "csrf"})
+    )
+    return OmadaApiClient.from_auth(session, auth, "https://192.168.0.1", "cid123")
+
+
 async def test_get_clients_handles_missing_content_type(
     hass: HomeAssistant,
 ) -> None:
-    """OmadaConfigFlow._get_clients must tolerate Fusion's missing Content-Type."""
+    """Client selection tolerates Fusion's missing Content-Type."""
     flow = OmadaConfigFlow()
     flow.hass = hass
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-    flow._access_token = "token"
-
     mock_session = _mock_session_with_missing_content_type(
         "post",
         {"errorCode": 0, "msg": "Success", "result": {"data": MOCK_CLIENTS}},
     )
+    flow._api_client = _flow_api_client(mock_session)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=mock_session,
-    ):
-        result = await flow._get_clients("site123")
-
-    assert result == MOCK_CLIENTS
+    assert await flow._get_clients("site123") == MOCK_CLIENTS
+    assert mock_session.post.call_args.args == (
+        "https://192.168.0.1/openapi/v2/cid123/sites/site123/clients",
+    )
 
 
 async def test_get_applications_handles_missing_content_type(
     hass: HomeAssistant,
 ) -> None:
-    """OmadaConfigFlow._get_applications must tolerate Fusion's missing Content-Type."""
+    """Application selection tolerates Fusion's missing Content-Type."""
     flow = OmadaConfigFlow()
     flow.hass = hass
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-    flow._access_token = "token"
-
     mock_session = _mock_session_with_missing_content_type(
         "get",
         {
@@ -3678,78 +3694,33 @@ async def test_get_applications_handles_missing_content_type(
             "result": {"data": MOCK_APPLICATIONS, "totalRows": len(MOCK_APPLICATIONS)},
         },
     )
+    flow._api_client = _flow_api_client(mock_session)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=mock_session,
-    ):
-        result = await flow._get_applications("site123")
-
-    assert result == MOCK_APPLICATIONS
-
-
-async def test_options_get_clients_handles_missing_content_type(
-    hass: HomeAssistant,
-) -> None:
-    """OmadaOptionsFlowHandler._get_clients must tolerate missing Content-Type."""
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-    flow._access_token = "token"
-
-    mock_session = _mock_session_with_missing_content_type(
-        "post",
-        {"errorCode": 0, "msg": "Success", "result": {"data": MOCK_CLIENTS}},
+    assert await flow._get_applications("site123") == MOCK_APPLICATIONS
+    apps_url = (
+        "https://192.168.0.1/openapi/v1/cid123/sites/site123"
+        "/applicationControl/applications"
     )
-
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=mock_session,
-    ):
-        result = await flow._get_clients("site123")
-
-    assert result == MOCK_CLIENTS
+    assert mock_session.get.call_args.args == (apps_url,)
+    assert mock_session.get.call_args.kwargs["params"] == {
+        "page": 1,
+        "pageSize": 1000,
+    }
 
 
-async def test_options_get_applications_handles_missing_content_type(
-    hass: HomeAssistant,
-) -> None:
-    """OmadaOptionsFlowHandler._get_applications must tolerate missing Content-Type."""
-    entry = MockConfigEntry(domain=DOMAIN, data={}, options={})
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
+async def test_flow_without_api_client_refuses_requests(hass: HomeAssistant) -> None:
+    """A request before any step set up the client is a programming error."""
+    flow = OmadaConfigFlow()
     flow.hass = hass
-    flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-    flow._access_token = "token"
 
-    mock_session = _mock_session_with_missing_content_type(
-        "get",
-        {
-            "errorCode": 0,
-            "msg": "Success",
-            "result": {"data": MOCK_APPLICATIONS, "totalRows": len(MOCK_APPLICATIONS)},
-        },
-    )
-
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=mock_session,
-    ):
-        result = await flow._get_applications("site123")
-
-    assert result == MOCK_APPLICATIONS
+    with pytest.raises(RuntimeError):
+        await flow._get_sites()
 
 
 # ---------------------------------------------------------------------------
 # Options flow: Fusion (web_session) config entries have no access_token.
 #
-# The options flow's client/application selection steps unconditionally read
+# The options flow's client/application selection steps must not read
 # config_entry.data[CONF_ACCESS_TOKEN], which Fusion entries never store
 # (they store auth_mode/username/password instead). Reproduced live against
 # a real Fusion gateway (500 Internal Server Error / KeyError).
@@ -3783,17 +3754,10 @@ async def test_options_client_selection_fusion_mode(hass: HomeAssistant) -> None
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
-    with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_fusion_login",
-            new=AsyncMock(return_value="csrf-token-123"),
-        ),
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_get_clients",
-            new=AsyncMock(return_value=MOCK_CLIENTS),
-        ),
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+        "_get_clients",
+        new=AsyncMock(return_value=MOCK_CLIENTS),
     ):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
@@ -3815,17 +3779,10 @@ async def test_options_application_selection_fusion_mode(hass: HomeAssistant) ->
 
     result = await hass.config_entries.options.async_init(entry.entry_id)
 
-    with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_fusion_login",
-            new=AsyncMock(return_value="csrf-token-123"),
-        ),
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_get_applications",
-            new=AsyncMock(return_value=MOCK_APPLICATIONS),
-        ),
+    with patch(
+        "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
+        "_get_applications",
+        new=AsyncMock(return_value=MOCK_APPLICATIONS),
     ):
         result = await hass.config_entries.options.async_configure(
             result["flow_id"],
@@ -3837,158 +3794,291 @@ async def test_options_application_selection_fusion_mode(hass: HomeAssistant) ->
 
 
 # ---------------------------------------------------------------------------
-# Options flow: Fusion entries must reuse the live coordinator session rather
-# than logging in independently. Fusion allows only one active session per
+# Options flow: a loaded entry's running api_client is reused rather than
+# logging in independently. Fusion allows only one active session per
 # gateway account — an independent login from the options flow invalidates
 # the coordinator's session (and vice versa), which was reproduced live as
 # an "You have been logged out of the controller" API error.
 # ---------------------------------------------------------------------------
 
 
-def _mock_live_auth() -> MagicMock:
-    """Build a mock auth strategy mimicking the live api_client's auth object."""
-    mock_auth = MagicMock()
-    mock_auth.ensure_valid_session = AsyncMock()
-    mock_auth.decorate_request = MagicMock(
-        side_effect=lambda headers: {**headers, "Csrf-Token": "live-token"}
-    )
-    return mock_auth
+def _live_api_client() -> MagicMock:
+    """Build a mock of the entry's running api_client."""
+    live_client = MagicMock(spec=OmadaApiClient)
+    live_client.get_all_clients = AsyncMock(return_value=MOCK_CLIENTS)
+    live_client.get_applications = AsyncMock(return_value=MOCK_APPLICATIONS)
+    return live_client
+
+
+async def _open_loaded_fusion_options(
+    hass: HomeAssistant, live_client: MagicMock, step: str
+) -> dict[str, Any]:
+    """Open an options step of a loaded Fusion entry using live_client."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    entry.runtime_data = SimpleNamespace(api_client=live_client)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    with patch(
+        "custom_components.omada_open_api.config_flow.WebSessionAuth.authenticate",
+        new=AsyncMock(side_effect=AssertionError("must not log in independently")),
+    ):
+        return await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": step}
+        )
 
 
 async def test_options_client_selection_fusion_reuses_live_session(
     hass: HomeAssistant,
 ) -> None:
-    """Options flow reuses the entry's live api_client auth, not a fresh login."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
+    """Options flow lists clients through the entry's live api_client."""
+    live_client = _live_api_client()
 
-    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
+    result = await _open_loaded_fusion_options(hass, live_client, "client_selection")
 
-    mock_auth = _mock_live_auth()
-    live_session = MagicMock()
-    entry.runtime_data = SimpleNamespace(
-        api_client=SimpleNamespace(auth=mock_auth, session=live_session)
-    )
-
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_fusion_login",
-            new=AsyncMock(side_effect=AssertionError("must not log in independently")),
-        ),
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_get_clients",
-            new=AsyncMock(return_value=MOCK_CLIENTS),
-        ),
-    ):
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {"next_step_id": "client_selection"},
-        )
-
-    mock_auth.ensure_valid_session.assert_awaited_once()
+    live_client.get_all_clients.assert_awaited_once_with("site123", scope=0)
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "client_selection"
+    assert result["description_placeholders"]["client_count"] == str(len(MOCK_CLIENTS))
 
 
 async def test_options_application_selection_fusion_reuses_live_session(
     hass: HomeAssistant,
 ) -> None:
-    """Options flow application selection reuses the live api_client auth."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
+    """Options flow lists applications through the entry's live api_client."""
+    live_client = _live_api_client()
 
-    with patch("custom_components.omada_open_api.async_setup_entry", return_value=True):
-        await hass.config_entries.async_setup(entry.entry_id)
-        await hass.async_block_till_done()
-
-    mock_auth = _mock_live_auth()
-    live_session = MagicMock()
-    entry.runtime_data = SimpleNamespace(
-        api_client=SimpleNamespace(auth=mock_auth, session=live_session)
+    result = await _open_loaded_fusion_options(
+        hass, live_client, "application_selection"
     )
 
-    result = await hass.config_entries.options.async_init(entry.entry_id)
-
-    with (
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_fusion_login",
-            new=AsyncMock(side_effect=AssertionError("must not log in independently")),
-        ),
-        patch(
-            "custom_components.omada_open_api.config_flow.OmadaOptionsFlowHandler."
-            "_get_applications",
-            new=AsyncMock(return_value=MOCK_APPLICATIONS),
-        ),
-    ):
-        result = await hass.config_entries.options.async_configure(
-            result["flow_id"],
-            {"next_step_id": "application_selection"},
-        )
-
-    mock_auth.ensure_valid_session.assert_awaited_once()
+    live_client.get_applications.assert_awaited_once_with("site123")
     assert result["type"] == FlowResultType.FORM
     assert result["step_id"] == "application_selection"
 
 
 # ---------------------------------------------------------------------------
-# Options flow: Fusion login fallback (entry not currently loaded).
+# Options flow: own client when the entry is not loaded.
 # ---------------------------------------------------------------------------
 
 
-async def test_options_fusion_login_success(hass: HomeAssistant) -> None:
-    """_fusion_login performs the real login POST and returns the CSRF token."""
+def _mock_json_response(payload: dict[str, Any]) -> MagicMock:
+    """Build a mocked aiohttp response with status 200 and the given JSON."""
+    response = MagicMock()
+    response.status = 200
+    response.json = AsyncMock(return_value=payload)
+    return response
+
+
+async def test_options_fusion_client_logs_in_with_own_session_when_not_loaded(
+    hass: HomeAssistant,
+) -> None:
+    """A Fusion entry that is not loaded logs in on the flow's own session."""
     entry = _fusion_options_entry()
     entry.add_to_hass(hass)
     flow = OmadaOptionsFlowHandler(entry)
     flow.hass = hass
     flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
 
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
-        return_value={"errorCode": 0, "result": {"token": "fresh-token"}}
+    session = MagicMock()
+    session.post.return_value.__aenter__ = AsyncMock(
+        side_effect=[
+            _mock_json_response({"errorCode": 0, "result": {"token": "csrf-1"}}),
+            _mock_json_response(
+                {"errorCode": 0, "result": {"totalRows": 2, "data": MOCK_CLIENTS}}
+            ),
+        ]
     )
-    mock_session = MagicMock()
-    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+    session.post.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    with patch.object(flow, "_get_fusion_session", return_value=mock_session):
-        token = await flow._fusion_login()
+    with patch.object(flow, "_get_fusion_session", return_value=session):
+        flow._ensure_api_client()
+        clients = await flow._get_clients("site123")
 
-    assert token == "fresh-token"
+    assert clients == MOCK_CLIENTS
+    login, clients_request = session.post.call_args_list
+    assert login.args == ("https://192.168.0.1/cid123/api/v2/login",)
+    assert login.kwargs["json"] == {"username": "admin", "password": "secret"}
+    assert clients_request.args == (
+        "https://192.168.0.1/openapi/v2/cid123/sites/site123/clients",
+    )
+    assert clients_request.kwargs["headers"]["Csrf-Token"] == "csrf-1"
+    assert clients_request.kwargs["headers"]["Omada-Request-Source"] == "web-local"
 
 
-async def test_options_fusion_login_failure(hass: HomeAssistant) -> None:
-    """_fusion_login raises InvalidAuthError when the API reports an error."""
-    entry = _fusion_options_entry()
+async def test_options_openapi_client_persists_refreshed_tokens(
+    hass: HomeAssistant,
+) -> None:
+    """An expired stored token is refreshed and written back to the entry."""
+    entry = _openapi_options_entry()
     entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_TOKEN_EXPIRES_AT: (
+                dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+            ).isoformat(),
+        },
+    )
     flow = OmadaOptionsFlowHandler(entry)
     flow.hass = hass
     flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
 
-    mock_response = AsyncMock()
-    mock_response.json = AsyncMock(
-        return_value={"errorCode": -1, "msg": "Invalid credentials"}
+    session = MagicMock()
+    session.post.return_value.__aenter__ = AsyncMock(
+        return_value=_mock_json_response(
+            {
+                "errorCode": 0,
+                "result": {
+                    "accessToken": "new-access",
+                    "refreshToken": "new-refresh",
+                    "expiresIn": 7200,
+                },
+            }
+        )
     )
-    mock_session = MagicMock()
-    mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
-    mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+    session.post.return_value.__aexit__ = AsyncMock(return_value=False)
 
-    with (
-        patch.object(flow, "_get_fusion_session", return_value=mock_session),
-        pytest.raises(InvalidAuthError),
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=session,
     ):
-        await flow._fusion_login()
+        flow._ensure_api_client()
+    await flow._client.auth.ensure_valid_session()
+
+    refresh = session.post.call_args
+    assert refresh.args == ("https://test.example.com/openapi/authorize/token",)
+    assert refresh.kwargs["params"] == {"grant_type": "refresh_token"}
+    assert refresh.kwargs["data"]["refresh_token"] == "rtoken"
+    assert entry.data[CONF_ACCESS_TOKEN] == "new-access"
+    assert entry.data[CONF_REFRESH_TOKEN] == "new-refresh"
+    assert dt.datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRES_AT]) > (
+        dt.datetime.now(dt.UTC) + dt.timedelta(minutes=119)
+    )
+
+
+async def test_options_flow_reuses_its_client(hass: HomeAssistant) -> None:
+    """A second step keeps the client the first step set up."""
+    entry = _fusion_options_entry()
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    client = _flow_api_client(MagicMock())
+    flow._api_client = client
+
+    flow._ensure_api_client()
+
+    assert flow._client is client
+
+
+async def test_options_legacy_entry_with_username_uses_web_session(
+    hass: HomeAssistant,
+) -> None:
+    """An entry stored before auth_mode existed is a Fusion entry by its username."""
+    entry = _fusion_options_entry()
+    data = dict(entry.data)
+    del data[CONF_AUTH_MODE]
+    entry = MockConfigEntry(domain=DOMAIN, data=data, options={})
+    entry.add_to_hass(hass)
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+    fusion_session = MagicMock()
+
+    with patch.object(flow, "_get_fusion_session", return_value=fusion_session):
+        flow._ensure_api_client()
+
+    assert flow._client.session is fusion_session
+    headers = flow._client.auth.decorate_request({})
+    assert headers["Omada-Request-Source"] == "web-local"
+
+
+async def test_options_cloud_entry_always_verifies_tls(hass: HomeAssistant) -> None:
+    """A cloud entry verifies TLS even if a legacy entry stored verify_ssl off."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_CONTROLLER_TYPE: CONTROLLER_TYPE_CLOUD,
+            CONF_VERIFY_SSL: False,
+        },
+    )
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=MagicMock(),
+    ) as mock_get_clientsession:
+        flow._ensure_api_client()
+
+    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=True)
+    assert flow._client.auth.decorate_request({}) == {
+        "Authorization": "AccessToken=token"
+    }
+
+
+async def test_options_openapi_client_falls_back_to_client_credentials(
+    hass: HomeAssistant,
+) -> None:
+    """A rejected refresh token falls back to the stored client credentials."""
+    entry = _openapi_options_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            CONF_TOKEN_EXPIRES_AT: (
+                dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)
+            ).isoformat(),
+        },
+    )
+    flow = OmadaOptionsFlowHandler(entry)
+    flow.hass = hass
+    flow.handler = entry.entry_id
+
+    rejected = MagicMock(status=401)
+    granted = _mock_json_response(
+        {
+            "errorCode": 0,
+            "result": {
+                "accessToken": "fresh-access",
+                "refreshToken": "fresh-refresh",
+                "expiresIn": 7200,
+            },
+        }
+    )
+    session = MagicMock()
+    session.post.return_value.__aenter__ = AsyncMock(side_effect=[rejected, granted])
+    session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_get_clientsession",
+        return_value=session,
+    ):
+        flow._ensure_api_client()
+    await flow._client.auth.ensure_valid_session()
+
+    refresh, grant = session.post.call_args_list
+    assert refresh.kwargs["data"] == {
+        "client_id": "cid",
+        "client_secret": "csecret",
+        "refresh_token": "rtoken",
+    }
+    assert grant.kwargs["params"] == {"grant_type": "client_credentials"}
+    assert grant.kwargs["json"] == {
+        "omadacId": "cid123",
+        "client_id": "cid",
+        "client_secret": "csecret",
+    }
+    assert entry.data[CONF_ACCESS_TOKEN] == "fresh-access"
 
 
 async def test_options_get_fusion_session_creates_and_caches(
@@ -4008,6 +4098,20 @@ async def test_options_get_fusion_session_creates_and_caches(
         assert session.cookie_jar._unsafe
     finally:
         session.detach()
+
+
+async def test_fusion_session_skips_tls_verification(hass: HomeAssistant) -> None:
+    """Fusion gateways serve self-signed certificates on their IP address."""
+    flow = OmadaConfigFlow()
+    flow.hass = hass
+
+    with patch(
+        "custom_components.omada_open_api.config_flow.async_create_clientsession"
+    ) as mock_create:
+        flow._get_fusion_session()
+
+    assert mock_create.call_args.kwargs["verify_ssl"] is False
+    assert mock_create.call_args.kwargs["cookie_jar"]._unsafe
 
 
 async def test_options_flow_closes_fusion_session_when_removed(
@@ -4051,159 +4155,6 @@ async def test_flow_removal_without_fusion_session_is_noop(
     await hass.async_block_till_done()
 
     assert flow._fusion_session is None
-
-
-async def test_options_ensure_fusion_auth_falls_back_without_runtime_data(
-    hass: HomeAssistant,
-) -> None:
-    """_ensure_fusion_auth logs in independently when the entry isn't loaded."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-
-    with patch.object(
-        flow, "_fusion_login", new=AsyncMock(return_value="fallback-token")
-    ) as mock_login:
-        await flow._ensure_fusion_auth()
-
-    mock_login.assert_awaited_once()
-    assert flow._fusion_csrf_token == "fallback-token"
-
-
-def test_options_build_api_headers_live_auth(hass: HomeAssistant) -> None:
-    """_build_api_headers delegates to the reused live auth strategy."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow._live_auth = _mock_live_auth()
-
-    headers = flow._build_api_headers()
-
-    assert headers["Csrf-Token"] == "live-token"
-
-
-def test_options_build_api_headers_fusion_csrf(hass: HomeAssistant) -> None:
-    """_build_api_headers builds CSRF headers from an independent login."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow._fusion_csrf_token = "csrf-abc"
-
-    headers = flow._build_api_headers()
-
-    assert headers["Csrf-Token"] == "csrf-abc"
-    assert headers["Omada-Request-Source"] == "web-local"
-
-
-def test_options_build_api_headers_bearer(hass: HomeAssistant) -> None:
-    """_build_api_headers falls back to a bearer AccessToken header."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow._access_token = "bearer-token"
-
-    headers = flow._build_api_headers()
-
-    assert headers["Authorization"] == "AccessToken=bearer-token"
-
-
-# ---------------------------------------------------------------------------
-# Options flow: _get_http_session must reuse the Fusion cookie-jar session,
-# not HA's cookie-less shared session, or the Omada controller rejects
-# clients/applications requests with a "logged out" error even though the
-# CSRF token is valid (the cookie jar mismatch is the real root cause).
-# ---------------------------------------------------------------------------
-
-
-def test_options_get_http_session_reuses_live_session(hass: HomeAssistant) -> None:
-    """_get_http_session returns the live coordinator's cookie-jar session."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    live_session = MagicMock()
-    flow._live_session = live_session
-
-    assert flow._get_http_session() is live_session
-
-
-def test_options_get_http_session_falls_back_to_fusion_session(
-    hass: HomeAssistant,
-) -> None:
-    """_get_http_session falls back to the flow's own Fusion session."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow._fusion_csrf_token = "csrf-abc"
-    fusion_session = MagicMock()
-
-    with patch.object(flow, "_get_fusion_session", return_value=fusion_session):
-        assert flow._get_http_session() is fusion_session
-
-
-def test_options_get_http_session_uses_shared_session_for_openapi(
-    hass: HomeAssistant,
-) -> None:
-    """_get_http_session falls back to HA's shared session for OpenAPI (bearer) auth."""
-    entry = _fusion_options_entry()
-    entry.add_to_hass(hass)
-    flow = OmadaOptionsFlowHandler(entry)
-    flow.hass = hass
-    flow.handler = entry.entry_id
-    flow._access_token = "bearer-token"
-    shared_session = MagicMock()
-
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=shared_session,
-    ) as mock_get_clientsession:
-        assert flow._get_http_session() is shared_session
-
-    mock_get_clientsession.assert_called_once_with(hass, verify_ssl=False)
-
-
-# ---------------------------------------------------------------------------
-# Config flow (initial setup): _get_http_session must route Fusion mode
-# through the flow's own cookie-jar session, same reasoning as the options
-# flow above. There is no live entry to reuse during initial setup.
-# ---------------------------------------------------------------------------
-
-
-def test_config_flow_get_http_session_uses_fusion_session_for_fusion(
-    hass: HomeAssistant,
-) -> None:
-    """_get_http_session uses the Fusion cookie-jar session in Fusion mode."""
-    flow = OmadaConfigFlow()
-    flow.hass = hass
-    flow._controller_type = CONTROLLER_TYPE_FUSION
-    fusion_session = MagicMock()
-
-    with patch.object(flow, "_get_fusion_session", return_value=fusion_session):
-        assert flow._get_http_session() is fusion_session
-
-
-def test_config_flow_get_http_session_uses_shared_session_for_openapi(
-    hass: HomeAssistant,
-) -> None:
-    """_get_http_session falls back to HA's shared session for non-Fusion auth."""
-    flow = OmadaConfigFlow()
-    flow.hass = hass
-    flow._controller_type = CONTROLLER_TYPE_LOCAL
-    shared_session = MagicMock()
-
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=shared_session,
-    ):
-        assert flow._get_http_session() is shared_session
 
 
 # ---------------------------------------------------------------------------
@@ -4449,9 +4400,6 @@ async def test_options_get_clients_fetches_every_page(hass: HomeAssistant) -> No
     flow = OmadaOptionsFlowHandler(entry)
     flow.hass = hass
     flow.handler = entry.entry_id
-    flow._api_url = "https://192.168.0.1"
-    flow._omada_id = "cid123"
-    flow._access_token = "token"
 
     clients = _many_clients(250, active_from=0)
     pages = [
@@ -4464,17 +4412,14 @@ async def test_options_get_clients_fetches_every_page(hass: HomeAssistant) -> No
     mock_session = MagicMock()
     mock_session.post.return_value.__aenter__ = AsyncMock(return_value=mock_response)
     mock_session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+    flow._api_client = _flow_api_client(mock_session)
 
-    with patch(
-        "custom_components.omada_open_api.config_flow.async_get_clientsession",
-        return_value=mock_session,
-    ):
-        result = await flow._get_clients("site123")
+    result = await flow._get_clients("site123")
 
     assert result == clients
-    assert [c.kwargs["json"]["page"] for c in mock_session.post.call_args_list] == [
-        1,
-        2,
+    assert [c.kwargs["json"] for c in mock_session.post.call_args_list] == [
+        {"page": 1, "pageSize": 200, "scope": 0, "filters": {}},
+        {"page": 2, "pageSize": 200, "scope": 0, "filters": {}},
     ]
 
 

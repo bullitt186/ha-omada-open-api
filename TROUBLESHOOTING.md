@@ -13,6 +13,8 @@
 3. Ensure outbound HTTPS is not blocked by a firewall
 4. Use **Settings → Devices & Services → TP-Link Omada Open API → Reauthenticate** to re-enter credentials
 
+The setup form reports **Failed to connect** when the controller answers with an HTTP error (for example 500 or 503) and **Invalid authentication** when it rejects the credentials or answers with an Omada error code. On a Fusion gateway, a site list the gateway refuses is reported the same way instead of as "no sites found".
+
 > **"Controller ID not exist" (error -7131)?** Re-copying the Omada ID won't help — the free Omada Cloud/Central Essentials tier has no Open API at all (see [README → Features](README.md#features)). Upgrade to Standard, or switch to **Local** with a self-hosted controller.
 
 ## TLS Certificate Verification Failed / Self-Signed Certificates
