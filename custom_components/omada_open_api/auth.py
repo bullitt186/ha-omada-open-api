@@ -210,13 +210,16 @@ class ClientCredentialsAuth(OmadaAuthStrategy):
             ) as response:
                 if response.status != 200:
                     raise OmadaApiAuthError(
-                        f"Failed to get fresh tokens with status {response.status}"
+                        f"Failed to get fresh tokens with status {response.status}",
+                        http_status=response.status,
                     )
 
                 result = await response.json()
-                if result.get("errorCode") != 0:
+                error_code = result.get("errorCode")
+                if error_code != 0:
                     raise OmadaApiAuthError(
-                        f"API error: {result.get('msg', 'Unknown error')}"
+                        f"API error: {result.get('msg', 'Unknown error')}",
+                        error_code=error_code,
                     )
 
                 token_data = result["result"]

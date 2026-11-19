@@ -28,6 +28,8 @@ from homeassistant.helpers.selector import (
 )
 import voluptuous as vol
 
+from .api import OmadaApiClient, OmadaApiError, async_get_controller_id
+from .auth import ClientCredentialsAuth, OmadaAuthStrategy, WebSessionAuth
 from .clients import normalize_client_mac
 from .const import (
     AUTH_MODE_OPENAPI,
@@ -81,7 +83,6 @@ from .const import (
     DEFAULT_CLIENT_SCAN_INTERVAL,
     DEFAULT_DEVICE_SCAN_INTERVAL,
     DEFAULT_DISCONNECT_TIMEOUT,
-    DEFAULT_TIMEOUT,
     DOMAIN,
     MAX_SCAN_INTERVAL,
     MIN_SCAN_INTERVAL,
@@ -90,7 +91,7 @@ from .const import (
 )
 
 if TYPE_CHECKING:
-    from .auth import OmadaAuthStrategy
+    from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -141,10 +142,23 @@ def _classify_connection_error(err: aiohttp.ClientError) -> str:
 _CONTROLLER_ID_NOT_FOUND_ERROR_CODE = -7131
 
 
-def _invalid_auth_error_key(err: InvalidAuthError) -> str:
-    """Map an InvalidAuthError to the most specific translation error key."""
+def _api_error_key(err: OmadaApiError) -> str:
+    """Map an API or authentication error to the most specific form error key.
+
+    Connection problems are classified by the aiohttp error the API layer
+    wrapped. An HTTP error other than 401 means the controller could not
+    answer; everything else (rejected credentials or token, an Omada error
+    code) means the credentials were not accepted.
+    """
+    cause = err.__cause__
+    if isinstance(cause, TimeoutError):
+        return "timeout"
+    if isinstance(cause, aiohttp.ClientError):
+        return _classify_connection_error(cause)
     if err.error_code == _CONTROLLER_ID_NOT_FOUND_ERROR_CODE:
         return "controller_id_not_found_free_tier"
+    if err.http_status is not None and err.http_status != 401:
+        return "cannot_connect"
     return "invalid_auth"
 
 
@@ -185,147 +199,118 @@ def filter_clients_by_ssids(
     return sorted(clients, key=lambda c: not c.get("active"))
 
 
-async def _fetch_all_clients(
-    session: aiohttp.ClientSession,
-    url: str,
-    headers: dict[str, str],
-    site_id: str,
-) -> list[dict[str, Any]]:
-    """Fetch every known client of a site, following all result pages.
+async def _discard_tokens(*_args: str) -> None:
+    """Accept token updates that need no persistence (Fusion web sessions)."""
 
-    Args:
-        session: HTTP session to use for the requests
-        url: Clients endpoint URL of the site
-        headers: Authenticated API headers
-        site_id: Site ID, used for logging
 
-    Returns:
-        List of client dictionaries
+class _OmadaFlowApiMixin:
+    """Controller access shared by the config flow and the options flow.
 
-    Raises:
-        aiohttp.ClientError: If connection fails
-
+    Every request goes through an OmadaApiClient, so the flows use the same
+    authentication, pagination and endpoint fallbacks as the coordinators.
     """
-    # scope=0 is intentional here: the config / options flow must
-    # show all known clients (including offline) so the user can
-    # choose which ones to track.  Polling coordinators use scope=1
-    # (online only) to avoid controller-side wifiMode warnings.
-    page = 1
-    page_size = 200
-    all_clients: list[dict[str, Any]] = []
 
-    _LOGGER.debug("Fetching clients from site %s", site_id)
+    hass: HomeAssistant
+    _api_client: OmadaApiClient | None = None
+    _fusion_session: aiohttp.ClientSession | None = None
 
-    while True:
-        body = {
-            "page": page,
-            "pageSize": page_size,
-            "scope": 0,  # 0: all clients (online + offline)
-            "filters": {},
-        }
+    def _get_fusion_session(self) -> aiohttp.ClientSession:
+        """Get or create an aiohttp session with unsafe cookie jar for Fusion.
 
-        async with session.post(
-            url,
-            headers=headers,
-            json=body,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            _LOGGER.debug("Clients endpoint response status: %s", response.status)
-            if response.status == 404 and page == 1:
-                # Controllers without the v2 endpoint (e.g. software
-                # controller 5.15) still list clients via the v1 GET.
-                return await _fetch_all_clients_v1(
-                    session,
-                    url.replace("/openapi/v2/", "/openapi/v1/", 1),
-                    headers,
-                    site_id,
-                )
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error(
-                    "Clients API error %s: %s", response.status, response_text
-                )
-                response.raise_for_status()
+        Fusion gateways are accessed by IP address, requiring unsafe=True
+        on the cookie jar to persist session cookies.
+        """
+        if self._fusion_session is None:
+            self._fusion_session = async_create_clientsession(
+                self.hass,
+                verify_ssl=False,
+                cookie_jar=aiohttp.CookieJar(unsafe=True),
+            )
+        return self._fusion_session
 
-            result = await response.json(content_type=None)
+    @callback
+    def async_remove(self) -> None:
+        """Release the flow's own Fusion session when the flow ends.
 
-            if result.get("errorCode") != 0:
-                error_msg = result.get("msg", "Unknown error")
-                raise InvalidAuthError(f"API error: {error_msg}")
+        Sessions from async_create_clientsession must be detached, not closed.
+        """
+        if self._fusion_session is not None:
+            self._fusion_session.detach()
 
-            page_data: list[dict[str, Any]] = result["result"]["data"]
-            all_clients.extend(page_data)
-            total_rows = result["result"].get("totalRows", 0)
-            if len(all_clients) >= total_rows or len(page_data) < page_size:
-                return all_clients
-            page += 1
+    @property
+    def _client(self) -> OmadaApiClient:
+        """Return the flow's API client.
 
+        Raises:
+            RuntimeError: If no step has set up the client yet
 
-async def _fetch_all_clients_v1(
-    session: aiohttp.ClientSession,
-    url: str,
-    headers: dict[str, str],
-    site_id: str,
-) -> list[dict[str, Any]]:
-    """Fetch the clients of a site via the v1 GET endpoint.
+        """
+        if self._api_client is None:
+            raise RuntimeError("The flow has no API client yet")
+        return self._api_client
 
-    Used when the controller has no v2 clients endpoint. The v1 endpoint
-    has no scope filter and lists online clients only.
+    async def _get_sites(self) -> list[dict[str, Any]]:
+        """Fetch every site of the controller.
 
-    Args:
-        session: HTTP session to use for the requests
-        url: v1 clients endpoint URL of the site
-        headers: Authenticated API headers
-        site_id: Site ID, used for logging
+        Raises:
+            OmadaApiError: If the request fails
 
-    Returns:
-        List of client dictionaries, or an empty list if the controller
-        has no clients endpoint at all
+        """
+        return await self._client.get_sites()
 
-    Raises:
-        aiohttp.ClientError: If connection fails
+    async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch every known client of a site, online and offline.
 
-    """
-    page = 1
-    page_size = 200
-    all_clients: list[dict[str, Any]] = []
+        scope=0 is intentional: the flows must offer offline clients too so
+        the user can choose which ones to track. Polling coordinators use
+        scope=1 (online only) to avoid controller-side wifiMode warnings.
 
-    while True:
-        async with session.get(
-            url,
-            headers=headers,
-            params={"page": page, "pageSize": page_size},
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            if response.status == 404:
-                _LOGGER.warning(
-                    "Clients endpoint not supported for site %s; "
-                    "skipping client selection",
-                    site_id,
-                )
-                return []
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error(
-                    "Clients API error %s: %s", response.status, response_text
-                )
-                response.raise_for_status()
+        Returns:
+            List of client dictionaries, or an empty list if the controller
+            has no clients endpoint
 
-            result = await response.json(content_type=None)
+        Raises:
+            OmadaApiError: If the request fails
 
-            if result.get("errorCode") != 0:
-                error_msg = result.get("msg", "Unknown error")
-                raise InvalidAuthError(f"API error: {error_msg}")
+        """
+        try:
+            return await self._client.get_all_clients(site_id, scope=0)
+        except OmadaApiError as err:
+            if err.http_status != 404:
+                raise
+        _LOGGER.warning(
+            "Clients endpoint not supported for site %s; skipping client selection",
+            site_id,
+        )
+        return []
 
-            page_data: list[dict[str, Any]] = result["result"]["data"]
-            all_clients.extend(page_data)
-            total_rows = result["result"].get("totalRows", 0)
-            if len(all_clients) >= total_rows or len(page_data) < page_size:
-                return all_clients
-            page += 1
+    async def _get_applications(self, site_id: str) -> list[dict[str, Any]]:
+        """Fetch every application available for DPI tracking in a site.
+
+        Returns:
+            List of application dictionaries, or an empty list if the
+            controller does not support application control (HTTP 404 or an
+            Omada error code)
+
+        Raises:
+            OmadaApiError: If the request fails otherwise
+
+        """
+        try:
+            return await self._client.get_applications(site_id)
+        except OmadaApiError as err:
+            if err.http_status != 404 and err.error_code is None:
+                raise
+            _LOGGER.warning(
+                "Applications not available for site %s (%s); "
+                "skipping application selection",
+                site_id,
+                err,
+            )
+        return []
 
 
-class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
+class OmadaConfigFlow(_OmadaFlowApiMixin, ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Omada Open API."""
 
     VERSION = 1
@@ -361,8 +346,6 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         # Fusion-specific
         self._fusion_username: str | None = None
         self._fusion_password: str | None = None
-        self._fusion_csrf_token: str | None = None
-        self._fusion_session: aiohttp.ClientSession | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -487,13 +470,21 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 password = user_input[CONF_PASSWORD]
 
                 try:
+                    session = self._get_fusion_session()
                     # Auto-detect Omada CID
-                    omada_id = await self._get_omada_cid(api_url)
+                    omada_id = await async_get_controller_id(session, api_url)
 
-                    # Validate credentials via web login
-                    csrf_token = await self._fusion_login(
-                        api_url, omada_id, username, password
+                    # Validate credentials via web login. The client below
+                    # reuses this session for every later step.
+                    auth = WebSessionAuth(
+                        session=session,
+                        token_update_callback=_discard_tokens,
+                        api_url=api_url,
+                        omada_id=omada_id,
+                        username=username,
+                        password=password,
                     )
+                    await auth.authenticate()
 
                     # Store for later steps
                     self._api_url = api_url
@@ -501,17 +492,15 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                     self._controller_type = CONTROLLER_TYPE_FUSION
                     self._fusion_username = username
                     self._fusion_password = password
-                    self._fusion_csrf_token = csrf_token
-                    # Set access_token to the CSRF token so existing
-                    # _get_clients/_get_applications can work via header override
-                    self._access_token = csrf_token
+                    self._api_client = OmadaApiClient.from_auth(
+                        session, auth, api_url, omada_id
+                    )
 
                     # Prevent duplicate entries
                     await self.async_set_unique_id(f"fusion_{omada_id}")
                     self._abort_if_unique_id_configured()
 
-                    # Fetch sites using existing session/csrf
-                    sites = await self._get_sites_fusion(api_url, omada_id, csrf_token)
+                    sites = await self._get_sites()
                     if not sites:
                         errors["base"] = "no_sites"
                     else:
@@ -524,16 +513,11 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
                 except TimeoutError:
                     errors["base"] = "timeout"
-                except aiohttp.ClientError as err:
+                except OmadaApiError as err:
+                    errors["base"] = _api_error_key(err)
                     _LOGGER.warning(
-                        "Fusion connection error (%s): %s",
-                        type(err).__name__,
-                        err,
+                        "Fusion gateway check failed (%s): %s", errors["base"], err
                     )
-                    error_key = _classify_connection_error(err)
-                    errors["base"] = error_key
-                except InvalidAuthError:
-                    errors["base"] = "invalid_auth"
                 except Exception:
                     _LOGGER.exception("Unexpected error during Fusion login")
                     errors["base"] = "unknown"
@@ -558,97 +542,6 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    def _get_fusion_session(self) -> aiohttp.ClientSession:
-        """Get or create an aiohttp session with unsafe cookie jar for Fusion.
-
-        Fusion gateways are accessed by IP address, requiring unsafe=True
-        on the cookie jar to persist session cookies.
-        """
-        if self._fusion_session is None:
-            self._fusion_session = async_create_clientsession(
-                self.hass,
-                verify_ssl=False,
-                cookie_jar=aiohttp.CookieJar(unsafe=True),
-            )
-        return self._fusion_session
-
-    @callback
-    def async_remove(self) -> None:
-        """Release the flow's own Fusion session when the flow ends.
-
-        Sessions from async_create_clientsession must be detached, not closed.
-        """
-        if self._fusion_session is not None:
-            self._fusion_session.detach()
-
-    async def _get_omada_cid(self, api_url: str) -> str:
-        """Auto-detect Omada controller ID from /api/info endpoint."""
-        session = self._get_fusion_session()
-        url = f"{api_url}/api/info"
-        async with session.get(
-            url, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
-        ) as response:
-            if response.status != 200:
-                raise InvalidAuthError("Failed to reach controller info endpoint")
-            result = await response.json(content_type=None)
-            if result.get("errorCode") != 0:
-                raise InvalidAuthError(
-                    f"Controller info error: {result.get('msg', 'Unknown')}"
-                )
-            omada_cid = result.get("result", {}).get("omadacId")
-            if not omada_cid:
-                raise InvalidAuthError("Could not detect Omada Controller ID")
-            return omada_cid  # type: ignore[no-any-return]
-
-    async def _fusion_login(
-        self, api_url: str, omada_id: str, username: str, password: str
-    ) -> str:
-        """Perform Fusion web login and return CSRF token."""
-        session = self._get_fusion_session()
-        url = f"{api_url}/{omada_id}/api/v2/login"
-        data = {"username": username, "password": password}
-        async with session.post(
-            url, json=data, timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT)
-        ) as response:
-            result = await response.json(content_type=None)
-            if result.get("errorCode") != 0:
-                raise InvalidAuthError(
-                    f"Login failed: {result.get('msg', 'Unknown error')}",
-                    error_code=result.get("errorCode"),
-                )
-            return result["result"]["token"]  # type: ignore[no-any-return]
-
-    async def _get_sites_fusion(
-        self, api_url: str, omada_id: str, csrf_token: str
-    ) -> list[dict[str, Any]]:
-        """Fetch sites using Fusion web-session auth."""
-        session = self._get_fusion_session()
-        url = f"{api_url}/openapi/v1/{omada_id}/sites"
-        headers = {
-            "Csrf-Token": csrf_token,
-            "Omada-Request-Source": "web-local",
-            "Content-Type": "application/json",
-        }
-        params = {"pageSize": 100, "page": 1}
-        async with session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            if response.status != 200:
-                _LOGGER.warning("Fusion sites: HTTP %s", response.status)
-                return []
-            result = await response.json(content_type=None)
-            if result.get("errorCode") != 0:
-                _LOGGER.warning(
-                    "Fusion sites: errorCode %s: %s",
-                    result.get("errorCode"),
-                    result.get("msg"),
-                )
-                return []
-            return result.get("result", {}).get("data", [])  # type: ignore[no-any-return]
-
     async def async_step_credentials(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -672,20 +565,11 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_user()
             # Validate credentials by obtaining access token
             try:
-                _LOGGER.debug("Attempting to get access token from %s", self._api_url)
-                token_data = await self._get_access_token(
+                await self._authenticate(
                     self._api_url,
                     self._omada_id,
                     self._client_id,
                     self._client_secret,
-                )
-                _LOGGER.debug("Successfully obtained access token")
-
-                # Store token data
-                self._access_token = token_data["accessToken"]
-                self._refresh_token = token_data["refreshToken"]
-                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
-                    seconds=token_data["expiresIn"]
                 )
 
                 # Fetch available sites
@@ -699,17 +583,14 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             except TimeoutError:
                 _LOGGER.warning("Connection timed out to %s", self._api_url)
                 errors["base"] = "timeout"
-            except aiohttp.ClientError as err:
-                error_key = _classify_connection_error(err)
+            except OmadaApiError as err:
+                errors["base"] = _api_error_key(err)
                 _LOGGER.warning(
-                    "Connection error during authentication (%s): %s",
-                    error_key,
+                    "Credential check failed for %s (%s): %s",
+                    self._api_url,
+                    errors["base"],
                     err,
                 )
-                errors["base"] = error_key
-            except InvalidAuthError as err:
-                _LOGGER.warning("Invalid authentication for %s", self._api_url)
-                errors["base"] = _invalid_auth_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception during authentication")
                 errors["base"] = "unknown"
@@ -801,9 +682,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             CONF_CLIENT_SECRET: self._client_secret,
             CONF_ACCESS_TOKEN: self._access_token,
             CONF_REFRESH_TOKEN: self._refresh_token,
-            CONF_TOKEN_EXPIRES_AT: self._token_expires_at.isoformat()
-            if self._token_expires_at
-            else "",
+            CONF_TOKEN_EXPIRES_AT: self._token_expires_at_iso(),
             CONF_SELECTED_SITES: self._selected_site_ids,
             CONF_VERIFY_SSL: self._verify_ssl,
         }
@@ -957,224 +836,46 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def _get_access_token(
-        self,
-        api_url: str,
-        omada_id: str,
-        client_id: str,
-        client_secret: str,
-    ) -> dict[str, Any]:
-        """Obtain access token using client credentials flow.
+    async def _authenticate(
+        self, api_url: str, omada_id: str, client_id: str, client_secret: str
+    ) -> None:
+        """Validate OAuth client credentials and keep a client for later steps.
 
-        Args:
-            api_url: Base API URL (cloud or local controller)
-            omada_id: The Omada controller ID (MSP ID or Customer ID)
-            client_id: OAuth2 client ID
-            client_secret: OAuth2 client secret
-
-        Returns:
-            Dictionary containing access token data
+        Obtains tokens with the client_credentials grant. The tokens reach the
+        flow through _async_store_tokens, also when the client refreshes them
+        in a later step.
 
         Raises:
-            InvalidAuth: If authentication fails
-            aiohttp.ClientError: If connection fails
-
-        """
-        _LOGGER.debug("Getting access token from %s", api_url)
-        session = async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
-
-        # Use client credentials grant type as specified in Omada API docs
-        url = f"{api_url}/openapi/authorize/token"
-        params = {"grant_type": "client_credentials"}
-        data = {
-            "omadacId": omada_id,
-            "client_id": client_id,
-            "client_secret": "***",  # Don't log secret
-        }
-        _LOGGER.debug("POST %s with params %s and data %s", url, params, data)
-
-        # Use actual client_secret for the request
-        data["client_secret"] = client_secret
-
-        async with session.post(
-            url,
-            params=params,
-            json=data,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            _LOGGER.debug("Response status: %s", response.status)
-            if response.status == 401:
-                raise InvalidAuthError("Invalid client credentials")
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error("HTTP error %s: %s", response.status, response_text)
-                response.raise_for_status()
-
-            result = await response.json()
-
-            # Check for API error codes
-            if result.get("errorCode") != 0:
-                error_code = result.get("errorCode")
-                error_msg = result.get("msg", "Unknown error")
-                _LOGGER.error(
-                    "API error during authentication: %s - %s", error_code, error_msg
-                )
-                raise InvalidAuthError(f"API error: {error_msg}", error_code=error_code)
-
-            return result["result"]  # type: ignore[no-any-return]
-
-    async def _get_sites(self) -> list[dict[str, Any]]:
-        """Fetch available sites from the controller.
-
-        Returns:
-            List of site dictionaries
-
-        Raises:
-            aiohttp.ClientError: If connection fails
+            OmadaApiError: If the controller rejects the credentials or
+                cannot be reached
 
         """
         session = async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
-        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites"
-        headers = {"Authorization": f"AccessToken={self._access_token}"}
-        # Add pagination parameters as shown in the Omada API documentation
-        params = {"pageSize": 100, "page": 1}
-
-        _LOGGER.debug("Fetching sites from %s with params %s", url, params)
-
-        async with session.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            _LOGGER.debug("Sites endpoint response status: %s", response.status)
-            if response.status != 200:
-                response_text = await response.text()
-                _LOGGER.error("Sites API error %s: %s", response.status, response_text)
-                response.raise_for_status()
-
-            result = await response.json()
-
-            if result.get("errorCode") != 0:
-                error_msg = result.get("msg", "Unknown error")
-                raise InvalidAuthError(f"API error: {error_msg}")
-
-            return result["result"]["data"]  # type: ignore[no-any-return]
-
-    def _get_http_session(self) -> aiohttp.ClientSession:
-        """Return the session to use for authenticated HTTP calls.
-
-        Fusion endpoints validate the session cookie together with the CSRF
-        token, so Fusion mode must reuse the flow's own cookie-jar session
-        rather than HA's cookie-less shared session.
-        """
-        if self._controller_type == CONTROLLER_TYPE_FUSION:
-            return self._get_fusion_session()
-        return async_get_clientsession(self.hass, verify_ssl=self._verify_ssl)
-
-    def _build_api_headers(self) -> dict[str, str]:
-        """Build API headers based on current auth mode."""
-        if self._controller_type == CONTROLLER_TYPE_FUSION and self._fusion_csrf_token:
-            return {
-                "Csrf-Token": self._fusion_csrf_token,
-                "Omada-Request-Source": "web-local",
-                "Content-Type": "application/json",
-            }
-        return {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
-
-    async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
-        """Fetch all clients for a site."""
-        return await _fetch_all_clients(
-            self._get_http_session(),
-            f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients",
-            self._build_api_headers(),
-            site_id,
+        auth = ClientCredentialsAuth(
+            session=session,
+            token_update_callback=self._async_store_tokens,
+            api_url=api_url,
+            omada_id=omada_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            access_token="",
+            refresh_token="",
+            token_expires_at=dt.datetime.now(dt.UTC),
         )
+        await auth.authenticate()
+        self._api_client = OmadaApiClient.from_auth(session, auth, api_url, omada_id)
 
-    async def _get_applications(self, site_id: str) -> list[dict[str, Any]]:
-        """Fetch all available applications for DPI tracking.
+    async def _async_store_tokens(
+        self, access_token: str, refresh_token: str, expires_at_iso: str
+    ) -> None:
+        """Keep the latest OAuth tokens for the entry this flow creates."""
+        self._access_token = access_token
+        self._refresh_token = refresh_token
+        self._token_expires_at = dt.datetime.fromisoformat(expires_at_iso)
 
-        Args:
-            site_id: Site ID to get applications for
-
-        Returns:
-            List of application dictionaries with applicationId, applicationName, etc.
-
-        Raises:
-            aiohttp.ClientError: If connection fails
-
-        """
-        session = self._get_http_session()
-        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
-        headers = self._build_api_headers()
-
-        _LOGGER.debug("Fetching applications from site %s", site_id)
-
-        all_apps: list[dict[str, Any]] = []
-        page = 1
-        page_size = 1000
-        total_rows = 0
-
-        while True:
-            params = {
-                "page": page,
-                "pageSize": page_size,
-            }
-
-            async with session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                _LOGGER.debug(
-                    "Applications endpoint response status: %s (page %d)",
-                    response.status,
-                    page,
-                )
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        "Applications API error %s: %s", response.status, response_text
-                    )
-                    if response.status == 404:
-                        _LOGGER.warning(
-                            "Applications endpoint not supported for site %s; "
-                            "skipping application selection",
-                            site_id,
-                        )
-                        return []
-                    response.raise_for_status()
-
-                result = await response.json(content_type=None)
-
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    # Applications might not be supported, return empty list
-                    _LOGGER.warning("Applications API error: %s", error_msg)
-                    return []
-
-                page_data = result["result"]["data"]
-                total_rows = result["result"].get("totalRows", 0)
-                all_apps.extend(page_data)
-
-                # Check if we've fetched all applications
-                if len(all_apps) >= total_rows or len(page_data) < page_size:
-                    break
-
-                page += 1
-
-        _LOGGER.info(
-            "Fetched %d applications (total: %d) from site %s across %d pages",
-            len(all_apps),
-            total_rows,
-            site_id,
-            page,
-        )
-        return all_apps
+    def _token_expires_at_iso(self) -> str:
+        """Return the token expiry as stored in the entry data."""
+        return self._token_expires_at.isoformat() if self._token_expires_at else ""
 
     async def async_step_applications(
         self, user_input: dict[str, Any] | None = None
@@ -1319,32 +1020,23 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
             try:
-                token_data = await self._get_access_token(
+                await self._authenticate(
                     self._api_url,
                     omada_id,
                     client_id,
                     client_secret,
                 )
-                self._access_token = token_data["accessToken"]
-                self._refresh_token = token_data["refreshToken"]
-                self._token_expires_at = dt.datetime.now(dt.UTC) + dt.timedelta(
-                    seconds=token_data["expiresIn"]
-                )
             except TimeoutError:
                 _LOGGER.warning("Connection timed out to %s", self._api_url)
                 errors["base"] = "timeout"
                 return self._show_reconfigure_form(reconfigure_entry, errors)
-            except aiohttp.ClientError as err:
-                error_key = _classify_connection_error(err)
+            except OmadaApiError as err:
+                errors["base"] = _api_error_key(err)
                 _LOGGER.warning(
-                    "Connection error during reconfigure (%s): %s",
-                    error_key,
+                    "Credential check failed during reconfigure (%s): %s",
+                    errors["base"],
                     err,
                 )
-                errors["base"] = error_key
-                return self._show_reconfigure_form(reconfigure_entry, errors)
-            except InvalidAuthError as err:
-                errors["base"] = _invalid_auth_error_key(err)
                 return self._show_reconfigure_form(reconfigure_entry, errors)
             except Exception:
                 _LOGGER.exception("Unexpected exception during reconfigure")
@@ -1443,11 +1135,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_CLIENT_SECRET: self._client_secret,
                         CONF_ACCESS_TOKEN: self._access_token,
                         CONF_REFRESH_TOKEN: self._refresh_token,
-                        CONF_TOKEN_EXPIRES_AT: (
-                            self._token_expires_at.isoformat()
-                            if self._token_expires_at
-                            else ""
-                        ),
+                        CONF_TOKEN_EXPIRES_AT: self._token_expires_at_iso(),
                         CONF_SELECTED_SITES: selected,
                         CONF_VERIFY_SSL: self._verify_ssl,
                     },
@@ -1535,12 +1223,7 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
 
             try:
                 # Get new tokens
-                token_data = await self._get_access_token(
-                    api_url,
-                    omada_id,
-                    client_id,
-                    client_secret,
-                )
+                await self._authenticate(api_url, omada_id, client_id, client_secret)
 
                 # Update config entry with new credentials
                 return self.async_update_reload_and_abort(
@@ -1549,26 +1232,22 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_CLIENT_ID: client_id,
                         CONF_CLIENT_SECRET: client_secret,
                         CONF_OMADA_ID: omada_id,
-                        CONF_ACCESS_TOKEN: token_data["accessToken"],
-                        CONF_REFRESH_TOKEN: token_data["refreshToken"],
-                        CONF_TOKEN_EXPIRES_AT: (
-                            dt.datetime.now(dt.UTC)
-                            + dt.timedelta(seconds=token_data["expiresIn"])
-                        ).isoformat(),
+                        CONF_ACCESS_TOKEN: self._access_token,
+                        CONF_REFRESH_TOKEN: self._refresh_token,
+                        CONF_TOKEN_EXPIRES_AT: self._token_expires_at_iso(),
                     },
                 )
 
             except TimeoutError:
                 _LOGGER.warning("Connection timed out during reauth")
                 errors["base"] = "timeout"
-            except aiohttp.ClientError as err:
-                error_key = _classify_connection_error(err)
+            except OmadaApiError as err:
+                errors["base"] = _api_error_key(err)
                 _LOGGER.warning(
-                    "Connection error during reauth (%s): %s", error_key, err
+                    "Credential check failed during reauth (%s): %s",
+                    errors["base"],
+                    err,
                 )
-                errors["base"] = error_key
-            except InvalidAuthError as err:
-                errors["base"] = _invalid_auth_error_key(err)
             except Exception:
                 _LOGGER.exception("Unexpected exception during reauth")
                 errors["base"] = "unknown"
@@ -1592,15 +1271,12 @@ class OmadaConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
-class OmadaOptionsFlowHandler(OptionsFlow):
+class OmadaOptionsFlowHandler(_OmadaFlowApiMixin, OptionsFlow):
     """Handle options flow for Omada Open API."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         """Initialize options flow."""
         super().__init__()
-        self._api_url: str | None = None
-        self._omada_id: str | None = None
-        self._access_token: str | None = None
         self._selected_site_ids: list[str] = []
         self._available_clients: list[dict[str, Any]] = []
         self._available_applications: list[dict[str, Any]] = []
@@ -1610,124 +1286,76 @@ class OmadaOptionsFlowHandler(OptionsFlow):
         # belonging to currently-hidden SSIDs. None until first initialized
         # from the persisted entry options.
         self._working_client_macs: list[str] | None = None
-        # Fusion (web_session) support: these entries store no access_token,
-        # so a fresh login is required each time the options flow needs to
-        # call the clients/applications endpoints.
-        self._fusion_csrf_token: str | None = None
-        self._fusion_session: aiohttp.ClientSession | None = None
-        # Reused live auth strategy from the entry's running api_client, when
-        # available (see _ensure_fusion_auth). Avoids an independent Fusion
-        # login racing with the coordinator's active session.
-        self._live_auth: OmadaAuthStrategy | None = None
-        # Reused live cookie-jar session from the entry's running api_client.
-        # Required alongside _live_auth: some Fusion endpoints (clients,
-        # applications) validate the session cookie together with the CSRF
-        # token, so HA's cookie-less shared session gets rejected even with
-        # a valid token.
-        self._live_session: aiohttp.ClientSession | None = None
 
-    def _get_fusion_session(self) -> aiohttp.ClientSession:
-        """Get or create an aiohttp session with unsafe cookie jar for Fusion.
+    def _ensure_api_client(self) -> None:
+        """Set up the API client for the entry, reusing the running one.
 
-        Fusion gateways are accessed by IP address, requiring unsafe=True
-        on the cookie jar to persist session cookies.
+        Fusion gateways allow only one active session: an independent login
+        would invalidate the coordinators' session (and the other way round),
+        and some Fusion endpoints check the session cookie together with the
+        CSRF token. A loaded entry's client is therefore reused. Only an entry
+        that is not loaded gets its own client, built from the entry data;
+        OAuth tokens it refreshes are written back to the entry.
         """
-        if self._fusion_session is None:
-            self._fusion_session = async_create_clientsession(
-                self.hass,
-                verify_ssl=False,
-                cookie_jar=aiohttp.CookieJar(unsafe=True),
-            )
-        return self._fusion_session
-
-    @callback
-    def async_remove(self) -> None:
-        """Release the flow's own Fusion session when the flow ends.
-
-        Sessions from async_create_clientsession must be detached, not closed.
-        """
-        if self._fusion_session is not None:
-            self._fusion_session.detach()
-
-    async def _fusion_login(self) -> str:
-        """Log in to a Fusion gateway using stored credentials, return CSRF token.
-
-        Fusion sessions are invalidated on each new login, and the config
-        entry does not persist a token, so this must be called fresh each
-        time the options flow needs authenticated access.
-        """
-        session = self._get_fusion_session()
-        username = self.config_entry.data[CONF_USERNAME]
-        password = self.config_entry.data[CONF_PASSWORD]
-        url = f"{self._api_url}/{self._omada_id}/api/v2/login"
-        async with session.post(
-            url,
-            json={"username": username, "password": password},
-            timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-        ) as response:
-            result = await response.json(content_type=None)
-            if result.get("errorCode") != 0:
-                raise InvalidAuthError(
-                    f"Fusion login failed: {result.get('msg', 'Unknown error')}",
-                    error_code=result.get("errorCode"),
-                )
-            return result["result"]["token"]  # type: ignore[no-any-return]
-
-    async def _ensure_fusion_auth(self) -> None:
-        """Ensure a valid Fusion (web_session) auth is available, if needed.
-
-        Fusion gateways allow only one active session at a time. Logging in
-        independently from the options flow would invalidate the
-        coordinator's already-active session (and vice versa), which
-        surfaces as an API "logged out of the controller" error. Reuse the
-        entry's live api_client auth strategy when the entry is currently
-        loaded; only fall back to an independent login if it is not.
-        """
-        auth_mode = self.config_entry.data.get(CONF_AUTH_MODE, AUTH_MODE_OPENAPI)
-        if auth_mode != AUTH_MODE_WEB_SESSION:
+        if self._api_client is not None:
             return
         runtime_data = getattr(self.config_entry, "runtime_data", None)
         if runtime_data is not None:
-            await runtime_data.api_client.auth.ensure_valid_session()
-            self._live_auth = runtime_data.api_client.auth
-            self._live_session = runtime_data.api_client.session
-        else:
-            self._fusion_csrf_token = await self._fusion_login()
+            self._api_client = runtime_data.api_client
+            return
 
-    def _get_http_session(self) -> aiohttp.ClientSession:
-        """Return the session to use for authenticated HTTP calls.
-
-        Reuses the live coordinator's cookie-jar session when available,
-        falls back to the flow's own Fusion session for an independent
-        login, or HA's shared session for non-Fusion (OpenAPI) auth.
-        """
-        if self._live_session is not None:
-            return self._live_session
-        if self._fusion_csrf_token:
-            return self._get_fusion_session()
-        return async_get_clientsession(
-            self.hass,
-            verify_ssl=resolve_verify_ssl(
-                self.config_entry.data.get(CONF_CONTROLLER_TYPE),
-                self.config_entry.data.get(CONF_VERIFY_SSL),
-            ),
+        data = self.config_entry.data
+        api_url: str = data[CONF_API_URL]
+        omada_id: str = data[CONF_OMADA_ID]
+        auth_mode = data.get(
+            CONF_AUTH_MODE,
+            AUTH_MODE_WEB_SESSION if CONF_USERNAME in data else AUTH_MODE_OPENAPI,
         )
+        session: aiohttp.ClientSession
+        auth: OmadaAuthStrategy
+        if auth_mode == AUTH_MODE_WEB_SESSION:
+            session = self._get_fusion_session()
+            auth = WebSessionAuth(
+                session=session,
+                token_update_callback=_discard_tokens,
+                api_url=api_url,
+                omada_id=omada_id,
+                username=data[CONF_USERNAME],
+                password=data[CONF_PASSWORD],
+            )
+        else:
+            session = async_get_clientsession(
+                self.hass,
+                verify_ssl=resolve_verify_ssl(
+                    data.get(CONF_CONTROLLER_TYPE), data.get(CONF_VERIFY_SSL)
+                ),
+            )
+            auth = ClientCredentialsAuth(
+                session=session,
+                token_update_callback=self._async_persist_tokens,
+                api_url=api_url,
+                omada_id=omada_id,
+                client_id=data[CONF_CLIENT_ID],
+                client_secret=data[CONF_CLIENT_SECRET],
+                access_token=data[CONF_ACCESS_TOKEN],
+                refresh_token=data[CONF_REFRESH_TOKEN],
+                token_expires_at=dt.datetime.fromisoformat(data[CONF_TOKEN_EXPIRES_AT]),
+            )
+        self._api_client = OmadaApiClient.from_auth(session, auth, api_url, omada_id)
 
-    def _build_api_headers(self) -> dict[str, str]:
-        """Build API headers based on current auth mode."""
-        headers = {"Content-Type": "application/json"}
-        if self._live_auth is not None:
-            return self._live_auth.decorate_request(headers)
-        if self._fusion_csrf_token:
-            return {
-                "Csrf-Token": self._fusion_csrf_token,
-                "Omada-Request-Source": "web-local",
-                "Content-Type": "application/json",
-            }
-        return {
-            "Authorization": f"AccessToken={self._access_token}",
-            "Content-Type": "application/json",
-        }
+    async def _async_persist_tokens(
+        self, access_token: str, refresh_token: str, expires_at_iso: str
+    ) -> None:
+        """Write OAuth tokens refreshed by the flow's own client to the entry."""
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={
+                **self.config_entry.data,
+                CONF_ACCESS_TOKEN: access_token,
+                CONF_REFRESH_TOKEN: refresh_token,
+                CONF_TOKEN_EXPIRES_AT: expires_at_iso,
+            },
+        )
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -2160,17 +1788,12 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                     },
                 )
 
-        # Get credentials from config entry
-        self._api_url = self.config_entry.data[CONF_API_URL]
-        self._omada_id = self.config_entry.data[CONF_OMADA_ID]
         self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
 
         # Fetch all clients only if not already loaded
         if not self._available_clients:
             try:
-                await self._ensure_fusion_auth()
-                if self._fusion_csrf_token is None and self._live_auth is None:
-                    self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
+                self._ensure_api_client()
                 all_clients = []
                 for site_id in self._selected_site_ids:
                     clients_data = await self._get_clients(site_id)
@@ -2282,16 +1905,11 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 },
             )
 
-        # Get credentials from config entry
-        self._api_url = self.config_entry.data[CONF_API_URL]
-        self._omada_id = self.config_entry.data[CONF_OMADA_ID]
         self._selected_site_ids = self.config_entry.data.get(CONF_SELECTED_SITES, [])
 
         # Fetch applications from the first selected site
         try:
-            await self._ensure_fusion_auth()
-            if self._fusion_csrf_token is None and self._live_auth is None:
-                self._access_token = self.config_entry.data[CONF_ACCESS_TOKEN]
+            self._ensure_api_client()
             if self._selected_site_ids:
                 first_site_id = self._selected_site_ids[0]
                 self._available_applications = await self._get_applications(
@@ -2351,102 +1969,3 @@ class OmadaOptionsFlowHandler(OptionsFlow):
                 "selected_count": str(len(current_selection)),
             },
         )
-
-    async def _get_clients(self, site_id: str) -> list[dict[str, Any]]:
-        """Fetch all clients for a site."""
-        return await _fetch_all_clients(
-            self._get_http_session(),
-            f"{self._api_url}/openapi/v2/{self._omada_id}/sites/{site_id}/clients",
-            self._build_api_headers(),
-            site_id,
-        )
-
-    async def _get_applications(self, site_id: str) -> list[dict[str, Any]]:
-        """Fetch all available applications for DPI tracking.
-
-        Args:
-            site_id: Site ID to get applications for
-
-        Returns:
-            List of application dictionaries
-
-        Raises:
-            aiohttp.ClientError: If connection fails
-
-        """
-        session = self._get_http_session()
-        url = f"{self._api_url}/openapi/v1/{self._omada_id}/sites/{site_id}/applicationControl/applications"
-        headers = self._build_api_headers()
-
-        _LOGGER.debug("Fetching applications from site %s", site_id)
-
-        all_apps: list[dict[str, Any]] = []
-        page = 1
-        page_size = 1000
-        total_rows = 0
-
-        while True:
-            params = {
-                "page": page,
-                "pageSize": page_size,
-            }
-
-            async with session.get(
-                url,
-                headers=headers,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=DEFAULT_TIMEOUT),
-            ) as response:
-                _LOGGER.debug(
-                    "Applications endpoint response status: %s (page %d)",
-                    response.status,
-                    page,
-                )
-                if response.status != 200:
-                    response_text = await response.text()
-                    _LOGGER.error(
-                        "Applications API error %s: %s", response.status, response_text
-                    )
-                    if response.status == 404:
-                        _LOGGER.warning(
-                            "Applications endpoint not supported for site %s; "
-                            "skipping application selection",
-                            site_id,
-                        )
-                        return []
-                    response.raise_for_status()
-
-                result = await response.json(content_type=None)
-
-                if result.get("errorCode") != 0:
-                    error_msg = result.get("msg", "Unknown error")
-                    _LOGGER.warning("Applications API error: %s", error_msg)
-                    return []
-
-                page_data = result["result"]["data"]
-                total_rows = result["result"].get("totalRows", 0)
-                all_apps.extend(page_data)
-
-                # Check if we've fetched all applications
-                if len(all_apps) >= total_rows or len(page_data) < page_size:
-                    break
-
-                page += 1
-
-        _LOGGER.info(
-            "Fetched %d applications (total: %d) from site %s across %d pages",
-            len(all_apps),
-            total_rows,
-            site_id,
-            page,
-        )
-        return all_apps
-
-
-class InvalidAuthError(Exception):
-    """Error to indicate authentication failure."""
-
-    def __init__(self, message: str, error_code: int | None = None) -> None:
-        """Initialize with the message and optional Omada API error code."""
-        super().__init__(message)
-        self.error_code = error_code
