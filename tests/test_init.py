@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import ssl
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -25,13 +26,7 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.omada_open_api import (
-    _cleanup_devices,
-    _cleanup_entities,
     _is_certificate_error,
-    _migrate_data_to_options,
-    _migrate_merged_devices,
-    _migrate_wan_speed_test_button_unique_ids,
-    _prune_stale_infra_devices,
     async_remove_config_entry_device,
     async_setup_entry,
 )
@@ -40,12 +35,14 @@ from custom_components.omada_open_api.const import (
     AUTH_MODE_WEB_SESSION,
     CONF_ACCESS_TOKEN,
     CONF_API_URL,
+    CONF_APP_SCAN_INTERVAL,
     CONF_AUTH_MODE,
     CONF_CLIENT_ID,
     CONF_CLIENT_SCAN_INTERVAL,
     CONF_CLIENT_SECRET,
     CONF_CONTROLLER_TYPE,
     CONF_DEVICE_SCAN_INTERVAL,
+    CONF_DISCONNECT_TIMEOUT,
     CONF_ENABLE_VPN_SENSORS,
     CONF_ENABLE_WAN_SPEED_TEST,
     CONF_OMADA_ID,
@@ -61,6 +58,17 @@ from custom_components.omada_open_api.const import (
     CONTROLLER_TYPE_LOCAL,
     DOMAIN,
     resolve_verify_ssl,
+)
+from custom_components.omada_open_api.migrations import (
+    migrate_data_to_options,
+    migrate_merged_devices,
+    migrate_wan_speed_test_button_unique_ids,
+)
+from custom_components.omada_open_api.registry_cleanup import (
+    cleanup_devices,
+    cleanup_entities,
+    prune_stale_infra_devices,
+    purge_absent_band_entities,
 )
 
 from .conftest import (
@@ -483,7 +491,7 @@ def test_migrate_wan_speed_test_button_unique_id(hass: HomeAssistant) -> None:
         "ports": [{"port": 1, "portUuid": "1_opaque-port-id", "name": "WAN1"}]
     }
 
-    _migrate_wan_speed_test_button_unique_ids(
+    migrate_wan_speed_test_button_unique_ids(
         hass, {("site-id", gateway_mac): coordinator}
     )
 
@@ -512,7 +520,7 @@ def test_migrate_wan_speed_test_button_removes_duplicate(hass: HomeAssistant) ->
     coordinator = MagicMock()
     coordinator.data = {"ports": [{"port": 1, "portUuid": "1_opaque-port-id"}]}
 
-    _migrate_wan_speed_test_button_unique_ids(
+    migrate_wan_speed_test_button_unique_ids(
         hass, {("site-id", gateway_mac): coordinator}
     )
 
@@ -681,6 +689,51 @@ async def test_setup_entry_skips_missing_site(hass: HomeAssistant) -> None:
     assert "nonexistent_site" not in entry.runtime_data.coordinators
 
 
+@pytest.mark.parametrize(
+    ("auth_overrides", "expected_sites"),
+    [
+        # Fusion: the gateway's only site stands in for a changed site ID.
+        (
+            {
+                CONF_AUTH_MODE: AUTH_MODE_WEB_SESSION,
+                CONF_USERNAME: "admin",
+                CONF_PASSWORD: "secret",
+            },
+            ["old_fusion_site"],
+        ),
+        # Fusion entry from before auth_mode was stored: known by its username.
+        ({CONF_USERNAME: "admin", CONF_PASSWORD: "secret"}, ["old_fusion_site"]),
+        # OpenAPI: a missing site is skipped, there is no fallback.
+        ({}, []),
+    ],
+)
+async def test_setup_entry_single_site_fallback(
+    hass: HomeAssistant, auth_overrides: dict, expected_sites: list[str]
+) -> None:
+    """A missing selected site falls back to the only site on Fusion only.
+
+    Client tracking keeps to sites the controller lists under their selected
+    ID, so the fallback site gets no client coordinator.
+    """
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_SELECTED_SITES: ["old_fusion_site"],
+            **auth_overrides,
+        },
+        options={CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"]},
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert list(entry.runtime_data.coordinators) == expected_sites
+    assert entry.runtime_data.client_coordinators == []
+
+
 # ---------------------------------------------------------------------------
 # Threat heatmap coordinator setup
 # ---------------------------------------------------------------------------
@@ -809,7 +862,7 @@ async def test_setup_viewer_only_sets_no_write_access(hass: HomeAssistant) -> No
 
 
 # ---------------------------------------------------------------------------
-# Cleanup tests (_cleanup_devices / _cleanup_entities)
+# Cleanup tests (cleanup_devices / cleanup_entities)
 # ---------------------------------------------------------------------------
 
 
@@ -944,8 +997,8 @@ async def test_cleanup_no_runtime_data_is_safe(
     entry = _build_entry(hass)
     # Don't set up the entry — no runtime_data exists.
     # These should not raise.
-    await _cleanup_devices(hass, entry)
-    await _cleanup_entities(hass, entry)
+    await cleanup_devices(hass, entry)
+    await cleanup_entities(hass, entry)
 
 
 async def test_cleanup_entities_removes_deselected_app(
@@ -1071,7 +1124,7 @@ async def test_migrate_data_to_options(hass: HomeAssistant) -> None:
     assert CONF_DEVICE_SCAN_INTERVAL in entry.data
     assert CONF_CLIENT_SCAN_INTERVAL in entry.data
 
-    _migrate_data_to_options(hass, entry)
+    migrate_data_to_options(hass, entry)
 
     # After migration, keys moved to options
     assert CONF_DEVICE_SCAN_INTERVAL not in entry.data
@@ -1103,7 +1156,7 @@ async def test_migrate_data_to_options_noop(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
     original_data = dict(entry.data)
 
-    _migrate_data_to_options(hass, entry)
+    migrate_data_to_options(hass, entry)
 
     # Data should not have changed
     assert dict(entry.data) == original_data
@@ -1121,7 +1174,7 @@ async def test_migrate_data_to_options_clamps_legacy_scan_intervals(
         },
     )
 
-    _migrate_data_to_options(hass, entry)
+    migrate_data_to_options(hass, entry)
 
     assert entry.options[CONF_DEVICE_SCAN_INTERVAL] == 30
     assert entry.options[CONF_CLIENT_SCAN_INTERVAL] == 30
@@ -1472,6 +1525,140 @@ async def test_repair_issue_dpi_cleared_no_apps(hass: HomeAssistant) -> None:
     assert issue is None
 
 
+@pytest.mark.parametrize(
+    ("issue_id", "overrides", "options"),
+    [
+        ("write_access_denied", {}, {}),
+        ("dpi_no_gateway", {}, {}),
+        ("dpi_no_gateway", {}, {CONF_SELECTED_APPLICATIONS: ["app_1"]}),
+    ],
+)
+async def test_setup_clears_a_previous_repair_issue(
+    hass: HomeAssistant, issue_id: str, overrides: dict, options: dict
+) -> None:
+    """An issue raised by an earlier setup is removed once its cause is gone."""
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        issue_id,
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key=issue_id,
+    )
+    entry = _build_entry(hass, options=options)
+    patcher, mock_client = _patch_api_client(**overrides)
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+    assert entry.runtime_data.has_write_access is True
+    mock_client.check_write_access.assert_awaited_once_with(TEST_SITE_ID)
+
+
+async def test_write_access_denied_is_stored(hass: HomeAssistant) -> None:
+    """A denied write probe is kept in the runtime data and raises an issue."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        check_write_access=AsyncMock(return_value=False),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.runtime_data.has_write_access is False
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "write_access_denied")
+    assert issue is not None
+    assert issue.is_fixable is False
+    assert issue.issue_domain == DOMAIN
+
+
+async def test_setup_registers_site_device_and_links_client_tracking(
+    hass: HomeAssistant,
+) -> None:
+    """The site device is registered and client/app coordinators use the options."""
+    entry = _build_entry(
+        hass,
+        options={
+            CONF_SELECTED_CLIENTS: ["11-22-33-44-55-AA"],
+            CONF_SELECTED_APPLICATIONS: ["100"],
+            CONF_CLIENT_SCAN_INTERVAL: 120,
+            CONF_APP_SCAN_INTERVAL: 900,
+            CONF_DISCONNECT_TIMEOUT: 5,
+        },
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    site_device = dr.async_get(hass).async_get_device_by_identifier(
+        (DOMAIN, f"site_{TEST_SITE_ID}"), entry.entry_id
+    )
+    assert site_device is not None
+    assert site_device.name == f"{TEST_SITE_NAME} - Site"
+    assert site_device.manufacturer == "TP-Link"
+    assert site_device.model == "Omada Site"
+    assert site_device.configuration_url == TEST_API_URL
+    assert entry.runtime_data.site_devices[TEST_SITE_ID].id == site_device.id
+
+    (client_coordinator,) = entry.runtime_data.client_coordinators
+    assert client_coordinator.site_id == TEST_SITE_ID
+    assert client_coordinator.site_name == TEST_SITE_NAME
+    assert client_coordinator.site_device_id == site_device.id
+    assert client_coordinator.disconnect_timeout == 5
+    assert client_coordinator.update_interval.total_seconds() == 120
+
+    (app_coordinator,) = entry.runtime_data.app_traffic_coordinators
+    assert app_coordinator.site_id == TEST_SITE_ID
+    assert app_coordinator.site_name == TEST_SITE_NAME
+    assert app_coordinator.update_interval.total_seconds() == 900
+
+
+async def test_setup_skips_a_missing_first_site(hass: HomeAssistant) -> None:
+    """A missing selected site does not stop the sites after it."""
+    entry = _build_entry(
+        hass,
+        data_overrides={CONF_SELECTED_SITES: ["nonexistent_site", TEST_SITE_ID]},
+    )
+    patcher, _mock_client = _patch_api_client()
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert list(entry.runtime_data.coordinators) == [TEST_SITE_ID]
+
+
+@pytest.mark.parametrize(
+    ("error", "expected", "key"),
+    [
+        (OmadaApiAuthError("wrong password"), ConfigEntryAuthFailed, "auth_failed"),
+        (TimeoutError(), ConfigEntryNotReady, "cannot_connect"),
+        (
+            _certificate_error(),
+            ConfigEntryNotReady,
+            "certificate_verification_failed",
+        ),
+    ],
+)
+async def test_setup_errors_use_translation_keys(
+    hass: HomeAssistant, error: Exception, expected: type, key: str
+) -> None:
+    """Setup failures are raised with the integration's translation keys."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(get_sites=AsyncMock(side_effect=error))
+
+    with patcher, pytest.raises(expected) as raised:
+        await async_setup_entry(hass, entry)
+
+    assert raised.value.translation_domain == DOMAIN
+    assert raised.value.translation_key == key
+
+
 # ---------------------------------------------------------------------------
 # Enhanced device removal: active infrastructure blocking
 # ---------------------------------------------------------------------------
@@ -1501,7 +1688,7 @@ async def test_remove_device_blocks_active_infrastructure(
 
 
 # ---------------------------------------------------------------------------
-# _prune_stale_infra_devices tests
+# prune_stale_infra_devices tests
 # ---------------------------------------------------------------------------
 
 
@@ -1588,7 +1775,7 @@ async def test_prune_does_not_touch_selected_client_or_site_devices(
     Client devices live in a separate OmadaClientCoordinator and are never
     present in a site coordinator's data["devices"], so a naive diff would
     misclassify a currently-selected client as "vanished infra". Their
-    lifecycle stays owned by _cleanup_devices, not this pass.
+    lifecycle stays owned by cleanup_devices, not this pass.
     """
     client_mac = "11-22-33-44-55-AA"
     entry = _build_entry(
@@ -1663,7 +1850,7 @@ async def test_prune_no_runtime_data_is_safe(hass: HomeAssistant) -> None:
     """Test that pruning is safe when runtime_data is missing."""
     entry = _build_entry(hass)
     # Don't set up the entry — no runtime_data exists.
-    _prune_stale_infra_devices(hass, entry)
+    prune_stale_infra_devices(hass, entry)
 
 
 async def test_prune_ignores_non_domain_identifiers(hass: HomeAssistant) -> None:
@@ -1695,7 +1882,7 @@ async def test_prune_ignores_non_domain_identifiers(hass: HomeAssistant) -> None
 
 
 # ---------------------------------------------------------------------------
-# _migrate_merged_devices tests
+# migrate_merged_devices tests
 # ---------------------------------------------------------------------------
 
 
@@ -1728,7 +1915,7 @@ async def test_migrate_merged_devices_removes_multi_mac_device(
         device_id=merged_device.id,
     )
 
-    _migrate_merged_devices(hass, entry)
+    migrate_merged_devices(hass, entry)
 
     assert dev_reg.async_get(merged_device.id) is None
     assert ent_reg.async_get(entity_entry.entity_id) is None
@@ -1746,7 +1933,7 @@ async def test_migrate_merged_devices_leaves_single_identifier_devices_alone(
         name="Office AP",
     )
 
-    _migrate_merged_devices(hass, entry)
+    migrate_merged_devices(hass, entry)
 
     assert dev_reg.async_get(device.id) is not None
 
@@ -1763,7 +1950,7 @@ async def test_migrate_merged_devices_ignores_site_identifier(
         name="Test Site",
     )
 
-    _migrate_merged_devices(hass, entry)
+    migrate_merged_devices(hass, entry)
 
     assert dev_reg.async_get(site_device.id) is not None
 
@@ -1840,3 +2027,87 @@ async def test_remove_device_allows_merged_device(hass: HomeAssistant) -> None:
 
     result = await async_remove_config_entry_device(hass, entry, merged_device)
     assert result is True
+
+
+async def test_repair_issue_dpi_not_raised_without_apps(hass: HomeAssistant) -> None:
+    """Without selected apps, a site without gateway raises no DPI issue."""
+    entry = _build_entry(hass)
+    patcher, _mock_client = _patch_api_client(
+        get_devices=AsyncMock(return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert ir.async_get(hass).async_get_issue(DOMAIN, "dpi_no_gateway") is None
+
+
+async def test_repair_issue_dpi_fields(hass: HomeAssistant) -> None:
+    """The DPI issue is a non-fixable warning with its own translation."""
+    entry = _build_entry(hass, options={CONF_SELECTED_APPLICATIONS: ["app_1"]})
+    patcher, _mock_client = _patch_api_client(
+        get_devices=AsyncMock(return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    issue = ir.async_get(hass).async_get_issue(DOMAIN, "dpi_no_gateway")
+    assert issue is not None
+    assert issue.is_fixable is False
+    assert issue.issue_domain == DOMAIN
+    assert issue.translation_key == "dpi_no_gateway"
+
+
+# ---------------------------------------------------------------------------
+# Absent AP band entities
+# ---------------------------------------------------------------------------
+
+
+async def test_purge_absent_band_entities(hass: HomeAssistant) -> None:
+    """Band sensors of bands an AP lacks are removed; everything else stays."""
+    entry = MockConfigEntry(domain=DOMAIN, entry_id="band_entry")
+    entry.add_to_hass(hass)
+    reg = er.async_get(hass)
+    ap, switch = "AA-BB-CC-DD-EE-01", "AA-BB-CC-DD-EE-02"
+
+    def _add(unique_id: str, platform: str = DOMAIN) -> str:
+        return reg.async_get_or_create(
+            "sensor", platform, unique_id, config_entry=entry
+        ).entity_id
+
+    # Entries that must be skipped come first, so a skip that ended the
+    # scan early would leave the later absent bands in place.
+    no_separator = _add("clients")
+    other_platform = _add(f"{ap}_clients_5g", platform="other")
+    non_band = _add(f"{ap}_cpu_util")
+    present = _add(f"{ap}_clients_2g")
+    absent = _add(f"{ap}_clients_6g")
+    switch_band = _add(f"{switch}_clients_2g")
+    coordinators = {
+        "s0": SimpleNamespace(data=None),
+        "s1": SimpleNamespace(
+            data={
+                "devices": {
+                    switch: {"type": "switch", "client_num_2g": 1},
+                    ap: {"type": "AP", "client_num_2g": 3},
+                }
+            }
+        ),
+    }
+
+    purge_absent_band_entities(
+        hass,
+        entry,
+        coordinators,
+        {"clients_2g": "client_num_2g", "clients_6g": "client_num_6g"},
+    )
+
+    assert reg.async_get(present) is not None
+    assert reg.async_get(absent) is None
+    assert reg.async_get(non_band) is not None
+    assert reg.async_get(other_platform) is not None
+    assert reg.async_get(switch_band) is None
+    assert reg.async_get(no_separator) is not None

@@ -74,7 +74,18 @@ from .coordinator import (
     OmadaThreatHeatmapCoordinator,
     OmadaWanSpeedTestCoordinator,
 )
-from .devices import normalize_site_id
+from .migrations import (
+    migrate_data_to_options,
+    migrate_merged_devices,
+    migrate_wan_speed_test_button_unique_ids,
+)
+from .registry_cleanup import (
+    can_remove_device,
+    cleanup_devices,
+    cleanup_entities,
+    setup_stale_infra_device_pruning,
+)
+from .services import async_setup_services
 from .types import OmadaConfigEntry, OmadaRuntimeData
 
 if TYPE_CHECKING:
@@ -103,93 +114,8 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     Also registers Omada diagnostic services (see checklist/rules: action-setup).
     """
 
-    # Register diagnostic service globally (action-setup rule)
-    async def debug_ssid_switches_service(call: ServiceCall) -> None:
-        """Service to dump SSID switch diagnostic information."""
-        config_entry_id = call.data.get("config_entry_id")
-        if not config_entry_id:
-            # Documented fallback: use the first loaded Omada entry.
-            loaded = hass.config_entries.async_loaded_entries(DOMAIN)
-            if not loaded:
-                raise ServiceValidationError(
-                    translation_domain=DOMAIN,
-                    translation_key="no_loaded_entry",
-                )
-            config_entry_id = loaded[0].entry_id
-        target_entry = hass.config_entries.async_get_entry(config_entry_id)
-        if not target_entry or target_entry.domain != DOMAIN:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="config_entry_not_found",
-                translation_placeholders={"config_entry_id": config_entry_id},
-            )
-        if target_entry.state is not ConfigEntryState.LOADED:
-            raise ServiceValidationError(
-                translation_domain=DOMAIN,
-                translation_key="config_entry_not_loaded",
-                translation_placeholders={"config_entry_id": config_entry_id},
-            )
-        runtime_data: OmadaRuntimeData = target_entry.runtime_data
-        coordinators = runtime_data.coordinators
-        has_write_access = runtime_data.has_write_access
-        site_devices = runtime_data.site_devices
-        _LOGGER.info("=== SSID Switch Diagnostic Info ===")
-        _LOGGER.info("Config Entry: %s (%s)", target_entry.title, config_entry_id)
-        _LOGGER.info("Write Access: %s", has_write_access)
-        _LOGGER.info("Coordinators: %d", len(coordinators))
-        _LOGGER.info("Site Devices: %d", len(site_devices))
-        total_ssids = 0
-        for site_id, coordinator in coordinators.items():
-            ssids = coordinator.data.get("ssids", [])
-            total_ssids += len(ssids)
-            _LOGGER.info(
-                "  Site '%s': %d SSIDs",
-                site_id,
-                len(ssids),
-            )
-            for ssid in ssids:
-                _LOGGER.info(
-                    "    - ID: %s, wlanId: %s, name: %s, broadcast: %s",
-                    ssid.get("id", "missing"),
-                    ssid.get("wlanId", "missing"),
-                    ssid.get("name", "missing"),
-                    ssid.get("broadcast", "missing"),
-                )
-        _LOGGER.info("Total SSIDs across all sites: %d", total_ssids)
-        entity_reg = er.async_get(hass)
-        ssid_switches = [
-            ent
-            for ent in entity_reg.entities.values()
-            if ent.config_entry_id == config_entry_id
-            and ent.domain == "switch"
-            and "ssid" in ent.unique_id
-        ]
-        _LOGGER.info("SSID switch entities created: %d", len(ssid_switches))
-        for ent in ssid_switches:
-            _LOGGER.info("  - %s (%s)", ent.entity_id, ent.unique_id)
-        _LOGGER.info("=== End SSID Switch Diagnostic Info ===")
-
-    hass.services.async_register(
-        DOMAIN,
-        "debug_ssid_switches",
-        debug_ssid_switches_service,
-    )
+    async_setup_services(hass)
     return True
-
-
-# Keys that belong in entry.options rather than entry.data.
-_OPTIONS_KEYS = {
-    CONF_SELECTED_CLIENTS,
-    CONF_SELECTED_APPLICATIONS,
-    CONF_DEVICE_SCAN_INTERVAL,
-    CONF_CLIENT_SCAN_INTERVAL,
-    CONF_APP_SCAN_INTERVAL,
-}
-_SCAN_INTERVAL_KEYS = {
-    CONF_DEVICE_SCAN_INTERVAL,
-    CONF_CLIENT_SCAN_INTERVAL,
-    CONF_APP_SCAN_INTERVAL,
-}
 
 
 def _is_certificate_error(err: BaseException) -> bool:
@@ -235,134 +161,6 @@ def _is_transient_connection_error(err: BaseException) -> bool:
     return False
 
 
-def _migrate_data_to_options(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Move preferences to options and enforce the safe polling floor.
-
-    Older versions stored scan intervals and selections in entry.data.
-    This migration moves them to entry.options and raises previously saved
-    polling intervals that are no longer permitted.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry to migrate
-
-    """
-    migrated: dict[str, Any] = {}
-    for key in _OPTIONS_KEYS:
-        if key in entry.data:
-            migrated[key] = entry.data[key]
-
-    new_data = {k: v for k, v in entry.data.items() if k not in _OPTIONS_KEYS}
-    new_options = {**migrated, **dict(entry.options)}
-    clamped_intervals = 0
-    for key in _SCAN_INTERVAL_KEYS:
-        value = new_options.get(key)
-        if isinstance(value, int) and value < MIN_SCAN_INTERVAL:
-            new_options[key] = MIN_SCAN_INTERVAL
-            clamped_intervals += 1
-
-    if not migrated and not clamped_intervals:
-        return
-
-    if migrated:
-        _LOGGER.info(
-            "Migrating %d key(s) from entry.data to entry.options", len(migrated)
-        )
-    if clamped_intervals:
-        _LOGGER.info(
-            "Raised %d saved scan interval(s) to the %d-second minimum",
-            clamped_intervals,
-            MIN_SCAN_INTERVAL,
-        )
-
-    hass.config_entries.async_update_entry(
-        entry,
-        data=new_data,
-        options=new_options,
-    )
-
-
-def _non_site_domain_idents(identifiers: set[tuple[str, str]]) -> list[str]:
-    """Return this integration's device MACs, excluding site identifiers.
-
-    More than one entry means the device carries multiple distinct Omada
-    MACs — the structural signature of a historical registry merge.
-    """
-    return [
-        identifier[1].upper()
-        for identifier in identifiers
-        if identifier[0] == DOMAIN and not identifier[1].upper().startswith("SITE_")
-    ]
-
-
-def _migrate_merged_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Remove devices carrying more than one non-site (DOMAIN, mac) identifier.
-
-    This is the structural signature left by the pre-v1.8.1 IP-connections
-    merge bug: a single HA device incorrectly carrying multiple distinct
-    Omada MACs. No legitimate code path in this integration creates that
-    today — every device_info construction site sets exactly one identifier
-    — so any device found with more than one is always safe to remove.
-    Clean per-MAC devices are recreated when platforms set up immediately
-    afterward, now that connections are MAC-only and can't re-merge.
-    """
-    device_registry = dr.async_get(hass)
-    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-
-    removed_count = 0
-    for device in devices:
-        non_site_idents = _non_site_domain_idents(device.identifiers)
-        if len(non_site_idents) > 1:
-            _LOGGER.info(
-                "Removing merged device %s (identifiers: %s) from a "
-                "historical registry merge — clean devices will be recreated",
-                device.name,
-                non_site_idents,
-            )
-            device_registry.async_remove_device(device.id)
-            removed_count += 1
-
-    if removed_count > 0:
-        _LOGGER.info("Migrated %d merged device(s)", removed_count)
-
-
-def _migrate_wan_speed_test_button_unique_ids(
-    hass: HomeAssistant,
-    coordinators: dict[tuple[str, str], OmadaWanSpeedTestCoordinator],
-) -> None:
-    """Migrate the initial, invalid port-ID-derived speed-test entity IDs."""
-    registry = er.async_get(hass)
-    for (_, gateway_mac), coordinator in coordinators.items():
-        for index, port in enumerate(
-            (coordinator.data or {}).get("ports", []), start=1
-        ):
-            port_id = str(port.get("port") or port.get("portId") or index)
-            for domain, suffix in (
-                ("button", ""),
-                ("sensor", "_download"),
-                ("sensor", "_upload"),
-                ("sensor", "_latency"),
-                ("sensor", "_last_test"),
-            ):
-                legacy_unique_id = (
-                    f"{gateway_mac}_{port_id}_{gateway_mac}_wan_speed_test{suffix}"
-                )
-                corrected_unique_id = f"{gateway_mac}_{port_id}_wan_speed_test{suffix}"
-                legacy_entity_id = registry.async_get_entity_id(
-                    domain, DOMAIN, legacy_unique_id
-                )
-                if legacy_entity_id is None:
-                    continue
-                corrected_entity_id = registry.async_get_entity_id(
-                    domain, DOMAIN, corrected_unique_id
-                )
-                if corrected_entity_id is not None:
-                    registry.async_remove(corrected_entity_id)
-                registry.async_update_entity(
-                    legacy_entity_id, new_unique_id=corrected_unique_id
-                )
-
-
 async def _async_create_wan_speed_test_coordinators(
     hass: HomeAssistant,
     api_client: OmadaApiClient,
@@ -395,112 +193,103 @@ async def _async_setup_wan_speed_test(
     wan_speed_test_coordinators = await _async_create_wan_speed_test_coordinators(
         hass, api_client, coordinators
     )
-    _migrate_wan_speed_test_button_unique_ids(hass, wan_speed_test_coordinators)
+    migrate_wan_speed_test_button_unique_ids(hass, wan_speed_test_coordinators)
     return wan_speed_test_coordinators
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:  # noqa: C901  # pylint: disable=too-many-statements,too-many-branches
-    """Set up Omada Open API from a config entry.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry for this integration
-
-    Returns:
-        True if setup was successful
-
-    Raises:
-        ConfigEntryAuthFailed: If authentication fails
-
-    """
-    _LOGGER.debug("Setting up Omada Open API integration")
-
-    # Migrate legacy config: move user-preference keys from data to options.
-    _migrate_data_to_options(hass, entry)
-
-    # Migrate away historical multi-MAC merged devices (pre-v1.8.1 bug) —
-    # must run before platforms load so clean per-MAC devices are recreated
-    # in this same setup pass.
-    _migrate_merged_devices(hass, entry)
-
-    # Create API client with injected session and callback.
-    auth_mode = entry.data.get(
+def _entry_auth_mode(entry: OmadaConfigEntry) -> str | None:
+    """Return the auth mode, inferring Fusion for entries without the key."""
+    auth_mode: str | None = entry.data.get(
         CONF_AUTH_MODE, AUTH_MODE_WEB_SESSION if CONF_USERNAME in entry.data else None
     )
+    return auth_mode
 
+
+def _create_api_client(hass: HomeAssistant, entry: OmadaConfigEntry) -> OmadaApiClient:
+    """Create the API client for the entry's auth mode."""
+    if _entry_auth_mode(entry) == AUTH_MODE_WEB_SESSION:
+        # Fusion Gateway: web-session authentication
+        # Fusion controllers are accessed by IP — aiohttp's default safe
+        # cookie jar refuses to store cookies for IP-based URLs, so we
+        # create a session with unsafe=True. Home Assistant registers the
+        # cleanup on entry unload (also when setup fails) and on shutdown.
+        session = async_create_clientsession(
+            hass, verify_ssl=False, cookie_jar=aiohttp.CookieJar(unsafe=True)
+        )
+
+        async def _fusion_token_callback(*_args: str) -> None:
+            """No-op for Fusion — session is re-created from credentials."""
+
+        auth = WebSessionAuth(
+            session=session,
+            token_update_callback=_fusion_token_callback,
+            api_url=entry.data[CONF_API_URL],
+            omada_id=entry.data[CONF_OMADA_ID],
+            username=entry.data[CONF_USERNAME],
+            password=entry.data[CONF_PASSWORD],
+        )
+        return OmadaApiClient(
+            session=session,
+            token_update_callback=_fusion_token_callback,
+            api_url=entry.data[CONF_API_URL],
+            omada_id=entry.data[CONF_OMADA_ID],
+            client_id="",
+            client_secret="",
+            access_token="",
+            refresh_token="",
+            token_expires_at=dt.datetime.now(dt.UTC),
+            auth=auth,
+        )
+
+    # Traditional OpenAPI: client_credentials authentication
+    session = async_get_clientsession(
+        hass,
+        verify_ssl=resolve_verify_ssl(
+            entry.data.get(CONF_CONTROLLER_TYPE),
+            entry.data.get(CONF_VERIFY_SSL),
+        ),
+    )
+    token_expires_at = dt.datetime.fromisoformat(entry.data[CONF_TOKEN_EXPIRES_AT])
+
+    async def _token_update_callback(
+        access_token: str, refresh_token: str, expires_at_iso: str
+    ) -> None:
+        """Persist updated tokens to the config entry."""
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_ACCESS_TOKEN: access_token,
+                CONF_REFRESH_TOKEN: refresh_token,
+                CONF_TOKEN_EXPIRES_AT: expires_at_iso,
+            },
+        )
+
+    return OmadaApiClient(
+        session=session,
+        token_update_callback=_token_update_callback,
+        api_url=entry.data[CONF_API_URL],
+        omada_id=entry.data[CONF_OMADA_ID],
+        client_id=entry.data[CONF_CLIENT_ID],
+        client_secret=entry.data[CONF_CLIENT_SECRET],
+        access_token=entry.data[CONF_ACCESS_TOKEN],
+        refresh_token=entry.data[CONF_REFRESH_TOKEN],
+        token_expires_at=token_expires_at,
+    )
+
+
+async def _async_connect(
+    hass: HomeAssistant, entry: OmadaConfigEntry
+) -> tuple[OmadaApiClient, list[dict[str, Any]]]:
+    """Create the API client and read the sites, which also checks the login.
+
+    Raises:
+        ConfigEntryAuthFailed: If the controller rejects the credentials
+        ConfigEntryNotReady: If the controller cannot be reached (yet)
+
+    """
     try:
-        if auth_mode == AUTH_MODE_WEB_SESSION:
-            # Fusion Gateway: web-session authentication
-            # Fusion controllers are accessed by IP — aiohttp's default safe
-            # cookie jar refuses to store cookies for IP-based URLs, so we
-            # create a session with unsafe=True. Home Assistant registers the
-            # cleanup on entry unload (also when setup fails) and on shutdown.
-            session = async_create_clientsession(
-                hass, verify_ssl=False, cookie_jar=aiohttp.CookieJar(unsafe=True)
-            )
-
-            async def _fusion_token_callback(*_args: str) -> None:
-                """No-op for Fusion — session is re-created from credentials."""
-
-            auth = WebSessionAuth(
-                session=session,
-                token_update_callback=_fusion_token_callback,
-                api_url=entry.data[CONF_API_URL],
-                omada_id=entry.data[CONF_OMADA_ID],
-                username=entry.data[CONF_USERNAME],
-                password=entry.data[CONF_PASSWORD],
-            )
-            api_client = OmadaApiClient(
-                session=session,
-                token_update_callback=_fusion_token_callback,
-                api_url=entry.data[CONF_API_URL],
-                omada_id=entry.data[CONF_OMADA_ID],
-                client_id="",
-                client_secret="",
-                access_token="",
-                refresh_token="",
-                token_expires_at=dt.datetime.now(dt.UTC),
-                auth=auth,
-            )
-        else:
-            # Traditional OpenAPI: client_credentials authentication
-            session = async_get_clientsession(
-                hass,
-                verify_ssl=resolve_verify_ssl(
-                    entry.data.get(CONF_CONTROLLER_TYPE),
-                    entry.data.get(CONF_VERIFY_SSL),
-                ),
-            )
-            token_expires_at = dt.datetime.fromisoformat(
-                entry.data[CONF_TOKEN_EXPIRES_AT]
-            )
-
-            async def _token_update_callback(
-                access_token: str, refresh_token: str, expires_at_iso: str
-            ) -> None:
-                """Persist updated tokens to the config entry."""
-                hass.config_entries.async_update_entry(
-                    entry,
-                    data={
-                        **entry.data,
-                        CONF_ACCESS_TOKEN: access_token,
-                        CONF_REFRESH_TOKEN: refresh_token,
-                        CONF_TOKEN_EXPIRES_AT: expires_at_iso,
-                    },
-                )
-
-            api_client = OmadaApiClient(
-                session=session,
-                token_update_callback=_token_update_callback,
-                api_url=entry.data[CONF_API_URL],
-                omada_id=entry.data[CONF_OMADA_ID],
-                client_id=entry.data[CONF_CLIENT_ID],
-                client_secret=entry.data[CONF_CLIENT_SECRET],
-                access_token=entry.data[CONF_ACCESS_TOKEN],
-                refresh_token=entry.data[CONF_REFRESH_TOKEN],
-                token_expires_at=token_expires_at,
-            )
-
+        api_client = _create_api_client(hass, entry)
         # Test connection and refresh token if needed
         sites = await api_client.get_sites()
         _LOGGER.info("Successfully connected to Omada API, found %d sites", len(sites))
@@ -535,30 +324,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN, translation_key="cannot_connect"
         ) from err
+    return api_client, sites
 
-    # Create coordinators for each selected site
-    coordinators: dict[str, OmadaSiteCoordinator] = {}
-    selected_site_ids: list[str] = entry.data.get(CONF_SELECTED_SITES, [])
 
-    # Get configured scan intervals from options
-    device_interval = entry.options.get(
-        CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
-    )
-    client_interval = entry.options.get(
-        CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
-    )
-    app_interval = entry.options.get(CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL)
+def _selected_sites(
+    entry: OmadaConfigEntry, sites: list[dict[str, Any]]
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return (selected site ID, site) for every selected site still present.
 
-    # Reuse the sites already fetched during setup. A second request can fail
-    # when the controller is still starting, and is otherwise redundant.
-    all_sites = sites
-    sites_by_id = {site["siteId"]: site for site in all_sites}
-
-    for site_id in selected_site_ids:
+    A Fusion gateway has a single site whose ID may change after a firmware
+    update, so a missing selected site falls back to that only site.
+    """
+    sites_by_id = {site["siteId"]: site for site in sites}
+    selected: list[tuple[str, dict[str, Any]]] = []
+    for site_id in entry.data.get(CONF_SELECTED_SITES, []):
         site_info = sites_by_id.get(site_id)
-        if not site_info and len(all_sites) == 1 and auth_mode == AUTH_MODE_WEB_SESSION:
-            # Fusion single-site fallback: site ID may change after firmware update
-            site_info = all_sites[0]
+        if (
+            not site_info
+            and len(sites) == 1
+            and _entry_auth_mode(entry) == AUTH_MODE_WEB_SESSION
+        ):
+            site_info = sites[0]
             _LOGGER.info(
                 "Site %s not found, using only available site %s (Fusion fallback)",
                 site_id,
@@ -567,15 +353,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         if not site_info:
             _LOGGER.warning("Selected site %s not found in available sites", site_id)
             continue
+        selected.append((site_id, site_info))
+    return selected
 
+
+async def _async_create_site_coordinators(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    sites: list[tuple[str, dict[str, Any]]],
+) -> dict[str, OmadaSiteCoordinator]:
+    """Create and refresh one device coordinator per selected site."""
+    coordinators: dict[str, OmadaSiteCoordinator] = {}
+    for site_id, site_info in sites:
         site_name = site_info.get("name", site_id)
-
         coordinator = OmadaSiteCoordinator(
             hass=hass,
             api_client=api_client,
             site_id=site_id,
             site_name=site_name,
-            scan_interval=device_interval,
+            scan_interval=entry.options.get(
+                CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
+            ),
             enable_vpn_status=entry.options.get(CONF_ENABLE_VPN_SENSORS, True),
             enable_radio_utilization=entry.options.get(
                 CONF_ENABLE_DEVICE_RADIO_UTILIZATION_SENSORS, True
@@ -586,37 +385,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
         await coordinator.async_config_entry_first_refresh()
         coordinators[site_id] = coordinator
 
-        device_count = len(coordinator.data.get("devices", {}))
-        ssid_count = len(coordinator.data.get("ssids", []))
+        ssids = coordinator.data.get("ssids", [])
         _LOGGER.info(
             "Initialized coordinator for site '%s' with %d devices and %d SSIDs",
             site_name,
-            device_count,
-            ssid_count,
+            len(coordinator.data.get("devices", {})),
+            len(ssids),
         )
-        if ssid_count > 0:
-            ssid_names = [
-                s.get("name", "Unknown") for s in coordinator.data.get("ssids", [])
-            ]
-            _LOGGER.debug(
-                "SSIDs for site '%s': %s",
-                site_name,
-                ssid_names,
-            )
-        else:
-            _LOGGER.debug(
-                "No SSIDs found for site '%s' during initialization",
-                site_name,
-            )
+        _LOGGER.debug(
+            "SSIDs for site '%s': %s",
+            site_name,
+            [s.get("name", "Unknown") for s in ssids],
+        )
+    return coordinators
 
-    # Register Site device entities for each configured site. This happens
-    # before client coordinators are created so a client with no identified
-    # parent AP/switch/gateway can link its via_device_id to the site
-    # device's real (always-registered) id. See GH #69.
+
+def _register_site_devices(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> dict[str, dr.DeviceEntry]:
+    """Register a Site device for each configured site.
+
+    This happens before client coordinators are created so a client with no
+    identified parent AP/switch/gateway can link its via_device_id to the
+    site device's real (always-registered) id. See GH #69.
+    """
     device_reg = dr.async_get(hass)
     site_devices: dict[str, dr.DeviceEntry] = {}
     for site_id, coordinator in coordinators.items():
-        site_device = device_reg.async_get_or_create(
+        site_devices[site_id] = device_reg.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, f"site_{site_id}")},
             name=f"{coordinator.site_name} - Site",
@@ -624,96 +422,113 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             model="Omada Site",
             configuration_url=entry.data[CONF_API_URL],
         )
-        site_devices[site_id] = site_device
         _LOGGER.debug(
             "Registered Site device for site '%s' (%s)",
             coordinator.site_name,
             site_id,
         )
+    return site_devices
 
-    # Create client coordinators for selected clients
-    client_coordinators: list[OmadaClientCoordinator] = []
+
+async def _async_create_client_coordinators(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    sites: list[tuple[str, dict[str, Any]]],
+    site_devices: dict[str, dr.DeviceEntry],
+) -> list[OmadaClientCoordinator]:
+    """Create and refresh client coordinators for the selected clients."""
     selected_client_macs: list[str] = entry.options.get(CONF_SELECTED_CLIENTS, [])
+    if not selected_client_macs:
+        return []
 
-    if selected_client_macs:
-        _LOGGER.info("Setting up tracking for %d clients", len(selected_client_macs))
-
-        for site_id in selected_site_ids:
-            site_info = sites_by_id.get(site_id)
-            if not site_info:
-                continue
-
-            site_name = site_info.get("name", site_id)
-
-            # Create client coordinator for this site
-            disconnect_timeout = entry.options.get(
+    _LOGGER.info("Setting up tracking for %d clients", len(selected_client_macs))
+    client_coordinators: list[OmadaClientCoordinator] = []
+    for site_id, site_info in sites:
+        site_name = site_info.get("name", site_id)
+        client_site_device = site_devices.get(site_id)
+        client_coordinator = OmadaClientCoordinator(
+            hass=hass,
+            api_client=api_client,
+            site_id=site_id,
+            site_name=site_name,
+            selected_client_macs=selected_client_macs,
+            scan_interval=entry.options.get(
+                CONF_CLIENT_SCAN_INTERVAL, DEFAULT_CLIENT_SCAN_INTERVAL
+            ),
+            disconnect_timeout=entry.options.get(
                 CONF_DISCONNECT_TIMEOUT, DEFAULT_DISCONNECT_TIMEOUT
-            )
-            client_site_device = site_devices.get(site_id)
-            client_coordinator = OmadaClientCoordinator(
-                hass=hass,
-                api_client=api_client,
-                site_id=site_id,
-                site_name=site_name,
-                selected_client_macs=selected_client_macs,
-                scan_interval=client_interval,
-                disconnect_timeout=disconnect_timeout,
-                site_device_id=client_site_device.id if client_site_device else None,
-            )
-
-            # Perform initial data fetch
-            await client_coordinator.async_config_entry_first_refresh()
-            client_coordinators.append(client_coordinator)
-
-            _LOGGER.info(
-                "Initialized client coordinator for site '%s' with %d/%d clients found",
-                site_name,
-                len(client_coordinator.data),
-                len(selected_client_macs),
-            )
-
-    # Create app traffic coordinators for selected applications
-    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = []
-    selected_app_ids: list[str] = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
-
-    if selected_app_ids and selected_client_macs:
-        _LOGGER.info(
-            "Setting up app traffic tracking for %d apps across %d clients",
-            len(selected_app_ids),
-            len(selected_client_macs),
+            ),
+            site_device_id=client_site_device.id if client_site_device else None,
         )
 
-        for site_id in selected_site_ids:
-            site_info = sites_by_id.get(site_id)
-            if not site_info:
-                continue
+        # Perform initial data fetch
+        await client_coordinator.async_config_entry_first_refresh()
+        client_coordinators.append(client_coordinator)
 
-            site_name = site_info.get("name", site_id)
+        _LOGGER.info(
+            "Initialized client coordinator for site '%s' with %d/%d clients found",
+            site_name,
+            len(client_coordinator.data),
+            len(selected_client_macs),
+        )
+    return client_coordinators
 
-            # Create app traffic coordinator for this site
-            app_coordinator = OmadaAppTrafficCoordinator(
-                hass=hass,
-                api_client=api_client,
-                site_id=site_id,
-                site_name=site_name,
-                selected_client_macs=selected_client_macs,
-                selected_app_ids=selected_app_ids,
-                scan_interval=app_interval,
-            )
 
-            # Perform initial data fetch
-            await app_coordinator.async_config_entry_first_refresh()
-            app_traffic_coordinators.append(app_coordinator)
+async def _async_create_app_traffic_coordinators(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    sites: list[tuple[str, dict[str, Any]]],
+) -> list[OmadaAppTrafficCoordinator]:
+    """Create and refresh app traffic coordinators for the selected apps."""
+    selected_client_macs: list[str] = entry.options.get(CONF_SELECTED_CLIENTS, [])
+    selected_app_ids: list[str] = entry.options.get(CONF_SELECTED_APPLICATIONS, [])
+    if not (selected_app_ids and selected_client_macs):
+        return []
 
-            _LOGGER.info(
-                "Initialized app traffic coordinator for site '%s' with %d clients",
-                site_name,
-                len(app_coordinator.data),
-            )
+    _LOGGER.info(
+        "Setting up app traffic tracking for %d apps across %d clients",
+        len(selected_app_ids),
+        len(selected_client_macs),
+    )
+    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = []
+    for site_id, site_info in sites:
+        site_name = site_info.get("name", site_id)
+        app_coordinator = OmadaAppTrafficCoordinator(
+            hass=hass,
+            api_client=api_client,
+            site_id=site_id,
+            site_name=site_name,
+            selected_client_macs=selected_client_macs,
+            selected_app_ids=selected_app_ids,
+            scan_interval=entry.options.get(
+                CONF_APP_SCAN_INTERVAL, DEFAULT_APP_SCAN_INTERVAL
+            ),
+        )
 
-    # Raise / clear a repair issue when DPI-based app tracking is configured
-    # but no gateway is present.  DPI requires a gateway in the Omada network.
-    if selected_app_ids and coordinators:
+        # Perform initial data fetch
+        await app_coordinator.async_config_entry_first_refresh()
+        app_traffic_coordinators.append(app_coordinator)
+
+        _LOGGER.info(
+            "Initialized app traffic coordinator for site '%s' with %d clients",
+            site_name,
+            len(app_coordinator.data),
+        )
+    return app_traffic_coordinators
+
+
+def _update_dpi_gateway_issue(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> None:
+    """Raise or clear the repair issue for app tracking without a gateway.
+
+    DPI-based app tracking requires a gateway in the Omada network.
+    """
+    if entry.options.get(CONF_SELECTED_APPLICATIONS, []) and coordinators:
         has_gateway = any(
             dev.get("type", "").lower() == "gateway"
             for coord in coordinators.values()
@@ -729,23 +544,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="dpi_no_gateway",
             )
-        else:
-            ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
-    else:
-        # No apps selected — clear any previous issue.
-        ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
+            return
+    # No apps selected, or a gateway is present — clear any previous issue.
+    ir.async_delete_issue(hass, DOMAIN, "dpi_no_gateway")
 
-    # Create device stats coordinators for daily traffic statistics
-    wan_speed_test_coordinators = await _async_setup_wan_speed_test(
-        hass, entry, api_client, coordinators
-    )
 
-    # Create device stats coordinators for daily traffic statistics
-    device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = []
+async def _async_create_device_stats_coordinators(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> list[OmadaDeviceStatsCoordinator]:
+    """Create and refresh device stats coordinators for daily traffic."""
     stats_interval = entry.options.get(
         CONF_STATS_SCAN_INTERVAL, DEFAULT_STATS_SCAN_INTERVAL
     )
-
+    device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = []
     for site_coordinator in coordinators.values():
         stats_coordinator = OmadaDeviceStatsCoordinator(
             hass=hass,
@@ -761,60 +575,132 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
             site_coordinator.site_name,
             len(stats_coordinator.data),
         )
+    return device_stats_coordinators
 
-    # Create threat heatmap coordinators (daily/weekly/monthly per site).
-    # An unsupported/erroring endpoint never blocks setup — see
-    # OmadaThreatHeatmapCoordinator._async_update_data.
+
+async def _async_create_threat_heatmap_coordinators(
+    hass: HomeAssistant,
+    entry: OmadaConfigEntry,
+    api_client: OmadaApiClient,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> list[OmadaThreatHeatmapCoordinator]:
+    """Create threat heatmap coordinators (daily/weekly/monthly per site).
+
+    An unsupported/erroring endpoint never blocks setup — see
+    OmadaThreatHeatmapCoordinator._async_update_data.
+    """
     threat_heatmap_coordinators: list[OmadaThreatHeatmapCoordinator] = []
-    if entry.options.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True):
-        for site_coordinator in coordinators.values():
-            for window in THREAT_HEATMAP_INTERVALS:
-                heatmap_coordinator = OmadaThreatHeatmapCoordinator(
-                    hass=hass,
-                    api_client=api_client,
-                    site_id=site_coordinator.site_id,
-                    site_name=site_coordinator.site_name,
-                    window=window,
-                )
-                await heatmap_coordinator.async_config_entry_first_refresh()
-                threat_heatmap_coordinators.append(heatmap_coordinator)
-
-    # Store API client and coordinators in runtime_data
-    #
-    # Check whether the API credentials have write access by performing a
-    # non-destructive probe on the first site.  When the credentials are
-    # viewer-only, controllable switches (PoE, LED) are not created.
-    has_write_access = True
-    if coordinators:
-        first_site_id = next(iter(coordinators))
-        has_write_access = await api_client.check_write_access(first_site_id)
-        _LOGGER.info(
-            "Write access check result: %s (checked site: %s)",
-            "GRANTED" if has_write_access else "DENIED",
-            first_site_id,
-        )
-
-        # Raise / clear a repair issue for viewer-only credentials.
-        if not has_write_access:
-            ir.async_create_issue(
-                hass,
-                DOMAIN,
-                "write_access_denied",
-                is_fixable=False,
-                issue_domain=DOMAIN,
-                severity=ir.IssueSeverity.WARNING,
-                translation_key="write_access_denied",
+    if not entry.options.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True):
+        return threat_heatmap_coordinators
+    for site_coordinator in coordinators.values():
+        for window in THREAT_HEATMAP_INTERVALS:
+            heatmap_coordinator = OmadaThreatHeatmapCoordinator(
+                hass=hass,
+                api_client=api_client,
+                site_id=site_coordinator.site_id,
+                site_name=site_coordinator.site_name,
+                window=window,
             )
-        else:
-            ir.async_delete_issue(hass, DOMAIN, "write_access_denied")
+            await heatmap_coordinator.async_config_entry_first_refresh()
+            threat_heatmap_coordinators.append(heatmap_coordinator)
+    return threat_heatmap_coordinators
 
-        # Log total SSID count across all sites for SSID switch troubleshooting
-        total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
-        _LOGGER.info(
-            "Total SSIDs across %d site(s): %d",
-            len(coordinators),
-            total_ssids,
+
+async def _async_check_write_access(
+    hass: HomeAssistant,
+    api_client: OmadaApiClient,
+    coordinators: dict[str, OmadaSiteCoordinator],
+) -> bool:
+    """Probe whether the credentials may write, and raise/clear the repair issue.
+
+    A non-destructive probe on the first site. When the credentials are
+    viewer-only, controllable switches (PoE, LED) are not created.
+    """
+    if not coordinators:
+        return True
+    first_site_id = next(iter(coordinators))
+    has_write_access = await api_client.check_write_access(first_site_id)
+    _LOGGER.info(
+        "Write access check result: %s (checked site: %s)",
+        "GRANTED" if has_write_access else "DENIED",
+        first_site_id,
+    )
+
+    # Raise / clear a repair issue for viewer-only credentials.
+    if not has_write_access:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            "write_access_denied",
+            is_fixable=False,
+            issue_domain=DOMAIN,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="write_access_denied",
         )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, "write_access_denied")
+
+    # Log total SSID count across all sites for SSID switch troubleshooting
+    total_ssids = sum(len(c.data.get("ssids", [])) for c in coordinators.values())
+    _LOGGER.info(
+        "Total SSIDs across %d site(s): %d",
+        len(coordinators),
+        total_ssids,
+    )
+    return has_write_access
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> bool:
+    """Set up Omada Open API from a config entry.
+
+    Args:
+        hass: Home Assistant instance
+        entry: Config entry for this integration
+
+    Returns:
+        True if setup was successful
+
+    Raises:
+        ConfigEntryAuthFailed: If authentication fails
+
+    """
+    _LOGGER.debug("Setting up Omada Open API integration")
+
+    # Migrate legacy config: move user-preference keys from data to options.
+    migrate_data_to_options(hass, entry)
+
+    # Migrate away historical multi-MAC merged devices (pre-v1.8.1 bug) —
+    # must run before platforms load so clean per-MAC devices are recreated
+    # in this same setup pass.
+    migrate_merged_devices(hass, entry)
+
+    api_client, all_sites = await _async_connect(hass, entry)
+    # Reuse the sites already fetched during setup. A second request can fail
+    # when the controller is still starting, and is otherwise redundant.
+    sites = _selected_sites(entry, all_sites)
+
+    coordinators = await _async_create_site_coordinators(hass, entry, api_client, sites)
+    site_devices = _register_site_devices(hass, entry, coordinators)
+    # Client and app tracking only run for sites the controller still lists
+    # under their selected ID, not for the Fusion single-site fallback.
+    listed_sites = [(sid, info) for sid, info in sites if info["siteId"] == sid]
+    client_coordinators = await _async_create_client_coordinators(
+        hass, entry, api_client, listed_sites, site_devices
+    )
+    app_traffic_coordinators = await _async_create_app_traffic_coordinators(
+        hass, entry, api_client, listed_sites
+    )
+    _update_dpi_gateway_issue(hass, entry, coordinators)
+    wan_speed_test_coordinators = await _async_setup_wan_speed_test(
+        hass, entry, api_client, coordinators
+    )
+    device_stats_coordinators = await _async_create_device_stats_coordinators(
+        hass, entry, api_client, coordinators
+    )
+    threat_heatmap_coordinators = await _async_create_threat_heatmap_coordinators(
+        hass, entry, api_client, coordinators
+    )
+    has_write_access = await _async_check_write_access(hass, api_client, coordinators)
 
     entry.runtime_data = OmadaRuntimeData(
         api_client=api_client,
@@ -833,7 +719,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> boo
     # Set up platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    _setup_stale_infra_device_pruning(hass, entry, coordinators)
+    setup_stale_infra_device_pruning(hass, entry, coordinators)
 
     # Set up config entry update listener (skips reload on token-only changes)
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
@@ -911,145 +797,14 @@ async def async_reload_entry(hass: HomeAssistant, entry: OmadaConfigEntry) -> No
 
     # Clean up devices and entities that are no longer selected before reloading.
     # Must run BEFORE updating prev snapshots so cleanup can compute the diff.
-    await _cleanup_devices(hass, entry)
-    await _cleanup_entities(hass, entry)
+    await cleanup_devices(hass, entry)
+    await cleanup_entities(hass, entry)
 
     if rd:
         rd.prev_data = current_data
         rd.prev_options = current_options
 
     await hass.config_entries.async_reload(entry.entry_id)
-
-
-async def _cleanup_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Remove devices for clients/sites that were deselected.
-
-    Only removes devices whose identifier matches a previously-selected
-    client MAC or site that is no longer selected.  Infrastructure devices
-    (router, switches, APs) are never touched — they are managed by the
-    coordinator and will be re-created during setup.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry
-
-    """
-    rd = getattr(entry, "runtime_data", None)
-    if not rd or not isinstance(rd, OmadaRuntimeData):
-        return
-
-    prev_options: dict[str, Any] = rd.prev_options
-    prev_data: dict[str, Any] = rd.prev_data
-
-    # Compute deselected clients (previously selected but no longer)
-    prev_clients = {
-        normalize_client_mac(m) for m in prev_options.get(CONF_SELECTED_CLIENTS, [])
-    }
-    curr_clients = {
-        normalize_client_mac(m) for m in entry.options.get(CONF_SELECTED_CLIENTS, [])
-    }
-    deselected_clients = prev_clients - curr_clients
-
-    # Compute deselected sites
-    prev_sites = {normalize_site_id(s) for s in prev_data.get(CONF_SELECTED_SITES, [])}
-    curr_sites = {normalize_site_id(s) for s in entry.data.get(CONF_SELECTED_SITES, [])}
-    deselected_sites = prev_sites - curr_sites
-
-    if not deselected_clients and not deselected_sites:
-        return
-
-    device_registry = dr.async_get(hass)
-    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-
-    removed_count = 0
-    for device in devices:
-        for identifier in device.identifiers:
-            if identifier[0] != DOMAIN:
-                continue
-            device_id = normalize_client_mac(identifier[1])
-
-            # Remove deselected client devices
-            if device_id in deselected_clients and not entry.options.get(
-                CONF_AUTO_DISCOVER_CLIENT_TRACKERS, False
-            ):
-                _LOGGER.info("Removing deselected client device: %s", device.name)
-                device_registry.async_remove_device(device.id)
-                removed_count += 1
-                break
-
-            # Remove deselected site devices (identifier: "site_{id}")
-            if device_id.startswith("SITE_"):
-                raw_site_id = device_id[5:]  # Strip "SITE_" prefix
-                if raw_site_id in deselected_sites:
-                    _LOGGER.info("Removing deselected site device: %s", device.name)
-                    device_registry.async_remove_device(device.id)
-                    removed_count += 1
-                    break
-
-    if removed_count > 0:
-        _LOGGER.info("Removed %d deselected device(s)", removed_count)
-
-
-async def _cleanup_entities(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Remove entities for applications that were deselected.
-
-    Only removes app-traffic sensor entities whose application was
-    previously selected but is no longer in the current selection.
-
-    Args:
-        hass: Home Assistant instance
-        entry: Config entry
-
-    """
-    rd = getattr(entry, "runtime_data", None)
-    if not rd or not isinstance(rd, OmadaRuntimeData):
-        return
-
-    prev_options: dict[str, Any] = rd.prev_options
-
-    prev_apps = {str(a) for a in prev_options.get(CONF_SELECTED_APPLICATIONS, [])}
-    curr_apps = {str(a) for a in entry.options.get(CONF_SELECTED_APPLICATIONS, [])}
-    deselected_apps = prev_apps - curr_apps
-
-    if not deselected_apps:
-        return
-
-    entity_reg = er.async_get(hass)
-    entities = er.async_entries_for_config_entry(entity_reg, entry.entry_id)
-
-    removed_count = 0
-    for entity in entities:
-        # App traffic entities: "{mac}_{app_id}_{upload|download}_app_traffic"
-        if not (entity.unique_id and entity.unique_id.endswith("_app_traffic")):
-            continue
-
-        parts = entity.unique_id.split("_")
-        # parts: [mac, app_id, metric, "app", "traffic"]  (5 elements minimum)
-        if len(parts) >= 5:
-            app_id = parts[-4]  # app_id is 4th from end
-
-            if app_id in deselected_apps:
-                _LOGGER.info(
-                    "Removing entity for deselected application: %s (app_id: %s)",
-                    entity.entity_id,
-                    app_id,
-                )
-                entity_reg.async_remove(entity.entity_id)
-                removed_count += 1
-
-    if removed_count > 0:
-        _LOGGER.info(
-            "Removed %d entity/entities for deselected applications", removed_count
-        )
-
-
-def _active_infra_device_macs(rd: OmadaRuntimeData) -> set[str]:
-    """Collect infra device MACs currently reported by any site coordinator."""
-    return {
-        normalize_client_mac(mac)
-        for coordinator in rd.coordinators.values()
-        for mac in (coordinator.data.get("devices", {}) if coordinator.data else {})
-    }
 
 
 async def async_remove_config_entry_device(
@@ -1069,162 +824,4 @@ async def async_remove_config_entry_device(
         True if the device can be removed, False otherwise
 
     """
-    # A device carrying more than one non-site (DOMAIN, mac) identifier is
-    # always a historical registry merge (see _migrate_merged_devices) — no
-    # legitimate code path creates that today. Always allow removing it,
-    # bypassing the "still active" block below, which exists to protect
-    # normal single-MAC devices and would otherwise block this every time
-    # (a merged device is, by definition, still linked to at least one
-    # live MAC).
-    non_site_idents = _non_site_domain_idents(device_entry.identifiers)
-    if len(non_site_idents) > 1:
-        _LOGGER.info(
-            "Allowing removal of merged device %s (identifiers: %s) — "
-            "clean per-device entries will be recreated",
-            device_entry.name,
-            non_site_idents,
-        )
-        return True
-
-    # Get the list of selected clients and sites
-    selected_client_macs = entry.options.get(CONF_SELECTED_CLIENTS, [])
-    selected_site_ids = entry.data.get(CONF_SELECTED_SITES, [])
-
-    # Normalize MAC addresses to match format (with hyphens)
-    selected_client_macs_normalized = {
-        normalize_client_mac(mac) for mac in selected_client_macs
-    }
-    selected_site_ids_normalized = {
-        normalize_site_id(site_id) for site_id in selected_site_ids
-    }
-
-    # Collect all infrastructure device MACs still reported by coordinators.
-    # Blocking removal of live devices prevents accidental deletion of
-    # devices that would immediately reappear on the next poll.
-    rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
-    active_device_macs: set[str] = _active_infra_device_macs(rd) if rd else set()
-
-    # Check if this device is still in the selected lists
-    for identifier in device_entry.identifiers:
-        if identifier[0] == DOMAIN:
-            device_id = normalize_client_mac(identifier[1])
-
-            # Check if it's a selected client (client devices use MAC format)
-            if device_id in selected_client_macs_normalized:
-                _LOGGER.debug(
-                    "Device %s is still a selected client, not removing", device_id
-                )
-                return False
-
-            # Check if it's a selected site (identifier: "site_{id}")
-            if device_id.startswith("SITE_"):
-                raw_site_id = device_id[5:]  # Strip "SITE_" prefix
-                if raw_site_id in selected_site_ids_normalized:
-                    _LOGGER.debug(
-                        "Device %s is still a selected site, not removing",
-                        device_id,
-                    )
-                    return False
-
-            # Block removal of infrastructure devices still in coordinator data
-            if device_id in active_device_macs:
-                _LOGGER.debug(
-                    "Device %s is still active in coordinator data, not removing",
-                    device_id,
-                )
-                return False
-
-    # Device is not in any selected list, allow removal
-    _LOGGER.info("Allowing removal of device %s", device_entry.name)
-    return True
-
-
-def _setup_stale_infra_device_pruning(
-    hass: HomeAssistant,
-    entry: OmadaConfigEntry,
-    coordinators: dict[str, OmadaSiteCoordinator],
-) -> None:
-    """Prune infra devices now, then re-prune after every successful poll."""
-    _prune_stale_infra_devices(hass, entry)
-    for coordinator in coordinators.values():
-        entry.async_on_unload(
-            coordinator.async_add_listener(
-                lambda: _prune_stale_infra_devices(hass, entry)
-            )
-        )
-
-
-def _prune_stale_infra_devices(hass: HomeAssistant, entry: OmadaConfigEntry) -> None:
-    """Remove infra devices whose MAC no longer appears in coordinator data.
-
-    A MAC missing from every site coordinator's data means the device was
-    unadopted/removed on the Omada controller. Skips entirely if any site
-    coordinator hasn't completed a successful update, so a transient poll
-    failure can never look like "device gone" — DataUpdateCoordinator
-    leaves .data untouched on a failed refresh.
-    """
-    rd: OmadaRuntimeData | None = getattr(entry, "runtime_data", None)
-    if not rd:
-        return
-
-    if any(not c.last_update_success for c in rd.coordinators.values()):
-        return
-
-    active_macs = _active_infra_device_macs(rd)
-    selected_client_macs = {
-        normalize_client_mac(m) for m in entry.options.get(CONF_SELECTED_CLIENTS, [])
-    }
-
-    device_registry = dr.async_get(hass)
-    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-
-    # Presence-only clients reuse the legacy unique IDs. Never mistake them
-    # for stale AP/switch/gateway devices: removing them destroys customizations.
-    auto_clients: set[str] = set()
-    # Previously auto-discovered tracker devices must survive even when the
-    # option is disabled; disabled discovery must not remove customizations.
-    registry = er.async_get(hass)
-    for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
-        if (
-            entity.domain == "device_tracker"
-            and entity.unique_id
-            and entity.unique_id.startswith(f"{DOMAIN}_")
-            and not entity.unique_id.startswith(f"{DOMAIN}_device_")
-        ):
-            auto_clients.add(normalize_client_mac(entity.unique_id[len(DOMAIN) + 1 :]))
-
-    removed_count = 0
-    for device in devices:
-        for identifier in device.identifiers:
-            if identifier[0] != DOMAIN:
-                continue
-            device_id = normalize_client_mac(identifier[1])
-
-            # Site devices are managed by site selection, not this pass.
-            if device_id.startswith("SITE_"):
-                break
-
-            # Auto-discovered presence entities must remain in the registry when
-            # disconnected or stale. The user may have customized them.
-            if device_id in auto_clients:
-                break
-
-            # Selected clients are managed by _cleanup_devices, not this
-            # pass — a client not currently connected is not the same as a
-            # device removed from the controller.
-            if device_id in selected_client_macs:
-                break
-
-            # Infra device candidate: prune if it's no longer reported.
-            if device_id not in active_macs:
-                _LOGGER.info(
-                    "Removing stale infrastructure device: %s (%s)",
-                    device.name,
-                    device_id,
-                )
-                device_registry.async_remove_device(device.id)
-                removed_count += 1
-            break
-
-    if removed_count > 0:
-        _LOGGER.info("Pruned %d stale infrastructure device(s)", removed_count)
+    return can_remove_device(entry, device_entry)

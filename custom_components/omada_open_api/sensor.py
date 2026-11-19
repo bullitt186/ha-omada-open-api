@@ -24,7 +24,6 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import callback
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
@@ -64,6 +63,8 @@ from .gateway_entity import (
     new_vpn_tunnel_entities,
     new_wan_port_entities,
 )
+from .migrations import migrate_5g_entity_ids
+from .registry_cleanup import purge_absent_band_entities
 
 PARALLEL_UPDATES = 0
 
@@ -1416,71 +1417,14 @@ def _make_client_sensor(
     )
 
 
-def _purge_absent_band_entities(
-    hass: HomeAssistant,
-    entry: OmadaConfigEntry,
-    coordinators: dict[str, OmadaSiteCoordinator],
-) -> None:
-    """Remove entity registry entries for band sensors whose band is absent on hardware."""
-    reg = er.async_get(hass)
-    all_band_keys = {desc.key for desc in AP_BAND_CLIENT_SENSORS} | {
-        desc.key for desc in AP_BAND_RADIO_UTIL_SENSORS
-    }
-
-    present_keys: set[tuple[str, str]] = set()
-    for coord in coordinators.values():
-        devices = coord.data.get("devices", {}) if coord.data else {}
-        for mac, device_data in devices.items():
-            if device_data.get("type", "").lower() != "ap":
-                continue
-            for desc in AP_BAND_CLIENT_SENSORS:
-                data_key = desc.key.replace("clients_", "client_num_")
-                if data_key in device_data:
-                    present_keys.add((mac, desc.key))
-            for desc in AP_BAND_RADIO_UTIL_SENSORS:
-                if desc.key in device_data:
-                    present_keys.add((mac, desc.key))
-
-    for entity_entry in er.async_entries_for_config_entry(reg, entry.entry_id):
-        if entity_entry.platform != DOMAIN:
-            continue
-        parts = entity_entry.unique_id.split("_", 1)
-        if len(parts) != 2:
-            continue
-        mac, key = parts
-        if key in all_band_keys and (mac, key) not in present_keys:
-            reg.async_remove(entity_entry.entity_id)
-
-
-_5G_BAND_KEYS: frozenset[str] = frozenset(
-    {
-        "clients_5g",
-        "radio_tx_util_5g",
-        "radio_rx_util_5g",
-        "radio_inter_util_5g",
-        "radio_busy_util_5g",
-    }
-)
-
-
-def _migrate_5g_entity_ids(
-    hass: HomeAssistant,
-    entry: OmadaConfigEntry,
-) -> None:
-    """Rename legacy _5_ghz_1 entity IDs to _5_ghz after translations dropped the -1."""
-    reg = er.async_get(hass)
-    for entity_entry in er.async_entries_for_config_entry(reg, entry.entry_id):
-        if entity_entry.platform != DOMAIN:
-            continue
-        parts = entity_entry.unique_id.split("_", 1)
-        if len(parts) != 2 or parts[1] not in _5G_BAND_KEYS:
-            continue
-        old_id = entity_entry.entity_id
-        if not old_id.endswith("_5_ghz_1"):
-            continue
-        new_id = old_id[:-2]  # strip trailing "_1"
-        if reg.async_get(new_id) is None:
-            reg.async_update_entity(old_id, new_entity_id=new_id)
+# Per-band AP sensor key -> device data key present when the AP has the band.
+_AP_BAND_DATA_KEYS: dict[str, str] = {
+    **{
+        desc.key: desc.key.replace("clients_", "client_num_")
+        for desc in AP_BAND_CLIENT_SENSORS
+    },
+    **{desc.key: desc.key for desc in AP_BAND_RADIO_UTIL_SENSORS},
+}
 
 
 def _excluded_device_sensor_keys(options: Mapping[str, Any]) -> frozenset[str]:
@@ -1527,7 +1471,7 @@ def _check_ap_band_entities(
     return new_entities
 
 
-async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-statements
+async def async_setup_entry(
     hass: HomeAssistant,
     entry: OmadaConfigEntry,
     async_add_entities: AddEntitiesCallback,
@@ -1535,36 +1479,35 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
     """Set up Omada sensors from a config entry."""
     rd = entry.runtime_data
     coordinators: dict[str, OmadaSiteCoordinator] = rd.coordinators
-    client_coordinators: list[OmadaClientCoordinator] = rd.client_coordinators
-    app_traffic_coordinators: list[OmadaAppTrafficCoordinator] = (
-        rd.app_traffic_coordinators
-    )
-
-    # Entity type toggles — all default True (preserve existing behavior)
-    opts = entry.options
-    _enable_device_bandwidth = opts.get(CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True)
-    excluded_device_keys = _excluded_device_sensor_keys(opts)
-    _enable_client_bandwidth = opts.get(CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True)
-    _enable_client_signal = opts.get(CONF_ENABLE_CLIENT_SIGNAL_SENSORS, True)
-    device_stats_coordinators: list[OmadaDeviceStatsCoordinator] = (
-        rd.device_stats_coordinators
-    )
-    _enable_threat_heatmap = opts.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True)
-    _enable_vpn_sensors = opts.get(CONF_ENABLE_VPN_SENSORS, True)
 
     _setup_site_sensors(coordinators, async_add_entities)
     _setup_wan_speed_test_sensors(
         rd.wan_speed_test_coordinators, async_add_entities, entry
     )
-
-    if _enable_threat_heatmap:
+    if entry.options.get(CONF_ENABLE_THREAT_HEATMAP_SENSORS, True):
         _setup_threat_heatmap_sensors(
             rd.threat_heatmap_coordinators, async_add_entities
         )
-    _migrate_5g_entity_ids(hass, entry)
-    _purge_absent_band_entities(hass, entry, coordinators)
+    migrate_5g_entity_ids(hass, entry)
+    purge_absent_band_entities(hass, entry, coordinators, _AP_BAND_DATA_KEYS)
 
-    # --- Dynamic infrastructure device sensors ---
+    _setup_infra_device_sensors(entry, coordinators, async_add_entities)
+    _setup_client_sensors(entry, rd.client_coordinators, async_add_entities)
+    _setup_app_traffic_sensors(entry, rd.app_traffic_coordinators, async_add_entities)
+    _setup_device_traffic_sensors(
+        entry, rd.device_stats_coordinators, async_add_entities
+    )
+
+
+def _setup_infra_device_sensors(
+    entry: OmadaConfigEntry,
+    coordinators: dict[str, OmadaSiteCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add device, PoE, WAN and VPN sensors as the site coordinators find them."""
+    excluded_device_keys = _excluded_device_sensor_keys(entry.options)
+    _enable_vpn_sensors = entry.options.get(CONF_ENABLE_VPN_SENSORS, True)
+
     known_device_macs: set[str] = set()
     known_ap_band_entity_keys: set[tuple[str, str]] = set()  # (mac, desc.key)
     known_poe_ports: set[str] = set()
@@ -1666,7 +1609,18 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
         _async_check_new_devices()
         entry.async_on_unload(coordinator.async_add_listener(_async_check_new_devices))
 
-    # --- Dynamic client sensors ---
+
+def _setup_client_sensors(
+    entry: OmadaConfigEntry,
+    client_coordinators: list[OmadaClientCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add client sensors as the client coordinators find selected clients."""
+    _enable_client_bandwidth = entry.options.get(
+        CONF_ENABLE_CLIENT_BANDWIDTH_SENSORS, True
+    )
+    _enable_client_signal = entry.options.get(CONF_ENABLE_CLIENT_SIGNAL_SENSORS, True)
+
     known_client_macs: set[str] = set()
 
     for client_coord in client_coordinators:
@@ -1700,7 +1654,13 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
         _async_check_new_clients()
         entry.async_on_unload(client_coord.async_add_listener(_async_check_new_clients))
 
-    # --- Dynamic app traffic sensors ---
+
+def _setup_app_traffic_sensors(
+    entry: OmadaConfigEntry,
+    app_traffic_coordinators: list[OmadaAppTrafficCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add per-client application traffic sensors as their data appears."""
     known_app_traffic_keys: set[str] = set()
 
     for app_coord in app_traffic_coordinators:
@@ -1736,7 +1696,17 @@ async def async_setup_entry(  # pylint: disable=too-many-locals,too-many-stateme
             app_coord.async_add_listener(_async_check_new_app_traffic)
         )
 
-    # --- Dynamic device daily traffic sensors (skipped when bandwidth toggle is off) ---
+
+def _setup_device_traffic_sensors(
+    entry: OmadaConfigEntry,
+    device_stats_coordinators: list[OmadaDeviceStatsCoordinator],
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Add daily traffic sensors per device, unless turned off in the options."""
+    _enable_device_bandwidth = entry.options.get(
+        CONF_ENABLE_DEVICE_BANDWIDTH_SENSORS, True
+    )
+
     known_traffic_device_macs: set[str] = set()
 
     if not _enable_device_bandwidth:
