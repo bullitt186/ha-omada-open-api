@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import aiohttp
 import pytest
 
+from custom_components.omada_open_api.api import OmadaApiAuthError
 from custom_components.omada_open_api.auth import (
     ClientCredentialsAuth,
     OmadaAuthStrategy,
@@ -497,3 +498,50 @@ async def test_client_credentials_exposes_tokens_and_authenticates() -> None:
     auth._get_fresh_tokens = AsyncMock()  # type: ignore[method-assign]
     await auth.authenticate()
     auth._get_fresh_tokens.assert_awaited_once()
+
+
+def _token_auth(response: MagicMock) -> ClientCredentialsAuth:
+    """Build a ClientCredentialsAuth whose token request returns response."""
+    session = MagicMock(spec=aiohttp.ClientSession)
+    session.post.return_value.__aenter__ = AsyncMock(return_value=response)
+    session.post.return_value.__aexit__ = AsyncMock(return_value=False)
+    return ClientCredentialsAuth(
+        session=session,
+        token_update_callback=AsyncMock(),
+        api_url=TEST_API_URL,
+        omada_id=TEST_OMADA_ID,
+        client_id=TEST_CLIENT_ID,
+        client_secret=TEST_CLIENT_SECRET,
+        access_token="",
+        refresh_token="",
+        token_expires_at=dt.datetime.now(dt.UTC),
+    )
+
+
+@pytest.mark.asyncio
+async def test_authenticate_reports_http_status_of_rejected_token_request() -> None:
+    """A non-200 token answer carries its HTTP status for error reporting."""
+    response = MagicMock(status=503)
+    auth = _token_auth(response)
+
+    with pytest.raises(OmadaApiAuthError) as err:
+        await auth.authenticate()
+
+    assert err.value.http_status == 503
+    assert err.value.error_code is None
+
+
+@pytest.mark.asyncio
+async def test_authenticate_reports_omada_error_code() -> None:
+    """An Omada error code in the token answer is kept on the raised error."""
+    response = MagicMock(status=200)
+    response.json = AsyncMock(
+        return_value={"errorCode": -7131, "msg": "Controller ID not exist."}
+    )
+    auth = _token_auth(response)
+
+    with pytest.raises(OmadaApiAuthError) as err:
+        await auth.authenticate()
+
+    assert err.value.error_code == -7131
+    assert err.value.http_status is None
