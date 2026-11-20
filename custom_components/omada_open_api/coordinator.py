@@ -76,6 +76,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         scan_interval: int = DEFAULT_DEVICE_SCAN_INTERVAL,
         enable_vpn_status: bool = True,
         enable_radio_utilization: bool = True,
+        entry_site_id: str | None = None,
     ) -> None:
         """Initialize the coordinator.
 
@@ -88,6 +89,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             enable_vpn_status: Whether to poll optional VPN status endpoints
             enable_radio_utilization: Whether to poll per-band AP radio
                 utilization (only the radio utilization sensors use it)
+            entry_site_id: Site ID stored in the config entry, used for unique
+                IDs and the site device; differs from site_id only when the
+                Fusion fallback replaced a changed site ID (defaults to site_id)
 
         """
         super().__init__(
@@ -98,6 +102,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api_client = api_client
         self.site_id = site_id
+        self.entry_site_id = entry_site_id or site_id
         self.site_name = site_name
         self._partial_log = PartialFailureLog(site_name)
         self._enable_vpn_status = enable_vpn_status
@@ -1594,6 +1599,7 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         site_id: str,
         site_name: str,
         window: str,
+        entry_site_id: str | None = None,
     ) -> None:
         """Initialize the threat heatmap coordinator.
 
@@ -1603,6 +1609,8 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_id: Site ID to fetch threat data for
             site_name: Human-readable site name
             window: Rolling window name ("daily", "weekly", or "monthly")
+            entry_site_id: Site ID for unique IDs and the site device, see
+                OmadaSiteCoordinator (defaults to site_id)
 
         """
         super().__init__(
@@ -1613,6 +1621,7 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api_client = api_client
         self.site_id = site_id
+        self.entry_site_id = entry_site_id or site_id
         self.site_name = site_name
         self.window = window
 
