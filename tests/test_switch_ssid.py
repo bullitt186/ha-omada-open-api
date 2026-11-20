@@ -50,6 +50,7 @@ def _create_ssid_switch(
     coordinator = MagicMock(spec=OmadaSiteCoordinator)
     coordinator.hass = hass
     coordinator.site_id = "site_001"
+    coordinator.entry_site_id = "site_001"
     coordinator.site_name = "Test Site"
     coordinator.api_client = mock_api_client
     coordinator.data = coordinator_data or {

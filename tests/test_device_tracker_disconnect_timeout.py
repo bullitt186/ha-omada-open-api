@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from custom_components.omada_open_api.coordinator import OmadaClientCoordinator
 from custom_components.omada_open_api.device_tracker import OmadaClientTracker
 
-from .conftest import TEST_SITE_ID, TEST_SITE_NAME
+from .conftest import TEST_SITE_ID, TEST_SITE_NAME, wire_get_all_clients
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -196,6 +196,7 @@ async def test_coordinator_updates_last_seen_on_data_fetch(hass: HomeAssistant) 
     """Coordinator updates _last_seen timestamps for active clients on each update."""
 
     mock_api = MagicMock()
+    wire_get_all_clients(mock_api)
     mock_api.get_clients = AsyncMock(
         return_value={
             "data": [

@@ -84,6 +84,7 @@ from .conftest import (
     TEST_SITE_ID,
     TEST_SITE_NAME,
     _future_token_expiry,
+    wire_get_all_clients,
 )
 
 if TYPE_CHECKING:
@@ -153,6 +154,7 @@ def _patch_api_client(**overrides):
     mock_instance.get_sites = AsyncMock(return_value=_SITE_LIST)
     mock_instance.get_devices = AsyncMock(return_value=_DEVICES)
     mock_instance.get_device_uplink_info = AsyncMock(return_value=SAMPLE_UPLINK_INFO)
+    wire_get_all_clients(mock_instance)
     mock_instance.get_clients = AsyncMock(return_value=_CLIENTS_RESPONSE)
     mock_instance.get_client_app_traffic = AsyncMock(return_value=[])
     mock_instance.get_switch_ports_poe = AsyncMock(return_value=[])
@@ -2111,3 +2113,56 @@ async def test_purge_absent_band_entities(hass: HomeAssistant) -> None:
     assert reg.async_get(other_platform) is not None
     assert reg.async_get(switch_band) is None
     assert reg.async_get(no_separator) is not None
+
+
+async def test_fusion_fallback_queries_current_site_keeps_identity(
+    hass: HomeAssistant,
+) -> None:
+    """The fallback polls the gateway's current site but keeps entity IDs (#196).
+
+    The Omada API addresses a site by its current ID, so requests must use it.
+    Unique IDs and the site device keep the selected ID, so a changed Fusion
+    site ID does not orphan the existing entities.
+    """
+    entry = _build_entry(
+        hass,
+        data_overrides={
+            CONF_SELECTED_SITES: ["old_fusion_site"],
+            CONF_AUTH_MODE: AUTH_MODE_WEB_SESSION,
+            CONF_USERNAME: "admin",
+            CONF_PASSWORD: "secret",
+        },
+    )
+    patcher, mock_client = _patch_api_client(
+        get_threat_management=AsyncMock(return_value=[]),
+    )
+
+    with patcher:
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    coordinator = entry.runtime_data.coordinators["old_fusion_site"]
+    assert coordinator.site_id == TEST_SITE_ID
+    mock_client.get_devices.assert_awaited_with(TEST_SITE_ID)
+    assert {c.site_id for c in entry.runtime_data.threat_heatmap_coordinators} == {
+        TEST_SITE_ID
+    }
+
+    device_identifiers = {
+        ident
+        for device in dr.async_entries_for_config_entry(
+            dr.async_get(hass), entry.entry_id
+        )
+        for ident in device.identifiers
+    }
+    assert (DOMAIN, "site_old_fusion_site") in device_identifiers
+    assert (DOMAIN, f"site_{TEST_SITE_ID}") not in device_identifiers
+    entity_reg = er.async_get(hass)
+    unique_ids = {
+        e.unique_id
+        for e in er.async_entries_for_config_entry(entity_reg, entry.entry_id)
+    }
+    assert f"{DOMAIN}_old_fusion_site_led" in unique_ids
+    assert "site_old_fusion_site_threat_heatmap_daily" in unique_ids
+    assert not any(TEST_SITE_ID in uid for uid in unique_ids if "site" in uid)

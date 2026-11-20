@@ -417,7 +417,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
         # Keep the old device registry link even when this client was offline
         # during HA startup and has no live API data yet.
         first_site = site_coordinators[0] if site_coordinators else None
-        site_device = site_devices.get(first_site.site_id) if first_site else None
+        site_device = site_devices.get(first_site.entry_site_id) if first_site else None
         self._client_device_info: DeviceInfo | None = (
             build_client_device_info(
                 client_mac,
@@ -478,7 +478,7 @@ class OmadaAutoClientTracker(BaseScannerEntity):
             else None
         )
         if parent_id is None:
-            site = self._site_devices.get(coord.site_id)
+            site = self._site_devices.get(coord.entry_site_id)
             parent_id = site.id if site else None
         self._client_device_info = build_client_device_info(
             self._client_mac, client, coord.api_client.api_url, parent_id

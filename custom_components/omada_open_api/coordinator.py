@@ -76,6 +76,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         scan_interval: int = DEFAULT_DEVICE_SCAN_INTERVAL,
         enable_vpn_status: bool = True,
         enable_radio_utilization: bool = True,
+        entry_site_id: str | None = None,
     ) -> None:
         """Initialize the coordinator.
 
@@ -88,6 +89,9 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             enable_vpn_status: Whether to poll optional VPN status endpoints
             enable_radio_utilization: Whether to poll per-band AP radio
                 utilization (only the radio utilization sensors use it)
+            entry_site_id: Site ID stored in the config entry, used for unique
+                IDs and the site device; differs from site_id only when the
+                Fusion fallback replaced a changed site ID (defaults to site_id)
 
         """
         super().__init__(
@@ -98,6 +102,7 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api_client = api_client
         self.site_id = site_id
+        self.entry_site_id = entry_site_id or site_id
         self.site_name = site_name
         self._partial_log = PartialFailureLog(site_name)
         self._enable_vpn_status = enable_vpn_status
@@ -425,49 +430,42 @@ class OmadaSiteCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         all_clients: list[dict[str, Any]] = []
         try:
-            page = 1
-            while True:
-                # scope=1 (online) avoids controller warnings for offline
-                # clients missing wifiMode.  The active check below is kept
-                # as defence-in-depth.
-                result = await self.api_client.get_clients(
-                    self.site_id, page=page, page_size=1000
+            # scope=1 (online) avoids controller warnings for offline
+            # clients missing wifiMode.  The active check below is kept
+            # as defence-in-depth.
+            raw_clients = await self.api_client.get_all_clients(
+                self.site_id, scope=1, page_size=1000
+            )
+            self._partial_log.ok("clients")
+            for client in raw_clients:
+                if not client.get("active", False):
+                    continue
+                all_clients.append(
+                    {
+                        "name": (
+                            client.get("name")
+                            or client.get("hostName")
+                            or client.get("mac", "Unknown")
+                        ),
+                        "mac": client.get("mac", ""),
+                        "ip": client.get("ip", ""),
+                        "host_name": client.get("hostName"),
+                        "ssid": client.get("ssid"),
+                        "channel": client.get("channel"),
+                        "vendor": client.get("vendor"),
+                        "device_type": client.get("deviceType"),
+                        "os_name": client.get("osName"),
+                        "wireless": client.get("wireless", False),
+                        "radio_id": client.get("radioId"),
+                        "rssi": client.get("rssi"),
+                        "snr": client.get("snr"),
+                        "signal_level": client.get("signalLevel"),
+                        "guest": client.get("guest", False),
+                        "ap_mac": client.get("apMac"),
+                        "switch_mac": client.get("switchMac"),
+                        "gateway_mac": client.get("gatewayMac"),
+                    }
                 )
-                self._partial_log.ok("clients")
-                clients_page = result.get("data", [])
-                for client in clients_page:
-                    if not client.get("active", False):
-                        continue
-                    all_clients.append(
-                        {
-                            "name": (
-                                client.get("name")
-                                or client.get("hostName")
-                                or client.get("mac", "Unknown")
-                            ),
-                            "mac": client.get("mac", ""),
-                            "ip": client.get("ip", ""),
-                            "host_name": client.get("hostName"),
-                            "ssid": client.get("ssid"),
-                            "channel": client.get("channel"),
-                            "vendor": client.get("vendor"),
-                            "device_type": client.get("deviceType"),
-                            "os_name": client.get("osName"),
-                            "wireless": client.get("wireless", False),
-                            "radio_id": client.get("radioId"),
-                            "rssi": client.get("rssi"),
-                            "snr": client.get("snr"),
-                            "signal_level": client.get("signalLevel"),
-                            "guest": client.get("guest", False),
-                            "ap_mac": client.get("apMac"),
-                            "switch_mac": client.get("switchMac"),
-                            "gateway_mac": client.get("gatewayMac"),
-                        }
-                    )
-                total = result.get("totalRows", 0)
-                if len(all_clients) >= total or len(clients_page) < 1000:
-                    break
-                page += 1
             self._clients_fetch_ok = True
             _LOGGER.debug(
                 "Fetched %d active clients for site %s",
@@ -1316,10 +1314,9 @@ class OmadaClientCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             # Fetch all clients (scope=0) so blocked/offline clients remain
             # available for control (e.g. unblocking via switch entity).
-            result = await self.api_client.get_clients(
-                self.site_id, page=1, page_size=1000, scope=0
+            all_clients = await self.api_client.get_all_clients(
+                self.site_id, scope=0, page_size=1000
             )
-            all_clients = result.get("data", [])
 
             # Filter to only the selected clients and index by MAC
             clients_by_mac: dict[str, Any] = {}
@@ -1602,6 +1599,7 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         site_id: str,
         site_name: str,
         window: str,
+        entry_site_id: str | None = None,
     ) -> None:
         """Initialize the threat heatmap coordinator.
 
@@ -1611,6 +1609,8 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             site_id: Site ID to fetch threat data for
             site_name: Human-readable site name
             window: Rolling window name ("daily", "weekly", or "monthly")
+            entry_site_id: Site ID for unique IDs and the site device, see
+                OmadaSiteCoordinator (defaults to site_id)
 
         """
         super().__init__(
@@ -1621,6 +1621,7 @@ class OmadaThreatHeatmapCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.api_client = api_client
         self.site_id = site_id
+        self.entry_site_id = entry_site_id or site_id
         self.site_name = site_name
         self.window = window
 
