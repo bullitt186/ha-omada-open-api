@@ -370,7 +370,10 @@ async def _async_create_site_coordinators(
         coordinator = OmadaSiteCoordinator(
             hass=hass,
             api_client=api_client,
-            site_id=site_id,
+            # Requests go to the site the controller lists now; identities keep
+            # the selected ID so a Fusion site ID change orphans no entity.
+            site_id=site_info["siteId"],
+            entry_site_id=site_id,
             site_name=site_name,
             scan_interval=entry.options.get(
                 CONF_DEVICE_SCAN_INTERVAL, DEFAULT_DEVICE_SCAN_INTERVAL
@@ -598,6 +601,7 @@ async def _async_create_threat_heatmap_coordinators(
                 hass=hass,
                 api_client=api_client,
                 site_id=site_coordinator.site_id,
+                entry_site_id=site_coordinator.entry_site_id,
                 site_name=site_coordinator.site_name,
                 window=window,
             )

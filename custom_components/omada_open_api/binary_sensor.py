@@ -200,7 +200,7 @@ async def async_setup_entry(
         async_add_entities(
             [
                 OmadaWlanOptimizationBinarySensor(
-                    coordinator=coordinator, site_id=coordinator.site_id
+                    coordinator=coordinator, site_id=coordinator.entry_site_id
                 )
             ]
         )

@@ -458,10 +458,10 @@ class OmadaLedSwitch(
         """Initialize the LED switch."""
         super().__init__(coordinator)
         self._attr_translation_key = "led"
-        self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_led"
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry_site_id}_led"
         # Attach to the site device so the switch shows on its page (GH #127).
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
+            identifiers={(DOMAIN, f"site_{coordinator.entry_site_id}")},
         )
 
     @property
@@ -624,7 +624,7 @@ class OmadaSsidSwitch(
         ).get("scheduleEnable", False)
 
         self._attr_unique_id = (
-            f"omada_open_api_{coordinator.site_id}_ssid_{self._ssid_id}"
+            f"omada_open_api_{coordinator.entry_site_id}_ssid_{self._ssid_id}"
         )
         self._attr_translation_key = "ssid_broadcast"
         self._attr_translation_placeholders = {"ssid_name": self._ssid_name}

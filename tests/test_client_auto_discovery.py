@@ -40,6 +40,7 @@ def _site(hass: HomeAssistant, site_id: str, clients: list[dict]) -> MagicMock:
     site = MagicMock()
     site.hass = hass
     site.site_id = site_id
+    site.entry_site_id = site_id
     site.api_client.api_url = "https://omada.example.test"
     site.last_update_success = True
     site.data = {"devices": {}, "all_clients": clients}

@@ -290,7 +290,7 @@ class OmadaWlanOptimizationButton(
         self._attr_translation_placeholders = {
             "site_name": coordinator.site_name,
         }
-        self._attr_unique_id = f"{DOMAIN}_{coordinator.site_id}_wlan_optimization"
+        self._attr_unique_id = f"{DOMAIN}_{coordinator.entry_site_id}_wlan_optimization"
 
     @property
     def available(self) -> bool:

@@ -1867,7 +1867,7 @@ class OmadaSiteSensor(OmadaEntity[OmadaSiteCoordinator], SensorEntity):
         """Initialize a site-level sensor."""
         super().__init__(coordinator)
         self.entity_description = description
-        site_id = coordinator.site_id
+        site_id = coordinator.entry_site_id
         self._attr_unique_id = f"site_{site_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"site_{site_id}")},
@@ -1913,9 +1913,11 @@ class OmadaThreatHeatmapSensor(
             native_unit_of_measurement="threats",
             state_class=SensorStateClass.MEASUREMENT,
         )
-        self._attr_unique_id = f"site_{coordinator.site_id}_threat_heatmap_{window}"
+        self._attr_unique_id = (
+            f"site_{coordinator.entry_site_id}_threat_heatmap_{window}"
+        )
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"site_{coordinator.site_id}")},
+            identifiers={(DOMAIN, f"site_{coordinator.entry_site_id}")},
         )
 
     @property
