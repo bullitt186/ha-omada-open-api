@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 from custom_components.omada_open_api.coordinator import OmadaSiteCoordinator
 from custom_components.omada_open_api.sensor import DEVICE_SENSORS, OmadaDeviceSensor
 
-from .conftest import TEST_SITE_ID, TEST_SITE_NAME
+from .conftest import TEST_SITE_ID, TEST_SITE_NAME, wire_get_all_clients
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -127,6 +127,7 @@ async def test_coordinator_computes_ap_rx_rate_on_second_poll(
     mock_api.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_api.get_poe_usage = AsyncMock(return_value=[])
     mock_api.get_switch_ports_poe = AsyncMock(return_value=[])
+    wire_get_all_clients(mock_api)
     mock_api.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
@@ -209,6 +210,7 @@ async def test_coordinator_resets_rate_on_counter_rollback(
     mock_api.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_api.get_poe_usage = AsyncMock(return_value=[])
     mock_api.get_switch_ports_poe = AsyncMock(return_value=[])
+    wire_get_all_clients(mock_api)
     mock_api.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )

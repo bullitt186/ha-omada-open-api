@@ -36,6 +36,7 @@ from .conftest import (
     TEST_SITE_ID,
     TEST_SITE_NAME,
     _future_token_expiry,
+    wire_get_all_clients,
 )
 
 AP_MAC = SAMPLE_DEVICE_AP["mac"]  # "AA-BB-CC-DD-EE-01"
@@ -69,6 +70,7 @@ def _patch_api_client(**overrides) -> tuple:
     mock.get_sites = AsyncMock(return_value=_SITE_LIST)
     mock.get_devices = AsyncMock(return_value=[SAMPLE_DEVICE_AP, SAMPLE_DEVICE_SWITCH])
     mock.get_device_uplink_info = AsyncMock(return_value=SAMPLE_UPLINK_INFO)
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
