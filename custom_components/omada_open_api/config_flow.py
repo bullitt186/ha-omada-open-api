@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_VERIFY_SSL
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import AbortFlow
 from homeassistant.helpers.aiohttp_client import (
     async_create_clientsession,
     async_get_clientsession,
@@ -511,6 +512,9 @@ class OmadaConfigFlow(_OmadaFlowApiMixin, ConfigFlow, domain=DOMAIN):
                             return await self.async_step_ssid_filter()
                         return await self.async_step_sites()
 
+                except AbortFlow:
+                    # The duplicate check aborts the flow; it is no login error.
+                    raise
                 except TimeoutError:
                     errors["base"] = "timeout"
                 except OmadaApiError as err:
