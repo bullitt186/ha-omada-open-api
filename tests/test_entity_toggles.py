@@ -49,6 +49,7 @@ from .conftest import (
     TEST_SITE_ID,
     TEST_SITE_NAME,
     _future_token_expiry,
+    wire_get_all_clients,
 )
 
 if TYPE_CHECKING:
@@ -150,6 +151,7 @@ def _build_mock_api(devices: list) -> AsyncMock:
     mock.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock.get_poe_usage = AsyncMock(return_value=[])
     mock.get_switch_ports_poe = AsyncMock(return_value=[])
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )
@@ -247,6 +249,7 @@ async def test_client_bandwidth_sensors_skipped_when_disabled(
         "test_toggle_client_bw",
     )
     mock = _build_mock_api([])
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={
             "data": [
@@ -293,6 +296,7 @@ async def test_client_bandwidth_sensors_created_by_default(
         "test_toggle_client_bw_default",
     )
     mock = _build_mock_api([])
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={
             "data": [
@@ -432,6 +436,7 @@ async def test_client_signal_sensors_skipped_when_disabled(
         "test_toggle_client_signal",
     )
     mock = _build_mock_api([])
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={
             "data": [
@@ -581,6 +586,7 @@ async def test_radio_utilization_polled_by_default(hass: HomeAssistant) -> None:
 
 def _build_client_api(client_mac: str) -> AsyncMock:
     mock = _build_mock_api([])
+    wire_get_all_clients(mock)
     mock.get_clients = AsyncMock(
         return_value={
             "data": [
