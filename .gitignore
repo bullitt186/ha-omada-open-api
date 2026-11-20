@@ -88,3 +88,4 @@ poc/threat-heatmap/threat-heatmap-data.json
 ha-developer-docs/
 .claude/*
 !.claude/settings.json
+.opencode
