@@ -8,6 +8,7 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.omada_open_api.const import (
     AUTH_MODE_WEB_SESSION,
@@ -408,3 +409,17 @@ async def test_fusion_flow_reports_connection_refused(hass: HomeAssistant) -> No
 
     assert result["type"] == FlowResultType.FORM
     assert result["errors"] == {"base": "connection_refused"}
+
+
+async def test_fusion_flow_aborts_when_gateway_already_configured(
+    hass: HomeAssistant, mock_fusion_responses
+) -> None:
+    """Adding the same Fusion gateway twice aborts as already_configured (GH #195)."""
+    MockConfigEntry(domain=DOMAIN, unique_id="fusion_fusion_cid_123").add_to_hass(hass)
+
+    result, _, _ = await _submit_fusion_form(
+        hass, [mock_fusion_responses["info"]], [mock_fusion_responses["login"]]
+    )
+
+    assert result["type"] == FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
