@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+from custom_components.omada_open_api.api import OmadaApiClient
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -205,6 +207,26 @@ def mock_config_entry_data() -> dict:
     }
 
 
+def wire_get_all_clients(client: MagicMock) -> None:
+    """Give a mocked API client the real get_all_clients paging.
+
+    The paging runs over whatever ``get_clients`` mock the test installs, so
+    tests keep describing controller pages through ``get_clients``.
+    """
+
+    async def get_all_clients(
+        site_id: str, *, scope: int = 0, page_size: int = 200
+    ) -> list[dict[str, Any]]:
+        return await OmadaApiClient._collect_pages(
+            lambda page: client.get_clients(
+                site_id, page=page, page_size=page_size, scope=scope
+            ),
+            page_size,
+        )
+
+    client.get_all_clients = AsyncMock(side_effect=get_all_clients)
+
+
 @pytest.fixture
 def mock_api_client() -> MagicMock:
     """Create a mock OmadaApiClient."""
@@ -226,6 +248,7 @@ def mock_api_client() -> MagicMock:
             "currentPage": 1,
         }
     )
+    wire_get_all_clients(client)
     client.get_client_app_traffic = AsyncMock(return_value=[])
     client.get_applications = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}

@@ -39,6 +39,7 @@ from .conftest import (
     TEST_SITE_ID,
     TEST_SITE_NAME,
     _future_token_expiry,
+    wire_get_all_clients,
 )
 
 if TYPE_CHECKING:
@@ -78,6 +79,7 @@ def _patch_api_client(**overrides):
     mock_instance.get_sites = AsyncMock(return_value=_SITE_LIST)
     mock_instance.get_devices = AsyncMock(return_value=_DEVICES)
     mock_instance.get_device_uplink_info = AsyncMock(return_value=SAMPLE_UPLINK_INFO)
+    wire_get_all_clients(mock_instance)
     mock_instance.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )

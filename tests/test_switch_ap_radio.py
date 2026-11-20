@@ -19,6 +19,7 @@ from .conftest import (
     SAMPLE_DEVICE_SWITCH,
     TEST_SITE_ID,
     TEST_SITE_NAME,
+    wire_get_all_clients,
 )
 
 if TYPE_CHECKING:
@@ -357,6 +358,7 @@ def _build_minimal_mock_api() -> MagicMock:
     mock_api.get_ap_ssid_overrides = AsyncMock(return_value={"ssidOverrides": []})
     mock_api.get_poe_usage = AsyncMock(return_value=[])
     mock_api.get_switch_ports_poe = AsyncMock(return_value=[])
+    wire_get_all_clients(mock_api)
     mock_api.get_clients = AsyncMock(
         return_value={"data": [], "totalRows": 0, "currentPage": 1}
     )

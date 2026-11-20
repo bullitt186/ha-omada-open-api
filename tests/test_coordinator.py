@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 from homeassistant.util import dt as dt_util
@@ -1192,6 +1192,169 @@ async def test_client_coordinator_uses_scope_all(
     mock_api_client.get_clients.assert_called_once_with(
         TEST_SITE_ID, page=1, page_size=1000, scope=0
     )
+
+
+def _two_page_clients(last_client: dict[str, Any]) -> AsyncMock:
+    """Return a get_clients mock listing 1,001 clients over two pages.
+
+    Page 1 is full (1,000 rows), page 2 holds only ``last_client``; totalRows
+    is 1,001 as the Omada API reports it for the whole result.
+    """
+    filler = [
+        {"mac": f"02-00-00-00-{i // 256:02X}-{i % 256:02X}", "active": True}
+        for i in range(1000)
+    ]
+
+    async def get_clients(
+        site_id: str, page: int = 1, page_size: int = 100, scope: int = 1
+    ) -> dict[str, Any]:
+        rows = filler if page == 1 else [last_client] if page == 2 else []
+        return {"data": rows, "totalRows": 1001, "currentPage": page}
+
+    return AsyncMock(side_effect=get_clients)
+
+
+async def test_client_coordinator_reads_clients_beyond_first_page(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A selected client on page 2 of a 1,001-client site is tracked (GH #194)."""
+    last_client = dict(SAMPLE_CLIENT_WIRELESS)
+    mock_api_client.get_clients = _two_page_clients(last_client)
+
+    coordinator = OmadaClientCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+        selected_client_macs=[last_client["mac"]],
+    )
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is True
+    assert last_client["mac"] in coordinator.data
+    pages = [c.kwargs["page"] for c in mock_api_client.get_clients.await_args_list]
+    assert pages == [1, 2]
+
+
+async def test_site_coordinator_reads_clients_beyond_first_page(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """The site client list includes clients on page 2 (GH #194)."""
+    last_client = {"mac": "AA-BB-CC-DD-EE-01", "active": True, "name": "Last"}
+    mock_api_client.get_clients = _two_page_clients(last_client)
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+
+    await coordinator.async_refresh()
+
+    macs = [c["mac"] for c in coordinator.data["all_clients"]]
+    assert len(macs) == 1001
+    assert "AA-BB-CC-DD-EE-01" in macs
+    # Online clients only (scope=1) on every page.
+    scopes = {c.kwargs["scope"] for c in mock_api_client.get_clients.await_args_list}
+    assert scopes == {1}
+
+
+async def test_site_coordinator_maps_client_fields(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """Each Omada client field lands under its site client-list key."""
+    full = {
+        "mac": "AA-BB-CC-DD-EE-10",
+        "active": True,
+        "name": "Laptop",
+        "hostName": "laptop-host",
+        "ip": "192.168.1.50",
+        "ssid": "HomeWiFi",
+        "channel": 36,
+        "vendor": "Apple",
+        "deviceType": "computer",
+        "osName": "macOS",
+        "wireless": True,
+        "radioId": 1,
+        "rssi": -55,
+        "snr": 40,
+        "signalLevel": 80,
+        "guest": True,
+        "apMac": "AA-BB-CC-00-00-01",
+        "switchMac": "AA-BB-CC-00-00-02",
+        "gatewayMac": "AA-BB-CC-00-00-03",
+    }
+    host_only = {"mac": "AA-BB-CC-DD-EE-11", "active": True, "hostName": "printer"}
+    bare = {"mac": "AA-BB-CC-DD-EE-12", "active": True}
+    # Leading rows without active=True are skipped, not the end of the list.
+    inactive = {"mac": "AA-BB-CC-DD-EE-13", "active": False}
+    no_active_flag = {"mac": "AA-BB-CC-DD-EE-14"}
+    mock_api_client.get_clients = AsyncMock(
+        return_value={
+            "data": [inactive, no_active_flag, full, host_only, bare],
+            "totalRows": 5,
+        }
+    )
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    await coordinator.async_refresh()
+
+    clients = coordinator.data["all_clients"]
+    assert len(clients) == 3
+    assert clients[0] == {
+        "name": "Laptop",
+        "mac": "AA-BB-CC-DD-EE-10",
+        "ip": "192.168.1.50",
+        "host_name": "laptop-host",
+        "ssid": "HomeWiFi",
+        "channel": 36,
+        "vendor": "Apple",
+        "device_type": "computer",
+        "os_name": "macOS",
+        "wireless": True,
+        "radio_id": 1,
+        "rssi": -55,
+        "snr": 40,
+        "signal_level": 80,
+        "guest": True,
+        "ap_mac": "AA-BB-CC-00-00-01",
+        "switch_mac": "AA-BB-CC-00-00-02",
+        "gateway_mac": "AA-BB-CC-00-00-03",
+    }
+    # Name falls back to hostName, then to the MAC; absent flags are False.
+    assert clients[1]["name"] == "printer"
+    assert clients[2]["name"] == "AA-BB-CC-DD-EE-12"
+    assert clients[2]["ip"] == ""
+    assert clients[2]["wireless"] is False
+    assert clients[2]["guest"] is False
+    assert coordinator.data["clients_poll_ok"] is True
+    mock_api_client.get_clients.assert_awaited_once_with(
+        TEST_SITE_ID, page=1, page_size=1000, scope=1
+    )
+
+
+async def test_site_coordinator_client_failure_marks_poll_not_ok(
+    hass: HomeAssistant, mock_api_client: MagicMock
+) -> None:
+    """A failed client fetch reports clients_poll_ok False, not an empty site."""
+    mock_api_client.get_clients = AsyncMock(side_effect=OmadaApiError("timeout"))
+
+    coordinator = OmadaSiteCoordinator(
+        hass=hass,
+        api_client=mock_api_client,
+        site_id=TEST_SITE_ID,
+        site_name=TEST_SITE_NAME,
+    )
+    await coordinator.async_refresh()
+
+    assert coordinator.data["clients_poll_ok"] is False
 
 
 # ---------------------------------------------------------------------------
