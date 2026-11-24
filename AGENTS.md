@@ -89,6 +89,8 @@ issues and ADRs are not up for silent change.
 
 ### Purpose
 
+Scope and non-goals: [docs/SCOPE.md](docs/SCOPE.md)
+
 This repository is a Home Assistant `hub` integration for TP-Link Omada Open
 API controllers and Fusion gateways. It exposes controller, infrastructure
 device, client, gateway, and application data through Home Assistant entities.
@@ -149,6 +151,7 @@ in `requirements_dev.txt`; keep the declared Python compatibility aligned with
   tag-triggered release workflows.
 - `README.md`, `TROUBLESHOOTING.md`, and `CONTRIBUTING.md` — user and
   contributor documentation.
+- `docs/SCOPE.md` — purpose, scope and non-goals.
 - `docs/adr/` — architecture decision records (index in `docs/adr/README.md`).
 - `CHANGELOG.md` — running change log (`[Unreleased]`); `RELEASE_NOTES.md` —
   notes of the release being prepared.
