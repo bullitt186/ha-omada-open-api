@@ -16,3 +16,9 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions: [Sem
   release standard. ADR-0004 records where this repository deliberately differs
   (merge commits for integration branches, `.worktrees/`, its own security workflow
   and fork approval policy).
+
+### Security
+
+- The developer script `scripts/omada_api_inspect.py` now validates TLS
+  certificates. Pass `--insecure` to reach a local controller with a
+  self-signed certificate (#209).
