@@ -1,26 +1,36 @@
 # AGENTS.md
 
-<!-- repo-kit:begin v1 (managed, do not edit; https://github.com/bullitt186/repo-kit) -->
+<!-- repo-kit:begin v2 (managed, do not edit; https://github.com/bullitt186/repo-kit) -->
 ## How to work in this repository (all coding agents)
 
 This block is shared by all repositories of this maintainer and kept in sync by
 [repo-kit](https://github.com/bullitt186/repo-kit). Repository-specific
-instructions follow below it and win where they are more specific.
+instructions follow below it. They add detail; where they contradict this block,
+this block wins, unless an ADR in `docs/adr/` records the exception.
 
 A pull request that follows this block passes review without rework. The
 maintainer reviews against the same rules: the **Definition of Done** in
 `CONTRIBUTING.md`.
 
-### Before you change anything
+### Build the right thing
 
-1. Read this file to the end, `CONTRIBUTING.md`, and the architecture decision
-   records in `docs/adr/` (start with `docs/adr/README.md`). An *Accepted* ADR is
-   binding: do not work against it. If your change needs a different decision,
-   write a new ADR that supersedes it, in the same pull request.
-2. Find the issue for the work. If there is none and the change is more than a
-   small fix, open one first and describe the problem, not only the solution.
-3. Keep one topic per pull request. Do not reformat, rename or refactor code
-   that your change does not need.
+1. Read this file to the end, `CONTRIBUTING.md`, `docs/SCOPE.md` and the
+   architecture decision records in `docs/adr/` (start with `docs/adr/README.md`).
+   An *Accepted* ADR and the scope are binding. If your change needs a different
+   decision, write a new ADR that supersedes the old one, in the same pull request.
+2. Work from an issue. A feature or behaviour change needs an issue the maintainer
+   has labelled `accepted`; if there is none, open one, describe the problem (not
+   only the solution) and wait. Only a **small fix** may skip the issue: it repairs
+   documented behaviour, changes fewer than about 50 lines of code, and adds no
+   dependency, interface, setting or file format.
+3. Build what the issue asks for and nothing else. Ideas you have on the way become
+   a new issue, not part of this pull request. No reformatting, renaming or
+   refactoring that the change does not need.
+4. Prefer the smallest complete change: reuse what the repository already has
+   (helpers, patterns, dependencies) before adding anything; no new dependency for
+   a few lines. Fix the root cause, not the symptom.
+5. Never guess protocol values, API fields or hardware behaviour. Take them from a
+   source and name it; mark anything unconfirmed as an assumption.
 
 ### Design first
 
@@ -35,54 +45,92 @@ Write an ADR (`docs/adr/`, see its README) when the change:
   entity or topic names, anything users or other systems rely on,
 - changes the architecture: module boundaries, data flow, persistence, threading,
 - sets a security, privacy or compatibility rule,
-- reverses or replaces an earlier ADR.
+- reverses or replaces an earlier ADR, or changes `docs/SCOPE.md`.
 
 Bug fixes and refactorings inside existing decisions need no ADR.
 
 ### Tests
 
-- A bug fix starts with a regression test that fails for the reason the bug
-  describes. Commit it with the fix.
-- New behaviour comes with tests. Expected values come from the specification,
-  documentation, a protocol table or a recorded real payload, never from running
-  the code under test and copying its output.
+Design the test cases from the specification, then implement the change together
+with them. A one-test-at-a-time red/green cycle is not required.
+
+- A bug fix starts with a regression test that reproduces the bug. Run it and
+  confirm it fails **for the reason the bug describes**, not because of a build,
+  import or signature error. Then fix the bug and commit the test with the fix.
+- Expected values come from the specification: documentation, a protocol table,
+  a manual, the issue, or a recorded real payload. Never from running the code
+  under test and copying its output; such a test only proves the code does what
+  it does.
 - Assert observable results (output, state, sent request, raised error), not only
   that something was called.
+- Tests are fast, deterministic and offline. A flaky test is a bug to fix, not to
+  re-run.
 - Changing an expected value in an existing test needs a reason in the commit
   message that names the source of the new value.
+- Coverage shows what ran, not whether a test notices a wrong result. Run mutation
+  testing on the code you changed (see Commands below); kill a surviving mutant
+  with a test, or say in the pull request why it is equivalent.
 - Do not weaken lint rules, thresholds or checks to make a change pass; fix the
-  code. A justified exception gets a comment and a note in the commit message.
+  code. A justified exception gets a comment next to it and a note in the commit
+  message. Thresholds are only ever raised.
 
 ### Documentation
 
 Documentation changes in the same pull request as the behaviour it describes:
-README, `docs/`, configuration examples, `CHANGELOG.md` (section `[Unreleased]`),
-and the ADRs. Outdated documentation counts as a bug. Relative links in Markdown
-must point to files that exist.
+README, `docs/`, configuration examples, the ADRs and `CHANGELOG.md`. Outdated
+documentation counts as a bug. Relative links in Markdown must point to files
+that exist.
+
+Changelog entries go under `[Unreleased]`, in the Keep a Changelog sections
+(Added, Changed, Fixed, Removed, Security). Write them for the user of the
+project: what changes for them and what they have to do, not which functions
+moved. A breaking change gets an entry under "Upgrade notes" with the steps.
+Name outside contributors and link their issue or pull request. Releases, tags
+and version numbers are the maintainer's
+([release standard](https://github.com/bullitt186/repo-kit/blob/main/docs/RELEASING.md)).
+
+### Commits and branches
+
+- One branch per topic from the current default branch; never commit to the
+  default branch. Agents working in parallel use their own git worktree; never
+  run checkout, switch, reset, stash or clean in a checkout someone else uses.
+- Commit each completed step with a Conventional Commits message (`feat:`,
+  `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `ci:`); the body says why.
+  Code, comments, commit messages and pull requests are in English.
+- Reference the issue: `Closes #N` on GitHub; `Refs #N` on Forgejo, which closes
+  an issue as soon as a commit with `Closes` is pushed.
+- Never commit or push on red; never use `--no-verify` or skip hooks; treat every
+  hook finding as work to do.
 
 ### Before you open the pull request
 
-- Run the repository's full check (see below) and make it pass. Never commit or
-  push on red, never use `--no-verify`.
-- Rebase on or merge the current default branch and run the check again.
-- Fill in the pull request template completely; tick only what you did.
-- No secrets, tokens, personal data, local paths or host names in code, tests,
-  logs, commits or pull request text.
+- Run the repository's **fast check** before every commit and the **full check**
+  when your change can affect what it covers (see Commands below). Both must pass.
+- Merge or rebase onto the current default branch and run the checks again.
+- Fill in the pull request template completely; tick only what you did and say
+  why anything stays unticked.
+- After pushing, watch CI yourself. A red check on your pull request is your work,
+  also when it looks unrelated.
+- No secrets, tokens, personal data, local paths, host names or IP addresses in
+  code, tests, fixtures, logs, commits or pull request text.
 
 ### Continuous integration
 
-CI runs the repository's checks and `PR hygiene` from repo-kit. PR hygiene fails
-when code changes come without a test change or without a `CHANGELOG.md` entry,
-when an ADR is malformed or missing from the index, or when a changed Markdown
-file has a broken relative link. Only the maintainer can waive a rule, with the
-labels `no-test-change` or `skip-changelog`. Do not ask for a waiver when a test
-or changelog entry is possible.
+CI follows the repo-kit [CI standard](https://github.com/bullitt186/repo-kit/blob/main/docs/CI_STANDARD.md):
+tests, lint and format, type check, build, secret scan, dependency review, static
+analysis and `PR hygiene`. PR hygiene fails when code changes come without a test
+change or a `CHANGELOG.md` entry, when `docs/SCOPE.md` changes without an ADR,
+when an ADR is malformed or missing from the index, when a changed Markdown file
+has a broken relative link, when code from an outside contributor links no issue,
+or when a pull request changes more than about 800 lines of code and tests. Only
+the maintainer can waive a rule (labels `no-test-change`, `skip-changelog`,
+`large-change`). Do not ask for a waiver when a test, entry or split is possible.
 
 ### Respect
 
 Do not change CI configuration, branch protection, release workflows, licence,
-or this block unless the issue asks for it. Maintainer decisions recorded in
-issues and ADRs are not up for silent change.
+`docs/SCOPE.md` or this block unless the issue asks for it. Maintainer decisions
+recorded in issues and ADRs are not up for silent change.
 <!-- repo-kit:end -->
 
 ## This repository
@@ -101,8 +149,10 @@ It is distributed through HACS.
 | Task | Command |
 |---|---|
 | Install / set up | `make install` (creates `.venv` from `requirements_dev.txt`, installs the pre-commit hook), or open the devcontainer (see "Development environment") |
-| Full check (run before every pull request) | `make check` (Ruff, Pylint, strict mypy, pytest with coverage; mirrors CI) |
-| Tests only | `make test` (fast, stops at the first failure) or `pytest tests/test_<area>.py -x -v --tb=short` |
+| Fast check (before every commit, also the stop hook) | `ruff check custom_components/ tests/ && ruff format --check custom_components/ tests/ && mypy --config-file pyproject.toml custom_components/omada_open_api/ && pytest tests/ -x -q --tb=short -n auto` (what `scripts/agent-stop-check.sh` runs) |
+| Full check (before every pull request) | `make check` (Ruff, Pylint, strict mypy, pytest with coverage; mirrors CI) |
+| Mutation testing of changed code | `make mutate` (mutmut on the integration modules changed against `origin/main`; `make mutate-results` lists survivors) |
+| Tests only | `make test` (stops at the first failure) or `pytest tests/test_<area>.py -x -v --tb=short` |
 
 CI additionally runs the HACS and hassfest validation, a secret scan, CodeQL
 and dependency review, and repo-kit's `PR hygiene`.
@@ -170,7 +220,7 @@ The integration follows Home Assistant's coordinator architecture:
 
 Worktrees must be created below `.worktrees/<name>` inside the repository. The
 devcontainer only bind-mounts the repository root, so sibling worktrees are not
-usable there.
+usable there ([ADR-0004](docs/adr/0004-repository-exceptions-to-the-shared-workflow.md)).
 
 The host-side `.venv` can point to a container-only Python. When working from
 the host, run Python tooling and commits in the devcontainer, for example:
@@ -292,41 +342,19 @@ traffic semantics. Test each type against its own schema; do not reuse
 server/S2S peer-count semantics for a VPN client when the controller exposes
 client-level telemetry.
 
-### Design-first changes and verification
+### Design and test specifics
 
-For every change under `custom_components/` or `tests/`, use this sequence:
+The shared block's design-first and test rules apply. In this repository:
 
-1. Write down the design before writing code: the behavior that changes, the
-   affected modules, and the Omada API endpoints and fields involved. Put it in
-   the issue or pull request description; for a small change, the commit
-   message is enough.
-2. Derive the test cases from the specification: the issue or requirement,
-   documented Home Assistant behavior, and the Omada API documentation (or a
-   recorded live payload where it disagrees with the documentation). Cover
-   successful, error, and availability behavior relevant to the change, plus
-   the boundaries the specification names.
-3. Implement the change together with those tests. A one-unit-at-a-time
-   red/green cycle is not required.
-4. Before committing, run the relevant full verification.
-
-A bug fix starts with a regression test that reproduces the bug. Run it and
-confirm that it fails for the reason the bug describes, not because of an
-import, fixture, or typing error. Then fix the bug and commit the test with
-the fix.
-
-Write tests that can fail:
-
-- Take expected values from the specification or the API documentation, never
-  from running the implementation and copying its output. A test whose
-  expected value came from the code under test only proves that the code does
-  what it does.
-- Assert on observable behavior: entity state, attributes, availability, the
-  request sent to the controller, or the raised error. A call count or a
-  "not None" check alone is not a behavioral assertion.
-- Mock external APIs through the Home Assistant-facing interfaces.
-- Changing an expected value in an existing test requires a reason in the
-  commit message: name the specification, documentation, or payload that makes
-  the new value correct.
+- The design names the affected modules and the Omada API endpoints and fields
+  involved.
+- The specification for expected values is the issue or requirement, documented
+  Home Assistant behavior, and the Omada API documentation (or a recorded live
+  payload where it disagrees with the documentation). Cover successful, error,
+  and availability behavior relevant to the change.
+- Behavioral assertions are entity state, attributes, availability, the request
+  sent to the controller, or the raised error. Mock external APIs through the
+  Home Assistant-facing interfaces.
 
 Line coverage shows which code ran, not whether a test notices a wrong result.
 Check test strength with mutation testing (mutmut):
@@ -351,12 +379,8 @@ are. When a change exceeds a threshold, refactor. Raise a threshold or add a
 suppression only as a justified exception, with the reason in a comment next to
 it and in the commit message.
 
-When an implementation step is complete, commit its scoped changes before
-moving to the next implementation step. Do not commit while tests fail. Run the
-repository's pre-commit hook as part of that commit. Treat every hook finding
-as required work: inspect it, make the necessary correction, and rerun the hook
-until it passes. Never use `--no-verify`, skip hooks, or commit known failing
-checks. Use a concise conventional commit message.
+Run the repository's pre-commit hook as part of every commit (`make install`
+installs it).
 
 In Claude Code, `scripts/agent-stop-check.sh` runs as a `Stop` hook: when the
 working tree has changes, it runs Ruff, strict mypy, and the unit tests, and
@@ -400,8 +424,10 @@ under `[Unreleased]` in `CHANGELOG.md` (PR hygiene checks it). `CHANGELOG.md`
 is the running record; `RELEASE_NOTES.md` holds only the user-facing notes of
 the release being prepared, which the release workflow publishes.
 
-For a release, first ensure the feature/fix work is merged to `main` through a
-pull request, local checks and CI are green, and then:
+Releases follow the repo-kit [release standard](https://github.com/bullitt186/repo-kit/blob/main/docs/RELEASING.md);
+versions and tags are the maintainer's. `RELEASE_NOTES.md` uses the release-notes
+structure of that standard. For a release, first ensure the feature/fix work is
+merged to `main` through a pull request, local checks and CI are green, and then:
 
 1. Select a semantic version: patch for fixes, minor for new features/entities,
    major for breaking changes.
@@ -412,7 +438,8 @@ pull request, local checks and CI are green, and then:
    version from them.
 4. Commit the release metadata on a branch and land it on `main` through a
    pull request (see "Branch and tag protection").
-5. After the merge, fetch `main` and tag the merge commit explicitly, never a
+5. Stop for the maintainer's acceptance; nothing is tagged before it.
+6. After the merge and the acceptance, fetch `main` and tag the merge commit explicitly, never a
    local `main` that may be stale:
 
    ```bash
@@ -457,12 +484,15 @@ hard constraints:
 - A pull request can merge only when these required checks pass on its current
   head, with the branch up to date with `main`: `Lint & Format`,
   `Type Check (mypy strict)`, `Test & Coverage`, `HACS & hassfest`,
-  `Secret scan`, and `hygiene / PR hygiene`. If a check is renamed in a workflow, update the ruleset in the
+  `Secret scan`, and `hygiene / PR hygiene`. This repository runs its own
+  `.github/workflows/security.yml` (secret scan, CodeQL, dependency review)
+  instead of the repo-kit one; keep it. If a check is renamed in a workflow, update the ruleset in the
   same change, otherwise pull requests wait on a check that never reports.
 - No approving review is required, but a red required check is never bypassed.
-- Merge pull requests with a merge commit. Use squash only for single-purpose
-  pull requests. An integration branch that bundles other pull requests must
-  use a merge commit, so GitHub marks the bundled pull requests as merged.
+- Single-purpose pull requests are squash-merged. An integration branch that
+  bundles other pull requests must use a merge commit, so GitHub marks the
+  bundled pull requests as merged
+  ([ADR-0004](docs/adr/0004-repository-exceptions-to-the-shared-workflow.md)).
   Linear history is not required.
 - Release tags `v*` cannot be deleted, moved, or force-pushed. A tag that
   points at the wrong commit cannot be fixed by an agent; stop and ask the
@@ -481,14 +511,16 @@ The shared Definition of Done is in `CONTRIBUTING.md`. In this repository a
 change is also done only when:
 
 - The requested behavior is implemented within the existing architecture.
-- The design and the test cases derived from the specification were written
-  down before implementation where source behavior changed; a bug fix has a
-  regression test that failed before the fix.
-- Surviving mutants in changed code were killed or explained (`make mutate`).
-- Relevant unit tests and `make check` pass.
 - Required translations, diagnostics, documentation, and quality-scale rules
   are preserved.
 - Local Home Assistant behavior and hosted CI are verified when the change
   affects runtime integration behavior.
-- `git diff --check` is clean, and no secrets or generated runtime artifacts
-  are included in the change.
+- `git diff --check` is clean.
+
+### CI standard exceptions
+
+- Static analysis runs as CodeQL advanced setup in the repository's own
+  `security.yml`, not as GitHub default setup.
+- Workflows of outside contributors from forks need approval only for first-time
+  contributors who are new to GitHub, not for every outside contributor
+  ([ADR-0004](docs/adr/0004-repository-exceptions-to-the-shared-workflow.md)).

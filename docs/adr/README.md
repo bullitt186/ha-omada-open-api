@@ -14,3 +14,4 @@ numbered in order, written from `template.md`. When to write one: `AGENTS.md`.
 | [0001](0001-record-architecture-decisions.md) | Record architecture decisions | Accepted |
 | [0002](0002-shared-polling-through-data-update-coordinators.md) | Shared polling through DataUpdateCoordinator classes | Accepted |
 | [0003](0003-release-from-a-tag-that-matches-the-manifest.md) | Release from a tag that matches the manifest | Accepted |
+| [0004](0004-repository-exceptions-to-the-shared-workflow.md) | Repository exceptions to the shared workflow | Accepted |
