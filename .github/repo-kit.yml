@@ -1,0 +1,6 @@
+# repo-kit settings for PR hygiene (all optional). See https://github.com/bullitt186/repo-kit
+# test_paths: the defaults cover tests/**
+exempt_paths:          # not code: brand assets and the coverage baseline the pre-commit script maintains
+  - assets/**
+  - .coverage-threshold
+# changelog: CHANGELOG.md   # or "none"
