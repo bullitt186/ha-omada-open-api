@@ -1867,10 +1867,9 @@ async def test_check_write_access_success(
 
     mock_get = mock_session.get
     mock_put = mock_session.put
-    if True:
-        mock_get.return_value.__aenter__.return_value = get_response
-        mock_put.return_value.__aenter__.return_value = put_response
-        result = await api_client.check_write_access("site_001")
+    mock_get.return_value.__aenter__.return_value = get_response
+    mock_put.return_value.__aenter__.return_value = put_response
+    result = await api_client.check_write_access("site_001")
 
     assert result is True
     # The PUT should write back the same LED state that was read.
@@ -1912,10 +1911,9 @@ async def test_check_write_access_viewer_only(
 
     mock_get = mock_session.get
     mock_put = mock_session.put
-    if True:
-        mock_get.return_value.__aenter__.return_value = get_response
-        mock_put.return_value.__aenter__.return_value = put_response
-        result = await api_client.check_write_access("site_001")
+    mock_get.return_value.__aenter__.return_value = get_response
+    mock_put.return_value.__aenter__.return_value = put_response
+    result = await api_client.check_write_access("site_001")
 
     assert result is False
 
@@ -2084,15 +2082,14 @@ async def test_get_site_ssids_comprehensive(
     }
 
     mock_get = mock_session.get
-    if True:
-        # First call returns WLAN groups, then SSIDs for each WLAN
-        mock_get.return_value.__aenter__.side_effect = [
-            wlan_groups_response,
-            ssids_wlan1_response,
-            ssids_wlan2_response,
-        ]
+    # First call returns WLAN groups, then SSIDs for each WLAN
+    mock_get.return_value.__aenter__.side_effect = [
+        wlan_groups_response,
+        ssids_wlan1_response,
+        ssids_wlan2_response,
+    ]
 
-        result = await api_client.get_site_ssids_comprehensive("site_001")
+    result = await api_client.get_site_ssids_comprehensive("site_001")
 
     # Verify WLAN groups call
     first_call_url = mock_get.call_args_list[0][0][0]

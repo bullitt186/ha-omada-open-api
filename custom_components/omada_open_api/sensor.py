@@ -414,14 +414,6 @@ DEVICE_SENSORS: tuple[OmadaSensorEntityDescription, ...] = (
     ),
 )
 
-# Radio ID to band mapping for filtering clients by radio.
-_RADIO_BAND_MAP: dict[str, int] = {
-    "clients_2g": 0,
-    "clients_5g": 1,
-    "clients_5g2": 2,
-    "clients_6g": 3,
-}
-
 
 def _band_clients_attrs(
     radio_id: int,

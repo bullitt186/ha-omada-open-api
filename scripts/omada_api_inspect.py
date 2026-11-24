@@ -42,6 +42,9 @@ Required environment variables (or set in .env at repo root):
 
 Optional:
     OMADA_ACCESS_TOKEN  Skip token fetch if you already have a valid token
+
+TLS certificates are validated. For a local controller with a self-signed
+certificate, pass --insecure to skip the validation.
 """
 
 from __future__ import annotations
@@ -75,6 +78,8 @@ async def _get_token(
     omada_id: str,
     client_id: str,
     client_secret: str,
+    *,
+    verify_ssl: bool = True,
 ) -> str:
     """Fetch a fresh access token using client credentials."""
     url = f"{api_url}/openapi/authorize/token"
@@ -87,7 +92,7 @@ async def _get_token(
         url,
         params={"grant_type": "client_credentials"},
         json=payload,
-        ssl=False,
+        ssl=verify_ssl,
     ) as resp:
         data = await resp.json()
     if data.get("errorCode", -1) != 0:
@@ -171,6 +176,7 @@ async def _fetch(
     method: str,
     output: str,
     page_size: int,
+    verify_ssl: bool = True,
 ) -> None:
     """Fetch and print the API response for the given path."""
     _load_dotenv()
@@ -199,7 +205,12 @@ async def _fetch(
                 sys.exit(1)
             print("Fetching access token...", file=sys.stderr)  # noqa: T201
             access_token = await _get_token(
-                session, api_url, omada_id, client_id, client_secret
+                session,
+                api_url,
+                omada_id,
+                client_id,
+                client_secret,
+                verify_ssl=verify_ssl,
             )
 
         headers = {"Authorization": f"AccessToken={access_token}"}
@@ -222,7 +233,7 @@ async def _fetch(
             request_kwargs: dict[str, Any] = {
                 "headers": headers,
                 "params": params,
-                "ssl": False,
+                "ssl": verify_ssl,
             }
             if method == "post":
                 request_kwargs["json"] = body or {}
@@ -331,6 +342,11 @@ def main() -> None:
         default="items",
         help="Output shape: paginated items, raw result, or full API response.",
     )
+    parser.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Skip TLS certificate validation (only for a local controller with a self-signed certificate).",
+    )
     args = parser.parse_args()
 
     if args.method == "get" and (args.json or args.body_file):
@@ -350,6 +366,7 @@ def main() -> None:
             method=args.method,
             output=args.output,
             page_size=args.page_size,
+            verify_ssl=not args.insecure,
         )
     )
 
