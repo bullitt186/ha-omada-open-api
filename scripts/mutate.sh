@@ -27,6 +27,13 @@ fi
 run_mutmut() {
     local status=0
     "$PYTHON" -m mutmut run ${patterns[@]+"${patterns[@]}"} || status=$?
+    # mutmut fails when the filter matches no mutant, for example in a module
+    # whose only functions are decorated (mutmut skips those).
+    if [ "$status" -ne 0 ] && [ ${#modules[@]} -gt 0 ] &&
+        "$PYTHON" scripts/mutation_report.py --no-mutants "${modules[@]}"; then
+        echo "mutmut generated no mutants for ${modules[*]}; nothing to mutate."
+        exit 0
+    fi
     "$PYTHON" scripts/mutation_report.py "${report_args[@]}" || {
         echo "mutmut did not finish (exit code $status)." >&2
         exit "$(( status == 0 ? 1 : status ))"
@@ -36,6 +43,7 @@ run_mutmut() {
     fi
 }
 
+modules=()
 if [ "${1:-}" = "--all" ]; then
     patterns=()
     report_args=(--check-complete)

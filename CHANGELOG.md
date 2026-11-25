@@ -17,6 +17,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions: [Sem
   (merge commits for integration branches, `.worktrees/`, its own security workflow
   and fork approval policy).
 
+### Fixed
+
+- Mutation testing (`make mutate` and the weekly workflow) no longer fails for a
+  module in which mutmut finds nothing to mutate, such as `services.py`, and no
+  longer breaks on the tests of the developer scripts.
+
 ### Security
 
 - The developer script `scripts/omada_api_inspect.py` now validates TLS

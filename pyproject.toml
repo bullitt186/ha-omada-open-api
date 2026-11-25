@@ -228,6 +228,12 @@ exclude_lines = [
 # Mutation testing: `make mutate` (changed modules) or `make mutate-all`.
 source_paths = ["custom_components/omada_open_api/"]
 pytest_add_cli_args_test_selection = ["tests/"]
-# This test parses the integration source with ast; mutmut's generated
-# trampolines are not the real source, so the check cannot run on mutants.
-pytest_add_cli_args = ["--ignore=tests/test_exception_translations.py"]
+# test_exception_translations parses the integration source with ast; mutmut's
+# generated trampolines are not the real source, so the check cannot run on
+# mutants. The tests of developer scripts load them from scripts/, which
+# mutmut does not copy into mutants/.
+pytest_add_cli_args = [
+    "--ignore=tests/test_exception_translations.py",
+    "--ignore=tests/test_mutation_report.py",
+    "--ignore=tests/test_omada_api_inspect.py",
+]
