@@ -13,6 +13,11 @@ Usage:
 
 With --check-complete, the exit code is 1 when a given module still has
 unchecked mutants, which means the mutmut run did not finish.
+
+With --no-mutants, nothing is printed and the exit code is 0 only when mutmut
+generated mutant files for all given modules and none of them holds a mutant
+(mutmut skips decorated functions, so such a module can have functions and
+still no mutants). mutmut fails a run whose filter matches no mutant.
 """
 
 from __future__ import annotations
@@ -88,6 +93,20 @@ def collect(modules: list[str]) -> dict[str, Counter[str]]:
     return result
 
 
+def has_no_mutants(modules: list[str]) -> bool:
+    """Return True when mutmut generated all given modules without any mutant."""
+    if not modules:
+        return False
+    for module in modules:
+        meta = MUTANTS_DIR / f"{module}.meta"
+        if not meta.exists():
+            return False
+        data = json.loads(meta.read_text(encoding="utf-8"))
+        if data.get("exit_code_by_key"):
+            return False
+    return True
+
+
 def render(rows: dict[str, Counter[str]], *, markdown: bool) -> str:
     """Render the per-module table and the total."""
     total: Counter[str] = Counter()
@@ -125,8 +144,15 @@ def main() -> int:
         action="store_true",
         help="exit with 1 when a module has unchecked mutants",
     )
+    parser.add_argument(
+        "--no-mutants",
+        action="store_true",
+        help="exit with 0 only when the given modules have no mutants at all",
+    )
     args = parser.parse_args()
 
+    if args.no_mutants:
+        return 0 if has_no_mutants(args.modules) else 1
     rows = collect(args.modules)
     if not rows:
         sys.stdout.write("No mutation results found. Run mutmut first.\n")
