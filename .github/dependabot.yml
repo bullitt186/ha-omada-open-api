@@ -4,6 +4,9 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Wait a week after a release before proposing it (repo-kit CI standard).
+    cooldown:
+      default-days: 7
     # pytest-homeassistant-custom-component pins these exactly; they arrive
     # with its updates, separate bumps cannot be installed.
     ignore:
@@ -14,3 +17,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Wait a week after a release before proposing it (repo-kit CI standard).
+    cooldown:
+      default-days: 7
