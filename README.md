@@ -235,7 +235,7 @@ combination.
 |---|---|---|
 | Sensor | `sensor.gateway_wan_1_download_rate` | Download/upload rate and total traffic per WAN port |
 | Sensor | `sensor.gateway_wan_1_latency` | Latency, packet loss, IP address, link speed, and optional IPv6 address |
-| Binary Sensor | `binary_sensor.gateway_wan_1_connected` | Physical WAN connection and internet reachability |
+| Binary Sensor | `binary_sensor.gateway_wan_1_connected` | Physical WAN connection; a separate internet sensor shows reachability and turns off when the gateway's online detection reports the port offline |
 | Button | `button.gateway_wan_1_run_speed_test` | Start a Fusion WAN speed test |
 | Binary Sensor | `binary_sensor.gateway_wan_1_speed_test_running` | Speed-test running state |
 | Sensor | `sensor.gateway_wan_1_speed_test_download` | Last speed-test download, upload, latency, and completion time; diagnostic and disabled by default |

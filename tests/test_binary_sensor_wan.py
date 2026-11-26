@@ -112,6 +112,47 @@ async def test_wan_internet_offline(hass: HomeAssistant) -> None:
     assert sensor.is_on is False
 
 
+async def test_wan_internet_off_when_online_detection_fails(
+    hass: HomeAssistant,
+) -> None:
+    """Test a WAN whose online detection failed is connected but has no internet.
+
+    Values from a live wan-status response of a gateway behind an upstream
+    router whose own line was down: status 1, internetState 1,
+    onlineDetection 0.
+    """
+    wan_status = {GATEWAY_MAC: [{**SAMPLE_WAN_PORT_1, "onlineDetection": 0}]}
+    connected = _create_wan_binary_sensor(hass, wan_status, "wan_connected")
+    internet = _create_wan_binary_sensor(hass, wan_status, "wan_internet")
+    assert connected.is_on is True
+    assert internet.is_on is False
+
+
+async def test_wan_internet_on_when_online_detection_passes(
+    hass: HomeAssistant,
+) -> None:
+    """Test WAN internet binary sensor is ON when online detection reports 1."""
+    sensor = _create_wan_binary_sensor(
+        hass,
+        {GATEWAY_MAC: [{**SAMPLE_WAN_PORT_1, "onlineDetection": 1}]},
+        "wan_internet",
+    )
+    assert sensor.is_on is True
+
+
+async def test_wan_internet_without_online_detection_uses_internet_state(
+    hass: HomeAssistant,
+) -> None:
+    """Test a response without onlineDetection keeps the internetState result."""
+    assert "onlineDetection" not in SAMPLE_WAN_PORT_1
+    sensor = _create_wan_binary_sensor(
+        hass,
+        {GATEWAY_MAC: [SAMPLE_WAN_PORT_1]},
+        "wan_internet",
+    )
+    assert sensor.is_on is True
+
+
 # ---------------------------------------------------------------------------
 # Unique ID and device info
 # ---------------------------------------------------------------------------
