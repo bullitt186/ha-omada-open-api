@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions: [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- The WAN *internet* binary sensor now turns off when the gateway's online
+  detection reports the port offline, for example when the gateway sits behind
+  an ISP router whose own line is down. Before, it stayed on as long as the WAN
+  connection to that router was up. The *connected* sensor is unchanged.
+
 ## [1.12.1] - 2026-11-25
 
 ### Fixed

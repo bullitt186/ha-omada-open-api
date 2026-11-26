@@ -87,7 +87,14 @@ WAN_PORT_BINARY_SENSORS: tuple[OmadaBinarySensorEntityDescription, ...] = (
         key="wan_internet",
         translation_key="wan_internet",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
-        value_fn=lambda port: port.get("internetState") == 1,
+        # internetState only says the WAN connection is established; it stays 1
+        # behind an upstream router whose own line is down. onlineDetection
+        # (0: offline, 1: online) is the result of the gateway's online
+        # detection. A controller that does not send it keeps the
+        # internetState result.
+        value_fn=lambda port: (
+            port.get("internetState") == 1 and port.get("onlineDetection") != 0
+        ),
     ),
 )
 
