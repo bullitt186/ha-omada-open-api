@@ -77,6 +77,7 @@ async def test_infrastructure_info_parent(
             }
         }
     }
+    uplink = None
     if registered:
         uplink = dr.async_get(hass).async_get_or_create(
             config_entry_id=entry.entry_id, identifiers={(DOMAIN, UPLINK_MAC)}
@@ -86,6 +87,7 @@ async def test_infrastructure_info_parent(
 
     assert info.identifiers == {(DOMAIN, DEVICE_MAC)}
     if linked:
+        assert uplink is not None
         assert info.via_device_id == uplink.id
     else:
         assert not hasattr(info, "via_device_id")
@@ -139,20 +141,28 @@ async def test_infrastructure_tracker_info_name(
         assert info.name == expected_name
 
 
+@pytest.mark.parametrize(
+    ("client_data", "expected_name"),
+    [({"host_name": "client-host"}, "client-host"), ({}, DEVICE_MAC)],
+)
 def test_signal_strength_debug_uses_client_name(
-    attribute_only_device_info: None, caplog: pytest.LogCaptureFixture
+    attribute_only_device_info: None,
+    caplog: pytest.LogCaptureFixture,
+    client_data: dict[str, str],
+    expected_name: str,
 ) -> None:
     """The signal-strength sensor logs the same fallback name as the record."""
     coordinator = MagicMock(site_device_id=None)
     coordinator.api_client.api_url = API_URL
-    coordinator.data = {DEVICE_MAC: {"host_name": "client-host"}}
+    coordinator.data = {DEVICE_MAC: client_data}
     description = next(d for d in CLIENT_SENSORS if d.key == "signal_strength")
 
     with caplog.at_level("DEBUG", logger=OmadaClientSensor.__module__):
         sensor = OmadaClientSensor(coordinator, description, DEVICE_MAC)
 
     assert sensor.device_info is not None
-    assert sensor.device_info.name == "client-host"
+    assert sensor.device_info.name == expected_name
     assert (
-        "Client device client-host: parent=None, via_device_id=None" in caplog.messages
+        f"Client device {expected_name}: parent=None, via_device_id=None"
+        in caplog.messages
     )
