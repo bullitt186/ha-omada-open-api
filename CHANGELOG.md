@@ -5,6 +5,11 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Versions: [Sem
 
 ## [Unreleased]
 
+### Fixed
+
+- Home Assistant 2026.12 no longer logs device metadata deprecation warnings
+  for Omada devices and tracked clients (#223, @hmmbob).
+
 ## [1.12.1] - 2026-11-25
 
 ### Fixed

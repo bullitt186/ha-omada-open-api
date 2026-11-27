@@ -618,13 +618,16 @@ class OmadaDeviceTracker(
             and self.device_info is None
         ):
             connections = {(dr.CONNECTION_NETWORK_MAC, mac)}
-            device_info = DeviceInfo(connections=connections)
-            if name := self.hostname:
-                device_info["name"] = name
-            elif not dr.async_get(self.hass).async_get_devices(
+            name = self.hostname
+            if not name and not dr.async_get(self.hass).async_get_devices(
                 connections=connections, config_entry_id=entry.entry_id
             ):
-                device_info["name"] = mac
+                name = mac
+            device_info = (
+                DeviceInfo(connections=connections, name=name)
+                if name
+                else DeviceInfo(connections=connections)
+            )
             # Before HA 2026.11, ScannerEntity did not accept device info.
             self._attr_device_info = device_info  # type: ignore[assignment]
         await super().async_prepare_to_add_to_hass()
