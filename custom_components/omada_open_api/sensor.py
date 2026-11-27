@@ -49,6 +49,7 @@ from .coordinator import (
 )
 from .devices import (
     build_client_device_info,
+    client_device_name,
     format_detail_status,
     format_link_speed,
     get_device_sort_key,
@@ -1992,7 +1993,7 @@ class OmadaClientSensor(OmadaEntity[OmadaClientCoordinator], SensorEntity):
         if description.key == "signal_strength":
             _LOGGER.debug(
                 "Client device %s: parent=%s, via_device_id=%s",
-                self._attr_device_info["name"],
+                client_device_name(client_mac, client_data),
                 parent_device_mac,
                 via_device_id,
             )

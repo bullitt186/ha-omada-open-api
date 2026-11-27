@@ -38,15 +38,16 @@ def build_linked_infra_device_info(
     the device stays standalone.
     """
     device_data = coordinator.data.get("devices", {}).get(device_mac, {})
-    device_info = build_infra_device_info(
-        device_mac, device_data, coordinator.api_client.api_url
-    )
+    via_device_id = None
     device_type = device_data.get("type", "").lower()
     uplink_mac = device_data.get("uplink_device_mac")
     if uplink_mac and "gateway" not in device_type and "router" not in device_type:
         via_device_id = resolve_via_device_id(
             coordinator.hass, uplink_mac, coordinator.config_entry
         )
-        if via_device_id is not None:
-            device_info["via_device_id"] = via_device_id
-    return device_info
+    return build_infra_device_info(
+        device_mac,
+        device_data,
+        coordinator.api_client.api_url,
+        via_device_id=via_device_id,
+    )

@@ -168,6 +168,8 @@ def build_infra_device_info(
     device_mac: str,
     device_data: dict[str, Any],
     api_url: str,
+    *,
+    via_device_id: str | None = None,
 ) -> DeviceInfo:
     """Build DeviceInfo for an infrastructure device (AP/switch/gateway).
 
@@ -186,7 +188,14 @@ def build_infra_device_info(
         serial_number=device_data.get("sn"),
         sw_version=device_data.get("firmware_version"),
         configuration_url=api_url,
+        **({"via_device_id": via_device_id} if via_device_id is not None else {}),
     )
+
+
+def client_device_name(client_mac: str, client_data: dict[str, Any]) -> str:
+    """Return the client name used in the device registry."""
+    name: str = client_data.get("name") or client_data.get("host_name") or client_mac
+    return name
 
 
 def build_client_device_info(
@@ -196,19 +205,16 @@ def build_client_device_info(
     via_device_id: str | None,
 ) -> DeviceInfo:
     """Build DeviceInfo for a network client device (MAC-only connections)."""
-    client_name = client_data.get("name") or client_data.get("host_name") or client_mac
-    device_info = DeviceInfo(
+    return DeviceInfo(
         identifiers={(DOMAIN, client_mac)},
         connections={("mac", client_mac)},
-        name=client_name,
+        name=client_device_name(client_mac, client_data),
         manufacturer=client_data.get("vendor") or "Unknown",
         model=client_data.get("device_type") or client_data.get("model"),
         sw_version=client_data.get("os_name"),
         configuration_url=api_url,
+        **({"via_device_id": via_device_id} if via_device_id is not None else {}),
     )
-    if via_device_id is not None:
-        device_info["via_device_id"] = via_device_id
-    return device_info
 
 
 def process_device(device: dict[str, Any]) -> dict[str, Any]:
